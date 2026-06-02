@@ -1,0 +1,16 @@
+[Unit]
+Description=Pi Controller API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=pi_controller
+WorkingDirectory=/opt/pi-controller
+EnvironmentFile=/opt/pi-controller/.env
+ExecStart=/opt/pi-controller/venv/bin/uvicorn backend.main:app \
+    --host 0.0.0.0 --port 8000 --workers 4
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
