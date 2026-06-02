@@ -1,0 +1,72 @@
+import json
+import time
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from backend.config import get_settings
+from backend.database import get_db
+from backend.models import Pi
+from backend.schemas import ActionQueued, PiCommandResult, ProcessKillRequest
+from backend.services import audit_log as al
+from backend.services.ssh_executor import execute_many
+
+router = APIRouter()
+
+
+@router.post("/kill", response_model=ActionQueued)
+def kill_process(body: ProcessKillRequest, db: Session = Depends(get_db)):
+    settings = get_settings()
+
+    pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
+    found = {p.position for p in pis}
+    missing = [pos for pos in body.pis if pos not in found]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
+
+    positions = [p.position for p in pis]
+    command = (
+        f"pkill -{body.signal} {body.process_name} "
+        f"|| (echo 'process not found: {body.process_name}' >&2 && exit 1)"
+    )
+    entry = al.create_action(db, positions, "kill", command=command, status="running")
+    start = time.monotonic()
+
+    targets = [
+        (str(p.current_ip), p.position)
+        for p in pis
+        if p.current_ip and p.status == "reachable"
+    ]
+    skipped = [
+        PiCommandResult(position=p.position, exit_code=None, stdout=None, stderr=None, error="unreachable")
+        for p in pis
+        if not p.current_ip or p.status == "unreachable"
+    ]
+
+    ssh_results = execute_many(targets, command, settings.ssh)
+    all_results = skipped + [
+        PiCommandResult(
+            position=r.position,
+            exit_code=r.exit_code,
+            stdout=r.stdout or None,
+            stderr=r.stderr or None,
+            error=r.error,
+        )
+        for r in ssh_results
+    ]
+
+    errors = [r for r in all_results if r.error or (r.exit_code is not None and r.exit_code != 0)]
+    if len(errors) == 0:
+        status = "success"
+    elif len(errors) == len(all_results):
+        status = "fail"
+    else:
+        status = "partial_fail"
+
+    duration_ms = int((time.monotonic() - start) * 1000)
+    al.update_action(
+        db, entry.id, status=status,
+        stdout=json.dumps([r.model_dump() for r in all_results]),
+        duration_ms=duration_ms,
+    )
+    return ActionQueued(action_id=entry.id)
