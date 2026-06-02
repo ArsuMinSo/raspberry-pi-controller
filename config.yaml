@@ -1,0 +1,25 @@
+database:
+  host: localhost
+  port: 5432
+  user: pi_controller
+  password: ${DB_PASSWORD}
+  db_name: pi_controller
+  pool_size: 10
+
+ssh:
+  private_key_path: /home/pi_controller/.ssh/id_rsa
+  username: pi
+  timeout_s: 30
+  retry_count: 3
+  retry_delay_s: 1
+  parallel_limit: 1
+
+network:
+  subnet: 10.10.20.0/24
+  scan_interval_s: 86400
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  log_level: INFO
+  workers: 4
