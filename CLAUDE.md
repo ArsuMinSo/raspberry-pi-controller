@@ -46,7 +46,7 @@
                  ▼
      ┌───────────────────────┐
      │ PostgreSQL            │
-     │ ├─ inventory          │
+     │ ├─ raspberries        │
      │ └─ actions_log        │
      └───────────────────────┘
 ```
@@ -55,14 +55,15 @@
 
 ## Database Schema (Phase 1)
 
-### Table: `inventory`
+### Table: `raspberries`
 
 | Column | Type | Notes |
 |--------|------|-------|
-| id | SERIAL PRIMARY KEY | Auto |
-| mac | VARCHAR(17) UNIQUE | xx:xx:xx:xx:xx:xx |
-| serial | VARCHAR(255) | RPi serial number |
-| hostname | VARCHAR(255) | User-friendly name |
+| id | SERIAL PRIMARY KEY | Auto, sole unique identifier |
+| mac | VARCHAR(17) | xx:xx:xx:xx:xx:xx — NOT unique |
+| serial | VARCHAR(255) | RPi /proc/cpuinfo serial, informational |
+| hostname | VARCHAR(255) | Linux hostname on device |
+| position | VARCHAR(6) UNIQUE | Room-unit slot e.g. "01-003" |
 | pi_version | INT | 2/3/4/5 |
 | current_ip | INET | Last known IP |
 | status | VARCHAR(20) | reachable/unreachable |
@@ -71,7 +72,7 @@
 | created_at | TIMESTAMP | Discovery time |
 | updated_at | TIMESTAMP | Last update |
 
-**Indexes:** (mac), (status), (tags)
+**Indexes:** (status), (tags GIN), (position)
 
 ### Table: `actions_log`
 
@@ -80,7 +81,7 @@
 | id | SERIAL PRIMARY KEY | Auto |
 | timestamp | TIMESTAMP | When action ran |
 | user | VARCHAR(255) | Admin (v1: always "admin") |
-| pis_selected | TEXT[] | Array of MACs |
+| pis_selected | TEXT[] | Array of position strings e.g. ["01-003"] |
 | action | VARCHAR(50) | kill/restart/execute/health/status |
 | command | TEXT | Full command executed |
 | exit_code | INT | SSH exit code (null if timeout) |
@@ -102,42 +103,42 @@
 
 - `GET /pi/list` → List all Pis (paginated, filterable)
   - Query: `?status=reachable&tags=floor1&version=4`
-  - Response: `[{mac, hostname, ip, status, last_seen, tags}, ...]`
+  - Response: `[{id, mac, hostname, position, ip, status, last_seen, tags}, ...]`
 
-- `GET /pi/{mac}/status` → Get single Pi status
-  - Response: `{mac, hostname, ip, status, last_seen}`
+- `GET /pi/{position}/status` → Get single Pi status by position (e.g. 01-003)
+  - Response: `{id, mac, hostname, position, ip, status, last_seen}`
 
 ### Health Check
 
 - `POST /health/trigger` → Trigger check on selected Pis
-  - Body: `{pis: ["mac1", "mac2"], ...}` or `{all: true}`
+  - Body: `{pis: ["01-003", "02-010"], ...}` or `{all: true}`
   - Response: `{action_id, status: "queued"}`
 
 - `GET /health/{action_id}` → Get health check results
-  - Response: `{action_id, status, results: [{mac, cpu, mem, disk}, ...], started_at, completed_at}`
+  - Response: `{action_id, status, results: [{position, cpu, mem, disk}, ...], started_at, completed_at}`
 
 ### Command Execution
 
 - `POST /command/execute` → Run command on Pis
-  - Body: `{pis: ["mac1"], command: "ps aux", signal: "SIGTERM"}` (kill) or just `command` (run)
+  - Body: `{pis: ["01-003"], command: "ps aux"}`
   - Response: `{action_id, status: "queued"}`
 
 - `GET /command/{action_id}` → Get execution progress/results
-  - Response: `{action_id, status, results: [{mac, exit_code, stdout, stderr}, ...], started_at, completed_at}`
+  - Response: `{action_id, status, results: [{position, exit_code, stdout, stderr}, ...], started_at, completed_at}`
 
 ### Process/Service Management
 
 - `POST /process/kill` → Kill process by name
-  - Body: `{pis: ["mac1"], process_name: "chromium", signal: "SIGTERM|SIGKILL"}`
+  - Body: `{pis: ["01-003"], process_name: "chromium", signal: "SIGTERM|SIGKILL"}`
   - Response: `{action_id, ...}`
 
 - `POST /service/restart` → Restart systemd unit
-  - Body: `{pis: ["mac1"], service: "kiosk.service"}`
+  - Body: `{pis: ["01-003"], service: "kiosk.service"}`
   - Response: `{action_id, ...}`
 
 ### Action Logs
 
-- `GET /logs?pi={mac}&user=admin&since=2025-01-01&limit=100` → Query audit log
+- `GET /logs?pi={position}&user=admin&since=2025-01-01&limit=100` → Query audit log
   - Response: `[{id, timestamp, user, pis, action, command, exit_code, status}, ...]`
 
 ### Discovery
@@ -266,6 +267,7 @@ pi-controller/
 **Health check 1x/day cron + manual callable**
 **Unreachable Pi: mark unreachable (expected if powered off)**
 **IP change (same MAC): update IP, mark reachable**
+**Pi identified by position (XX-XXX room-unit), not MAC — MAC not unique**
 
 ---
 
