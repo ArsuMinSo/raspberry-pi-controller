@@ -8,6 +8,7 @@ import paramiko
 from sqlalchemy.orm import Session
 
 from backend.config import SSHSettings
+from backend.utils.helpers import load_private_key
 from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
@@ -46,7 +47,7 @@ def _extract_pi_version(model_line: str) -> int | None:
 def probe_pi(ip: str, settings) -> tuple[str | None, str | None, int | None]:
     """Returns (hostname, pi_version, serial) via SSH. All None on failure."""
     import socket
-    key = paramiko.RSAKey.from_private_key_file(settings.private_key_path)
+    key = load_private_key(settings.private_key_path)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:

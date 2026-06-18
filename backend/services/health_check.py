@@ -4,6 +4,7 @@ import time
 import paramiko
 
 from backend.config import SSHSettings
+from backend.utils.helpers import load_private_key
 from backend.models import ActionLog, Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
@@ -35,7 +36,7 @@ def _parse_disk(raw: str) -> tuple[float | None, float | None]:
 def check_health(ip: str, position: str, settings: SSHSettings) -> PiHealthResult:
     import socket
 
-    key = paramiko.RSAKey.from_private_key_file(settings.private_key_path)
+    key = load_private_key(settings.private_key_path)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 

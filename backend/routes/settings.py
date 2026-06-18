@@ -6,6 +6,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from backend.config import apply_ssh_override, effective_ssh_settings
+from backend.utils.helpers import load_private_key
 
 router = APIRouter()
 
@@ -61,13 +62,9 @@ def test_ssh(body: SSHTestRequest):
         return result
 
     try:
-        key = paramiko.RSAKey.from_private_key_file(ssh.private_key_path)
-    except paramiko.SSHException as e:
-        result["error"] = f"Cannot load key: {e}"
-        result["error_type"] = "KeyLoadError"
-        return result
+        key = load_private_key(ssh.private_key_path)
     except Exception as e:
-        result["error"] = f"Cannot load key: {e}"
+        result["error"] = str(e)
         result["error_type"] = "KeyLoadError"
         return result
 

@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import paramiko
 
 from backend.config import SSHSettings
+from backend.utils.helpers import load_private_key
 
 
 @dataclass
@@ -19,7 +20,7 @@ class SSHResult:
 
 
 def execute(ip: str, position: str, command: str, settings: SSHSettings) -> SSHResult:
-    key = paramiko.RSAKey.from_private_key_file(settings.private_key_path)
+    key = load_private_key(settings.private_key_path)
     attempts = 0
     start = time.monotonic()
 
