@@ -27,13 +27,13 @@ def _run_command(pis: list[Pi], command: str, db: Session) -> int:
     targets = []
     skipped: list[PiCommandResult] = []
     for pi in pis:
-        if pi.current_ip is None or pi.status == "unreachable":
+        if pi.current_ip is None:
             skipped.append(PiCommandResult(
                 position=pi.position,
                 exit_code=None,
                 stdout=None,
                 stderr=None,
-                error="unreachable",
+                error="no IP recorded",
             ))
         else:
             targets.append((str(pi.current_ip), pi.position))

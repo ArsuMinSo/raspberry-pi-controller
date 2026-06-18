@@ -30,12 +30,12 @@ def restart_service(body: ServiceRestartRequest, db: Session = Depends(get_db)):
     targets = [
         (str(p.current_ip), p.position)
         for p in pis
-        if p.current_ip and p.status == "reachable"
+        if p.current_ip
     ]
     skipped = [
-        PiCommandResult(position=p.position, exit_code=None, stdout=None, stderr=None, error="unreachable")
+        PiCommandResult(position=p.position, exit_code=None, stdout=None, stderr=None, error="no IP recorded")
         for p in pis
-        if not p.current_ip or p.status == "unreachable"
+        if not p.current_ip
     ]
 
     ssh_results = execute_many(targets, command, effective_ssh_settings())
