@@ -43,7 +43,7 @@ class PiListFilters(BaseModel):
 
 class PiCreateRequest(BaseModel):
     position: str = Field(..., pattern=r"^\d{2}-\d{3}$")
-    mac: str = Field(..., pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+    mac: str = Field("00:00:00:00:00:00", pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
     hostname: str | None = None
     ip: str | None = None
     pi_version: int | None = Field(None, ge=2, le=5)

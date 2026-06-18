@@ -59,9 +59,10 @@ class ApiClient:
     def system_health(self) -> dict:
         return self._get("/health")
 
-    def create_pi(self, position: str, mac: str, hostname: str | None = None,
-                  ip: str | None = None, pi_version: int | None = None,
-                  tags: list[str] | None = None, status: str = "unreachable") -> dict:
+    def create_pi(self, position: str, mac: str = "00:00:00:00:00:00",
+                  hostname: str | None = None, ip: str | None = None,
+                  pi_version: int | None = None, tags: list[str] | None = None,
+                  status: str = "unreachable") -> dict:
         return self._post("/pi", {
             "position": position, "mac": mac, "hostname": hostname,
             "ip": ip, "pi_version": pi_version, "tags": tags or [], "status": status,

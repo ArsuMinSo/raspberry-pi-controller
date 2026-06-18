@@ -8,6 +8,7 @@ from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, 
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
+from frontend.screens.manage_pi import ManagePiScreen
 
 
 def _range_to_from_to(scan_range: str) -> tuple[str, str]:
@@ -31,6 +32,7 @@ def _range_to_from_to(scan_range: str) -> tuple[str, str]:
 class DiscoveryScreen(Screen):
     BINDINGS = [
         Binding("s", "scan", "Scan"),
+        Binding("a", "add_to_db", "Add to DB"),
         Binding("escape", "back", "Back"),
     ]
 
@@ -80,6 +82,7 @@ class DiscoveryScreen(Screen):
     def __init__(self, api: ApiClient):
         super().__init__()
         self._api = api
+        self._discovered: list[dict] = []
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -172,14 +175,14 @@ class DiscoveryScreen(Screen):
             )
 
     def _on_result(self, result: dict) -> None:
-        discovered = result.get("discovered", [])
+        self._discovered = result.get("discovered", [])
         added = result.get("added", 0)
         updated = result.get("updated", 0)
         status = result.get("status", "")
 
         table = self.query_one(DataTable)
         table.clear()
-        for d in discovered:
+        for d in self._discovered:
             pi_ver = d.get("pi_version")
             table.add_row(
                 d.get("ip", ""),
@@ -187,16 +190,46 @@ class DiscoveryScreen(Screen):
                 f"Pi {pi_ver}" if pi_ver else "—",
             )
 
+        new_count = len(self._discovered) - updated
         color = "green" if status == "success" else "red"
         self.query_one("#subtitle", Label).update(
             f"[{color}]{status.upper()}[/{color}]  "
-            f"{len(discovered)} found  •  {added} added  •  {updated} updated"
+            f"{len(self._discovered)} found  •  {added} not in DB  •  {updated} updated  "
+            f"([bold]a[/bold] = add row to DB)"
         )
 
     def action_scan(self) -> None:
         r = self._build_range_str()
         if r:
             self._do_scan(r, self._probe_ssh())
+
+    def action_add_to_db(self) -> None:
+        table = self.query_one(DataTable)
+        row = table.cursor_row
+        if row < 0 or row >= len(self._discovered):
+            self.notify("No row selected", severity="warning")
+            return
+        d = self._discovered[row]
+        prefill = {
+            "ip": d.get("ip"),
+            "hostname": d.get("hostname"),
+            "pi_version": d.get("pi_version"),
+        }
+
+        def _on_result(data: dict | None) -> None:
+            if data is None:
+                return
+            self._do_create_pi(data)
+
+        self.app.push_screen(ManagePiScreen(prefill=prefill), _on_result)
+
+    @work(thread=True)
+    def _do_create_pi(self, data: dict) -> None:
+        try:
+            self._api.create_pi(**data)
+            self.app.call_from_thread(self.notify, f"Added {data['position']} to DB")
+        except ApiError as e:
+            self.app.call_from_thread(self.notify, str(e), severity="error")
 
     def action_back(self) -> None:
         self.app.pop_screen()

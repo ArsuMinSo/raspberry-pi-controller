@@ -50,13 +50,14 @@ class ManagePiScreen(ModalScreen):
     }
     """
 
-    def __init__(self, pi: dict | None = None):
+    def __init__(self, pi: dict | None = None, prefill: dict | None = None):
         super().__init__()
         self._pi = pi
+        self._prefill = prefill or {}
         self._editing = pi is not None
 
     def compose(self) -> ComposeResult:
-        pi = self._pi or {}
+        pi = self._pi or self._prefill
         title = f"Edit Pi — {pi.get('position', '')}" if self._editing else "Add Pi"
         with Vertical(id="dialog"):
             yield Label(title, id="title")
@@ -69,10 +70,10 @@ class ManagePiScreen(ModalScreen):
                 disabled=self._editing,
             )
 
-            yield Label("MAC address *", classes="field-label")
+            yield Label("MAC address (optional)", classes="field-label")
             yield Input(
-                value=pi.get("mac", ""),
-                placeholder="aa:bb:cc:dd:ee:ff",
+                value=pi.get("mac", "") if pi.get("mac") not in (None, "00:00:00:00:00:00") else "",
+                placeholder="aa:bb:cc:dd:ee:ff (leave blank if unknown)",
                 id="input-mac",
             )
 
@@ -137,9 +138,11 @@ class ManagePiScreen(ModalScreen):
         if not self._editing and not re.match(r"^\d{2}-\d{3}$", position):
             error.update("Position must be XX-XXX (e.g. 01-001)")
             return
-        if not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
-            error.update("Invalid MAC address")
+        if mac and not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
+            error.update("Invalid MAC address (format: aa:bb:cc:dd:ee:ff)")
             return
+        if not mac:
+            mac = "00:00:00:00:00:00"
 
         pi_version = None
         if version_str:
