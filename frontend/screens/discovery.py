@@ -1,4 +1,5 @@
 import ipaddress
+import re
 
 from textual.app import ComposeResult
 from textual.binding import Binding
@@ -32,7 +33,8 @@ def _range_to_from_to(scan_range: str) -> tuple[str, str]:
 class DiscoveryScreen(Screen):
     BINDINGS = [
         Binding("s", "scan", "Scan"),
-        Binding("a", "add_to_db", "Add to DB"),
+        Binding("space", "toggle_select", "Select", show=True),
+        Binding("a", "add", "Add"),
         Binding("escape", "back", "Back"),
     ]
 
@@ -104,6 +106,7 @@ class DiscoveryScreen(Screen):
         super().__init__()
         self._api = api
         self._discovered: list[dict] = []
+        self._selected: set[int] = set()
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -126,18 +129,14 @@ class DiscoveryScreen(Screen):
                 id="probe-auth-select",
                 allow_blank=False,
             )
-            yield Input(
-                placeholder="password",
-                id="probe-pass",
-                password=True,
-            )
+            yield Input(placeholder="password", id="probe-pass", password=True)
             yield Checkbox("Deploy key", value=False, id="probe-deploy")
         yield Label("Set range and press Scan or [bold]s[/bold]", id="subtitle")
         yield DataTable(id="disc-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("IP", "Hostname", "Pi Version")
+        self.query_one(DataTable).add_columns("", "IP", "Hostname", "Pi Version", "MAC")
         self._load_settings()
         self._update_probe_row_visibility()
 
@@ -277,6 +276,7 @@ class DiscoveryScreen(Screen):
 
     def _on_result(self, result: dict) -> None:
         self._discovered = result.get("discovered", [])
+        self._selected.clear()
         added = result.get("added", 0)
         updated = result.get("updated", 0)
         status = result.get("status", "")
@@ -286,51 +286,73 @@ class DiscoveryScreen(Screen):
         for d in self._discovered:
             pi_ver = d.get("pi_version")
             table.add_row(
+                " ",
                 d.get("ip", ""),
                 d.get("hostname") or "—",
                 f"Pi {pi_ver}" if pi_ver else "—",
+                d.get("mac") or "—",
             )
 
         color = "green" if status == "success" else "red"
         self.query_one("#subtitle", Label).update(
             f"[{color}]{status.upper()}[/{color}]  "
             f"{len(self._discovered)} found  •  {added} not in DB  •  {updated} updated  "
-            f"([bold]a[/bold] = add row to DB)"
+            f"  [Space]=select  [bold]a[/bold]=add"
         )
+
+    def _refresh_subtitle(self) -> None:
+        n = len(self._discovered)
+        sel = len(self._selected)
+        color = "green" if n else "white"
+        self.query_one("#subtitle", Label).update(
+            f"[{color}]{n} found[/{color}]"
+            + (f"  [bold]{sel} selected[/bold]" if sel else "")
+            + "  [Space]=select  [bold]a[/bold]=add"
+        )
+
+    def action_toggle_select(self) -> None:
+        table = self.query_one(DataTable)
+        row = table.cursor_row
+        if row < 0 or row >= len(self._discovered):
+            return
+        if row in self._selected:
+            self._selected.discard(row)
+        else:
+            self._selected.add(row)
+        table.update_cell_at((row, 0), "✓" if row in self._selected else " ")
+        self._refresh_subtitle()
 
     def action_scan(self) -> None:
         r = self._build_range_str()
         if r:
             self._do_scan(r)
 
-    def action_add_to_db(self) -> None:
-        table = self.query_one(DataTable)
-        row = table.cursor_row
-        if row < 0 or row >= len(self._discovered):
-            self.notify("No row selected", severity="warning")
-            return
-        self._prepare_add(self._discovered[row])
+    def action_add(self) -> None:
+        if self._selected:
+            self._prepare_bulk_add()
+        else:
+            table = self.query_one(DataTable)
+            row = table.cursor_row
+            if row < 0 or row >= len(self._discovered):
+                self.notify("No row selected", severity="warning")
+                return
+            self._prepare_single_add(self._discovered[row])
+
+    # ── Single add (opens form) ────────────────────────────────────────────────
 
     @work(thread=True)
-    def _prepare_add(self, d: dict) -> None:
-        import re
+    def _prepare_single_add(self, d: dict) -> None:
         try:
             pis = self._api.list_pis()
         except ApiError:
             pis = []
-        used = {
-            int(m.group(1))
-            for pi in pis
-            if (m := re.match(r"^00-(\d{3})$", pi.get("position", "")))
-        }
-        n = 1
-        while n in used:
-            n += 1
+        position = _next_free_position(pis)
         prefill = {
-            "position": f"00-{n:03d}",
+            "position": position,
             "ip": d.get("ip"),
             "hostname": d.get("hostname"),
             "pi_version": d.get("pi_version"),
+            "mac": d.get("mac"),
         }
         self.app.call_from_thread(self._open_add_dialog, prefill)
 
@@ -350,5 +372,83 @@ class DiscoveryScreen(Screen):
         except ApiError as e:
             self.app.call_from_thread(self.notify, str(e), severity="error")
 
+    # ── Bulk add (no form) ────────────────────────────────────────────────────
+
+    @work(thread=True)
+    def _prepare_bulk_add(self) -> None:
+        try:
+            pis = self._api.list_pis()
+        except ApiError:
+            pis = []
+
+        used_slots = _used_00_slots(pis)
+        existing_macs = {
+            p["mac"].lower()
+            for p in pis
+            if p.get("mac") and p["mac"] != "00:00:00:00:00:00"
+        }
+
+        items = []
+        n = 1
+        for idx in sorted(self._selected):
+            d = self._discovered[idx]
+            while n in used_slots:
+                n += 1
+            position = f"00-{n:03d}"
+            used_slots.add(n)
+            n += 1
+
+            mac = d.get("mac") or "00:00:00:00:00:00"
+            items.append({
+                "position": position,
+                "mac": mac,
+                "hostname": d.get("hostname"),
+                "ip": d.get("ip"),
+                "pi_version": d.get("pi_version"),
+                "tags": [],
+                "status": "reachable" if d.get("hostname") or d.get("ip") else "unreachable",
+            })
+
+        if not items:
+            self.app.call_from_thread(self.notify, "Nothing to add", severity="warning")
+            return
+
+        try:
+            result = self._api.bulk_create_pis(items)
+            self.app.call_from_thread(self._on_bulk_result, result)
+        except ApiError as e:
+            self.app.call_from_thread(self.notify, str(e), severity="error")
+
+    def _on_bulk_result(self, result: dict) -> None:
+        created = result.get("created", 0)
+        skipped = result.get("skipped", 0)
+        skip_reasons = [
+            r["reason"] for r in result.get("results", []) if r.get("skipped") and r.get("reason")
+        ]
+        msg = f"Bulk add: {created} created, {skipped} skipped"
+        if skip_reasons:
+            msg += "\n" + "\n".join(skip_reasons)
+        severity = "information" if created > 0 else "warning"
+        self.notify(msg, severity=severity)
+        self._selected.clear()
+        self._refresh_subtitle()
+
     def action_back(self) -> None:
         self.app.pop_screen()
+
+
+def _used_00_slots(pis: list[dict]) -> set[int]:
+    used = set()
+    for pi in pis:
+        m = re.match(r"^00-(\d{3})$", pi.get("position", ""))
+        if m:
+            used.add(int(m.group(1)))
+    return used
+
+
+def _next_free_position(pis: list[dict]) -> str:
+    used = _used_00_slots(pis)
+    n = 1
+    while n in used:
+        n += 1
+    return f"00-{n:03d}"

@@ -93,6 +93,25 @@ class HealthCheckResult(BaseModel):
     completed_at: datetime | None
 
 
+# ─── Bulk Create ──────────────────────────────────────────────────────────────
+
+class BulkPiCreateRequest(BaseModel):
+    pis: list[PiCreateRequest] = Field(..., min_length=1)
+
+
+class BulkPiCreateItemResult(BaseModel):
+    position: str
+    created: bool
+    skipped: bool
+    reason: str | None
+
+
+class BulkPiCreateResponse(BaseModel):
+    results: list[BulkPiCreateItemResult]
+    created: int
+    skipped: int
+
+
 # ─── Key Deployment ───────────────────────────────────────────────────────────
 
 class DeployKeyRequest(BaseModel):

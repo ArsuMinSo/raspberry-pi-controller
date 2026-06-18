@@ -68,6 +68,9 @@ class ApiClient:
             "ip": ip, "pi_version": pi_version, "tags": tags or [], "status": status,
         })
 
+    def bulk_create_pis(self, pis: list[dict]) -> dict:
+        return self._post("/pi/bulk", {"pis": pis})
+
     def update_pi(self, position: str, **fields) -> dict:
         return self._patch(f"/pi/{position}", {k: v for k, v in fields.items() if v is not None})
 

@@ -17,6 +17,7 @@ from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
 
 _PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
+_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 
 
 def ping_host(ip: str) -> bool:
@@ -58,8 +59,8 @@ def probe_pi(
     auth: str = "key",
     password: str | None = None,
     deploy_key: bool = False,
-) -> tuple[str | None, str | None, int | None]:
-    """Returns (hostname, pi_version, serial) via SSH. All None on failure."""
+) -> tuple[str | None, str | None, int | None, str | None]:
+    """Returns (hostname, pi_version, serial, mac) via SSH. All None on failure."""
     import socket
     username = probe_username or ssh.username
     client = paramiko.SSHClient()
@@ -88,6 +89,8 @@ def probe_pi(
 
         hostname = run("hostname") or None
         cpuinfo = run("cat /proc/cpuinfo")
+        mac_raw = run("ip link show | awk '/link\\/ether/{print $2; exit}'").lower()
+
         model_line = next(
             (l for l in cpuinfo.splitlines() if l.lower().startswith("model")), ""
         )
@@ -96,9 +99,10 @@ def probe_pi(
         )
         pi_version = _extract_pi_version(model_line)
         serial = serial_line.split(":")[-1].strip() if serial_line else None
-        return hostname, pi_version, serial
+        mac = mac_raw if _MAC_RE.match(mac_raw) else None
+        return hostname, pi_version, serial, mac
     except (paramiko.SSHException, OSError, socket.timeout):
-        return None, None, None
+        return None, None, None, None
     finally:
         client.close()
 
@@ -130,7 +134,7 @@ def _scan_host(
     if not ping_host(ip):
         return None
     if do_probe:
-        hostname, pi_version, serial = probe_pi(
+        hostname, pi_version, serial, mac = probe_pi(
             ip, ssh_settings, probe_timeout,
             probe_username=probe_username,
             auth=probe_auth,
@@ -138,8 +142,8 @@ def _scan_host(
             deploy_key=probe_deploy_key,
         )
     else:
-        hostname, pi_version, serial = None, None, None
-    return (ip, hostname, pi_version, serial)
+        hostname, pi_version, serial, mac = None, None, None, None
+    return (ip, hostname, pi_version, serial, mac)
 
 
 def scan_subnet(
@@ -162,7 +166,7 @@ def scan_subnet(
     workers = min(64, max(1, len(hosts)))
 
     # Parallel ping + probe
-    alive: list[tuple[str, str | None, int | None, str | None]] = []
+    alive: list[tuple[str, str | None, int | None, str | None, str | None]] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {
             ex.submit(
@@ -184,8 +188,8 @@ def scan_subnet(
     added = 0
     updated = 0
 
-    for ip, hostname, pi_version, serial in alive:
-        discovered.append(DiscoveredPi(ip=ip, mac=None, hostname=hostname, pi_version=pi_version))
+    for ip, hostname, pi_version, serial, mac in alive:
+        discovered.append(DiscoveredPi(ip=ip, mac=mac, hostname=hostname, pi_version=pi_version))
         discovered_ips.add(ip)
 
         existing = db.query(Pi).filter(Pi.current_ip == ip).first()
@@ -198,6 +202,8 @@ def scan_subnet(
                 existing.pi_version = pi_version
             if serial:
                 existing.serial = serial
+            if mac:
+                existing.mac = mac
             updated += 1
         else:
             added += 1

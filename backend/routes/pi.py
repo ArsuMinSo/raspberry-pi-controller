@@ -9,6 +9,7 @@ from backend.config import effective_ssh_settings
 from backend.database import get_db
 from backend.models import Pi
 from backend.schemas import (
+    BulkPiCreateItemResult, BulkPiCreateRequest, BulkPiCreateResponse,
     DeployKeyRequest, DeployKeyResponse, DeployKeyResult,
     PiCreateRequest, PiDetail, PiSummary, PiUpdateRequest,
 )
@@ -123,6 +124,57 @@ def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db
     db.commit()
     db.refresh(pi)
     return _pi_to_detail(pi)
+
+
+_MAC_PLACEHOLDER = "00:00:00:00:00:00"
+
+
+@router.post("/bulk", response_model=BulkPiCreateResponse, status_code=200)
+def bulk_create_pis(body: BulkPiCreateRequest, db: Session = Depends(get_db)):
+    results: list[BulkPiCreateItemResult] = []
+    created = 0
+    skipped = 0
+
+    for item in body.pis:
+        # Position conflict
+        if db.query(Pi).filter(Pi.position == item.position).first():
+            results.append(BulkPiCreateItemResult(
+                position=item.position, created=False, skipped=True,
+                reason=f"position {item.position} already exists",
+            ))
+            skipped += 1
+            continue
+
+        # MAC conflict (skip placeholder)
+        mac = item.mac.lower()
+        if mac != _MAC_PLACEHOLDER:
+            existing = db.query(Pi).filter(Pi.mac == mac).first()
+            if existing:
+                results.append(BulkPiCreateItemResult(
+                    position=item.position, created=False, skipped=True,
+                    reason=f"MAC {mac} already registered at {existing.position}",
+                ))
+                skipped += 1
+                continue
+
+        pi = Pi(
+            position=item.position,
+            mac=mac,
+            hostname=item.hostname,
+            current_ip=item.ip,
+            pi_version=item.pi_version,
+            tags=item.tags,
+            status=item.status,
+        )
+        db.add(pi)
+        db.flush()
+        results.append(BulkPiCreateItemResult(
+            position=item.position, created=True, skipped=False, reason=None,
+        ))
+        created += 1
+
+    db.commit()
+    return BulkPiCreateResponse(results=results, created=created, skipped=skipped)
 
 
 @router.post("/deploy-key", response_model=DeployKeyResponse)
