@@ -5,7 +5,7 @@ import paramiko
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from backend.config import apply_ssh_override, effective_ssh_settings
+from backend.config import apply_ssh_override, effective_ssh_settings, persist_ssh_settings
 from backend.utils.helpers import load_private_key
 
 router = APIRouter()
@@ -41,6 +41,7 @@ def patch_settings(body: SettingsPatch):
         username=body.username,
         timeout_s=body.timeout_s,
     )
+    persist_ssh_settings()
     return {"ssh": _ssh_view(effective_ssh_settings())}
 
 

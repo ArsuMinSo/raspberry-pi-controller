@@ -138,3 +138,16 @@ def effective_ssh_settings() -> SSHSettings:
         return base
     import dataclasses
     return dataclasses.replace(base, **_ssh_overrides)
+
+
+def persist_ssh_settings(path: str = "config.yaml") -> None:
+    """Write _ssh_overrides into config.yaml, then clear cache + overrides."""
+    if not _ssh_overrides:
+        return
+    with open(path) as f:
+        raw = yaml.safe_load(f)  # read without env-var interpolation
+    raw["ssh"].update(_ssh_overrides)
+    with open(path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
+    get_settings.cache_clear()
+    _ssh_overrides.clear()
