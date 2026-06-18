@@ -81,11 +81,24 @@ def probe_pi(ip: str, settings) -> tuple[str | None, str | None, int | None]:
         client.close()
 
 
+def _parse_hosts(scan_range: str) -> list:
+    """Accept CIDR (10.10.20.0/24) or start-end range (10.10.30.25-10.10.30.50)."""
+    scan_range = scan_range.strip()
+    if "-" in scan_range and "/" not in scan_range:
+        start_s, end_s = scan_range.split("-", 1)
+        start_ip = ipaddress.IPv4Address(start_s.strip())
+        end_ip = ipaddress.IPv4Address(end_s.strip())
+        if int(end_ip) < int(start_ip):
+            raise ValueError(f"End address {end_ip} is before start {start_ip}")
+        return [ipaddress.IPv4Address(i) for i in range(int(start_ip), int(end_ip) + 1)]
+    return list(ipaddress.ip_network(scan_range, strict=False).hosts())
+
+
 def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings) -> DiscoveryScanResult:
     entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
 
-    hosts = list(ipaddress.ip_network(subnet, strict=False).hosts())
+    hosts = _parse_hosts(subnet)
     discovered: list[DiscoveredPi] = []
     added = 0
     updated = 0

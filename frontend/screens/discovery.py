@@ -1,3 +1,5 @@
+import ipaddress
+
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
@@ -6,6 +8,24 @@ from textual.widgets import Button, DataTable, Footer, Header, Input, Label
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
+
+
+def _range_to_from_to(scan_range: str) -> tuple[str, str]:
+    """Parse stored range (CIDR or start-end) back into (from_ip, to_ip)."""
+    scan_range = scan_range.strip()
+    if not scan_range:
+        return "", ""
+    if "-" in scan_range and "/" not in scan_range:
+        parts = scan_range.split("-", 1)
+        return parts[0].strip(), parts[1].strip()
+    try:
+        net = ipaddress.ip_network(scan_range, strict=False)
+        hosts = list(net.hosts())
+        if hosts:
+            return str(hosts[0]), str(hosts[-1])
+        return str(net.network_address), str(net.broadcast_address)
+    except ValueError:
+        return scan_range, ""
 
 
 class DiscoveryScreen(Screen):
@@ -18,19 +38,23 @@ class DiscoveryScreen(Screen):
     DiscoveryScreen {
         layout: vertical;
     }
-    #subnet-row {
+    #range-row {
         height: 3;
         padding: 0 1;
         align: left middle;
     }
-    #subnet-label {
+    .range-label {
         width: auto;
         padding: 0 1;
     }
-    #subnet-input {
-        width: 28;
+    .range-input {
+        width: 18;
     }
     #save-btn {
+        width: auto;
+        margin-left: 2;
+    }
+    #scan-btn {
         width: auto;
         margin-left: 1;
     }
@@ -55,80 +79,84 @@ class DiscoveryScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield Header()
-        with Horizontal(id="subnet-row"):
-            yield Label("Subnet:", id="subnet-label")
-            yield Input(placeholder="10.10.20.0/24", id="subnet-input")
+        with Horizontal(id="range-row"):
+            yield Label("From:", classes="range-label")
+            yield Input(placeholder="10.10.30.1", id="from-ip", classes="range-input")
+            yield Label("To:", classes="range-label")
+            yield Input(placeholder="10.10.30.254", id="to-ip", classes="range-input")
             yield Button("Save", variant="default", id="save-btn")
+            yield Button("Scan  [s]", variant="primary", id="scan-btn")
             yield Label("", id="saved-note")
-        yield Label("Press [bold]s[/bold] to scan", id="subtitle")
+        yield Label("Set range and press Scan or [bold]s[/bold]", id="subtitle")
         yield DataTable(id="disc-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("IP", "MAC", "Hostname", "Pi Version")
-        self._load_subnet()
+        self.query_one(DataTable).add_columns("IP", "MAC", "Hostname", "Pi Version")
+        self._load_range()
 
     @work(thread=True)
-    def _load_subnet(self) -> None:
+    def _load_range(self) -> None:
         try:
             data = self._api.get_settings()
-            subnet = data.get("network", {}).get("subnet", "")
-            self.app.call_from_thread(self._set_subnet, subnet)
+            stored = data.get("network", {}).get("subnet", "")
+            from_ip, to_ip = _range_to_from_to(stored)
+            self.app.call_from_thread(self._set_range, from_ip, to_ip)
         except ApiError:
             pass
 
-    def _set_subnet(self, subnet: str) -> None:
-        self.query_one("#subnet-input", Input).value = subnet
+    def _set_range(self, from_ip: str, to_ip: str) -> None:
+        self.query_one("#from-ip", Input).value = from_ip
+        self.query_one("#to-ip", Input).value = to_ip
+
+    def _build_range_str(self) -> str | None:
+        from_ip = self.query_one("#from-ip", Input).value.strip()
+        to_ip = self.query_one("#to-ip", Input).value.strip()
+        if not from_ip or not to_ip:
+            self.notify("Enter both From and To IP addresses", severity="warning")
+            return None
+        try:
+            ipaddress.IPv4Address(from_ip)
+            ipaddress.IPv4Address(to_ip)
+        except ValueError as e:
+            self.notify(f"Invalid IP: {e}", severity="error")
+            return None
+        return f"{from_ip}-{to_ip}"
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-btn":
-            self._save_subnet()
-
-    def _save_subnet(self) -> None:
-        subnet = self.query_one("#subnet-input", Input).value.strip()
-        if not subnet:
-            self.notify("Enter a subnet first", severity="warning")
-            return
-        self._do_save_subnet(subnet)
+            r = self._build_range_str()
+            if r:
+                self._do_save(r)
+        elif event.button.id == "scan-btn":
+            self.action_scan()
 
     @work(thread=True)
-    def _do_save_subnet(self, subnet: str) -> None:
+    def _do_save(self, scan_range: str) -> None:
         try:
-            self._api.update_network_settings(subnet)
+            self._api.update_network_settings(scan_range)
             self.app.call_from_thread(
-                self.query_one("#saved-note", Label).update,
-                "[green]Saved[/green]",
+                self.query_one("#saved-note", Label).update, "[green]Saved[/green]"
             )
         except ApiError as e:
             self.app.call_from_thread(self.notify, str(e), severity="error")
 
     @work(thread=True)
-    def _do_scan(self) -> None:
-        subnet = self.query_one("#subnet-input", Input).value.strip()
-
-        # Save subnet before scanning if it differs from config
-        if subnet:
-            try:
-                self._api.update_network_settings(subnet)
-                self.app.call_from_thread(
-                    self.query_one("#saved-note", Label).update,
-                    "[green]Saved[/green]",
-                )
-            except ApiError:
-                pass
-
+    def _do_scan(self, scan_range: str) -> None:
         self.app.call_from_thread(
             self.query_one("#subtitle", Label).update,
-            f"[yellow]Scanning {subnet or '…'} (may take 1–2 min)[/yellow]",
+            f"[yellow]Scanning {scan_range} …[/yellow]",
         )
         try:
+            self._api.update_network_settings(scan_range)
+            self.app.call_from_thread(
+                self.query_one("#saved-note", Label).update, "[green]Saved[/green]"
+            )
             result = self._api.scan_discovery()
             self.app.call_from_thread(self._on_result, result)
         except ApiError as e:
             self.app.call_from_thread(
-                self.query_one("#subtitle", Label).update,
-                f"[red]Scan failed: {e}[/red]",
+                self.query_one("#subtitle", Label).update, f"[red]Scan failed: {e}[/red]"
             )
 
     def _on_result(self, result: dict) -> None:
@@ -155,7 +183,9 @@ class DiscoveryScreen(Screen):
         )
 
     def action_scan(self) -> None:
-        self._do_scan()
+        r = self._build_range_str()
+        if r:
+            self._do_scan(r)
 
     def action_back(self) -> None:
         self.app.pop_screen()
