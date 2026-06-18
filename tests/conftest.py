@@ -1,4 +1,5 @@
 import os
+import pathlib
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,13 +18,25 @@ TEST_DB_URL = os.environ.get(
     "postgresql://pi_controller:test@localhost/pi_controller_test",
 )
 
+_MIGRATION = (
+    pathlib.Path(__file__).parent.parent / "migrations" / "001_init.sql"
+).read_text()
+
 
 @pytest.fixture(scope="session")
 def test_engine():
     engine = create_engine(TEST_DB_URL)
-    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS actions_log CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS raspberries CASCADE"))
+        for statement in _MIGRATION.split(";"):
+            stmt = statement.strip()
+            if stmt:
+                conn.execute(text(stmt))
     yield engine
-    Base.metadata.drop_all(engine)
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS actions_log CASCADE"))
+        conn.execute(text("DROP TABLE IF EXISTS raspberries CASCADE"))
 
 
 @pytest.fixture

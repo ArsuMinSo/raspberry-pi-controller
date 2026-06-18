@@ -1,5 +1,5 @@
-from sqlalchemy import ARRAY, DateTime, Integer, SmallInteger, String, Text
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy import DateTime, Integer, SmallInteger, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, INET
 from sqlalchemy.orm import mapped_column, MappedColumn
 from sqlalchemy.sql import func
 
