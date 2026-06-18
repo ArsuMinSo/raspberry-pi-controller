@@ -1,5 +1,6 @@
 import json
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import paramiko
 
@@ -90,6 +91,15 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
     entry = al.create_action(db, positions, "health", status="running")
     start = time.monotonic()
 
+    targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
+    workers = min(ssh.parallel_limit, max(1, len(targets)))
+    result_map: dict[str, PiHealthResult] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(check_health, ip, pos, ssh): pos for ip, pos in targets}
+        for future in as_completed(futures):
+            r = future.result()
+            result_map[r.position] = r
+
     results: list[PiHealthResult] = []
     for pi in pis:
         if pi.current_ip is None:
@@ -102,8 +112,8 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
                 disk_total_gb=None,
                 error="no IP recorded",
             ))
-            continue
-        results.append(check_health(str(pi.current_ip), pi.position, ssh))
+        else:
+            results.append(result_map[pi.position])
 
     errors = [r for r in results if r.error]
     if len(errors) == 0:

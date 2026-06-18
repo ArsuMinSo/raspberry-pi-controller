@@ -1,5 +1,6 @@
 import socket
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 import paramiko
@@ -86,5 +87,17 @@ def execute_many(
     command: str,
     settings: SSHSettings,
 ) -> list[SSHResult]:
-    """targets: list of (ip, position). Serial execution (v1)."""
-    return [execute(ip, position, command, settings) for ip, position in targets]
+    """targets: list of (ip, position). Parallel execution, order preserved."""
+    if not targets:
+        return []
+    workers = min(settings.parallel_limit, len(targets))
+    result_map: dict[str, SSHResult] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {
+            ex.submit(execute, ip, pos, command, settings): pos
+            for ip, pos in targets
+        }
+        for future in as_completed(futures):
+            r = future.result()
+            result_map[r.position] = r
+    return [result_map[pos] for _, pos in targets]
