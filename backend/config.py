@@ -145,9 +145,39 @@ def persist_ssh_settings(path: str = "config.yaml") -> None:
     if not _ssh_overrides:
         return
     with open(path) as f:
-        raw = yaml.safe_load(f)  # read without env-var interpolation
+        raw = yaml.safe_load(f)
     raw["ssh"].update(_ssh_overrides)
     with open(path, "w") as f:
         yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
     get_settings.cache_clear()
     _ssh_overrides.clear()
+
+
+# Runtime network overrides.
+_network_overrides: dict = {}
+
+
+def apply_network_override(subnet: str | None = None) -> None:
+    if subnet is not None:
+        _network_overrides["subnet"] = subnet
+
+
+def effective_network_settings() -> NetworkSettings:
+    base = get_settings().network
+    if not _network_overrides:
+        return base
+    import dataclasses
+    return dataclasses.replace(base, **_network_overrides)
+
+
+def persist_network_settings(path: str = "config.yaml") -> None:
+    """Write _network_overrides into config.yaml, then clear cache + overrides."""
+    if not _network_overrides:
+        return
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+    raw["network"].update(_network_overrides)
+    with open(path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
+    get_settings.cache_clear()
+    _network_overrides.clear()

@@ -5,7 +5,14 @@ import paramiko
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from backend.config import apply_ssh_override, effective_ssh_settings, persist_ssh_settings
+from backend.config import (
+    apply_network_override,
+    apply_ssh_override,
+    effective_network_settings,
+    effective_ssh_settings,
+    persist_network_settings,
+    persist_ssh_settings,
+)
 from backend.utils.helpers import load_private_key
 
 router = APIRouter()
@@ -15,6 +22,7 @@ class SettingsPatch(BaseModel):
     ssh_key_path: str | None = None
     username: str | None = None
     timeout_s: int | None = None
+    subnet: str | None = None
 
 
 class SSHTestRequest(BaseModel):
@@ -31,7 +39,10 @@ def _ssh_view(ssh) -> dict:
 
 @router.get("")
 def get_settings_view():
-    return {"ssh": _ssh_view(effective_ssh_settings())}
+    return {
+        "ssh": _ssh_view(effective_ssh_settings()),
+        "network": {"subnet": effective_network_settings().subnet},
+    }
 
 
 @router.patch("")
@@ -41,8 +52,13 @@ def patch_settings(body: SettingsPatch):
         username=body.username,
         timeout_s=body.timeout_s,
     )
+    apply_network_override(subnet=body.subnet)
     persist_ssh_settings()
-    return {"ssh": _ssh_view(effective_ssh_settings())}
+    persist_network_settings()
+    return {
+        "ssh": _ssh_view(effective_ssh_settings()),
+        "network": {"subnet": effective_network_settings().subnet},
+    }
 
 
 @router.post("/test")

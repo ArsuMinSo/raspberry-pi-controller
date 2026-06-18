@@ -140,5 +140,8 @@ class ApiClient:
             body["timeout_s"] = timeout_s
         return self._patch("/settings", body)
 
+    def update_network_settings(self, subnet: str) -> dict:
+        return self._patch("/settings", {"subnet": subnet})
+
     def test_ssh_connection(self, ip: str) -> dict:
         return self._post("/settings/test", {"ip": ip})

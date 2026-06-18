@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.config import effective_ssh_settings, get_settings
+from backend.config import effective_network_settings, effective_ssh_settings
 from backend.database import get_db
 from backend.schemas import ActionQueued, DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
@@ -14,8 +14,7 @@ router = APIRouter()
 
 @router.post("/scan", response_model=DiscoveryScanResult)
 def start_scan(db: Session = Depends(get_db)):
-    settings = get_settings()
-    result = scan_subnet(settings.network.subnet, db, effective_ssh_settings())
+    result = scan_subnet(effective_network_settings().subnet, db, effective_ssh_settings())
     return result
 
 
