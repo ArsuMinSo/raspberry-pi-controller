@@ -11,7 +11,7 @@ from frontend.utils.formatters import truncate
 
 class ExecuteScreen(Screen):
     BINDINGS = [
-        Binding("enter", "detail", "Detail", show=True),
+        Binding("v", "detail", "View detail"),
         Binding("escape", "back", "Back"),
     ]
 
@@ -57,7 +57,7 @@ class ExecuteScreen(Screen):
         )
         yield Label("Command:", id="cmd-label")
         yield Input(placeholder="e.g. uptime", id="cmd-input")
-        yield Label("Results: (Enter on row for full output)", id="results-label")
+        yield Label("Results: (v or Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
@@ -118,6 +118,9 @@ class ExecuteScreen(Screen):
         self.query_one(Input).disabled = False
         self.query_one(Input).clear()
         self.query_one(Input).focus()
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_detail()
 
     def _on_error(self, msg: str) -> None:
         self.query_one("#results-label", Label).update(f"[red]Error: {msg}[/red]")

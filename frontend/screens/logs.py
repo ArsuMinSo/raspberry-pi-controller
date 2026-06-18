@@ -13,7 +13,7 @@ from frontend.utils.formatters import fmt_datetime, fmt_duration, truncate
 
 class LogsScreen(Screen):
     BINDINGS = [
-        Binding("enter", "detail", "Detail", show=True),
+        Binding("v", "detail", "View detail"),
         Binding("r", "refresh", "Refresh"),
         Binding("escape", "back", "Back"),
     ]
@@ -74,7 +74,7 @@ class LogsScreen(Screen):
                 truncate(e.get("command"), 40),
             )
         self.query_one("#subtitle", Label).update(
-            f"{len(entries)} log entries  (Enter on row for detail)"
+            f"{len(entries)} log entries  (v or Enter on row for detail)"
         )
 
     def _on_error(self, msg: str) -> None:
@@ -98,6 +98,9 @@ class LogsScreen(Screen):
         ]
         body = _format_log_body(e)
         self.app.push_screen(DetailScreen(f"Log #{e.get('id', '?')}", meta, body))
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        self.action_detail()
 
     def action_refresh(self) -> None:
         self.query_one("#subtitle", Label).update("Refreshing…")
