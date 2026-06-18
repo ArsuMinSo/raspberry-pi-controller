@@ -70,6 +70,9 @@ class ApiClient:
     def update_pi(self, position: str, **fields) -> dict:
         return self._patch(f"/pi/{position}", {k: v for k, v in fields.items() if v is not None})
 
+    def deploy_key(self, positions: list[str], password: str) -> dict:
+        return self._post("/pi/deploy-key", {"pis": positions, "password": password})
+
     def delete_pi(self, position: str) -> None:
         try:
             self._session.delete(f"{self._base}/pi/{position}", timeout=30).raise_for_status()

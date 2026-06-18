@@ -6,6 +6,7 @@ from textual import work
 
 from frontend.api_client import ApiClient, ApiError
 from frontend.utils.formatters import fmt_datetime, fmt_tags, status_markup
+from frontend.screens.deploy_key import DeployKeyScreen
 from frontend.screens.manage_pi import ManagePiScreen
 from frontend.screens.settings import SettingsScreen
 
@@ -23,6 +24,7 @@ class HomeScreen(Screen):
         Binding("h", "health", "Health"),
         Binding("l", "logs", "Logs"),
         Binding("D", "discovery", "Discover"),
+        Binding("k", "deploy_key", "Deploy Key"),
         Binding("s", "settings", "Settings"),
     ]
 
@@ -207,6 +209,17 @@ class HomeScreen(Screen):
 
     def action_discovery(self) -> None:
         self.app.push_screen("discovery")
+
+    def action_deploy_key(self) -> None:
+        targets = sorted(self.selected) if self.selected else []
+        if not targets:
+            pos = self._current_position()
+            if pos:
+                targets = [pos]
+        if not targets:
+            self.notify("Select at least one Pi first (Space)", severity="warning")
+            return
+        self.app.push_screen(DeployKeyScreen(self._api, targets))
 
     def action_settings(self) -> None:
         def _on_result(path: str | None) -> None:

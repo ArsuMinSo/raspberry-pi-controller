@@ -93,6 +93,26 @@ class HealthCheckResult(BaseModel):
     completed_at: datetime | None
 
 
+# ─── Key Deployment ───────────────────────────────────────────────────────────
+
+class DeployKeyRequest(BaseModel):
+    pis: list[str] = Field(..., min_length=1)
+    password: str
+
+
+class DeployKeyResult(BaseModel):
+    position: str
+    ip: str | None
+    success: bool
+    error: str | None
+
+
+class DeployKeyResponse(BaseModel):
+    results: list[DeployKeyResult]
+    succeeded: int
+    failed: int
+
+
 # ─── Command Execution ────────────────────────────────────────────────────────
 
 class CommandExecuteRequest(BaseModel):

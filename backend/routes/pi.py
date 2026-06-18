@@ -1,9 +1,17 @@
+import os
+import socket
+
+import paramiko
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from backend.config import effective_ssh_settings
 from backend.database import get_db
 from backend.models import Pi
-from backend.schemas import PiCreateRequest, PiDetail, PiSummary, PiUpdateRequest
+from backend.schemas import (
+    DeployKeyRequest, DeployKeyResponse, DeployKeyResult,
+    PiCreateRequest, PiDetail, PiSummary, PiUpdateRequest,
+)
 from backend.utils.helpers import paginate, validate_position
 
 router = APIRouter()
@@ -115,6 +123,72 @@ def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db
     db.commit()
     db.refresh(pi)
     return _pi_to_detail(pi)
+
+
+@router.post("/deploy-key", response_model=DeployKeyResponse)
+def deploy_key(body: DeployKeyRequest, db: Session = Depends(get_db)):
+    ssh = effective_ssh_settings()
+    pub_key_path = ssh.private_key_path + ".pub"
+    if not os.path.exists(pub_key_path):
+        raise HTTPException(status_code=400, detail=f"Public key not found: {pub_key_path}")
+    pub_key = open(pub_key_path).read().strip()
+
+    # Shell command equivalent to ssh-copy-id
+    install_cmd = (
+        "mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+        f"grep -qF '{pub_key}' ~/.ssh/authorized_keys 2>/dev/null || "
+        f"echo '{pub_key}' >> ~/.ssh/authorized_keys && "
+        "chmod 600 ~/.ssh/authorized_keys"
+    )
+
+    pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
+    found = {p.position for p in pis}
+    missing = [pos for pos in body.pis if pos not in found]
+    if missing:
+        raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
+
+    results: list[DeployKeyResult] = []
+    for pi in pis:
+        ip = str(pi.current_ip) if pi.current_ip else None
+        if not ip:
+            results.append(DeployKeyResult(
+                position=pi.position, ip=None, success=False, error="no IP recorded"
+            ))
+            continue
+
+        client = paramiko.SSHClient()
+        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        try:
+            client.connect(
+                ip,
+                username=ssh.username,
+                password=body.password,
+                timeout=ssh.timeout_s,
+                banner_timeout=ssh.timeout_s,
+                auth_timeout=ssh.timeout_s,
+                look_for_keys=False,
+                allow_agent=False,
+            )
+            _, stdout_fh, stderr_fh = client.exec_command(install_cmd, timeout=15)
+            stdout_fh.channel.recv_exit_status()
+            stderr = stderr_fh.read().decode(errors="replace").strip()
+            results.append(DeployKeyResult(
+                position=pi.position, ip=ip, success=True,
+                error=stderr if stderr else None,
+            ))
+        except paramiko.AuthenticationException:
+            results.append(DeployKeyResult(
+                position=pi.position, ip=ip, success=False, error="Authentication failed — wrong password?"
+            ))
+        except (paramiko.SSHException, OSError, socket.timeout) as e:
+            results.append(DeployKeyResult(
+                position=pi.position, ip=ip, success=False, error=str(e)
+            ))
+        finally:
+            client.close()
+
+    succeeded = sum(1 for r in results if r.success)
+    return DeployKeyResponse(results=results, succeeded=succeeded, failed=len(results) - succeeded)
 
 
 @router.delete("/{position}", status_code=204)
