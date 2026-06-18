@@ -41,6 +41,25 @@ class PiListFilters(BaseModel):
     limit: int = Field(50, ge=1, le=500)
 
 
+class PiCreateRequest(BaseModel):
+    position: str = Field(..., pattern=r"^\d{2}-\d{3}$")
+    mac: str = Field(..., pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+    hostname: str | None = None
+    ip: str | None = None
+    pi_version: int | None = Field(None, ge=2, le=5)
+    tags: list[str] = []
+    status: Literal["reachable", "unreachable"] = "unreachable"
+
+
+class PiUpdateRequest(BaseModel):
+    mac: str | None = Field(None, pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+    hostname: str | None = None
+    ip: str | None = None
+    pi_version: int | None = Field(None, ge=2, le=5)
+    tags: list[str] | None = None
+    status: Literal["reachable", "unreachable"] | None = None
+
+
 # ─── Health Check ─────────────────────────────────────────────────────────────
 
 class HealthTriggerRequest(BaseModel):

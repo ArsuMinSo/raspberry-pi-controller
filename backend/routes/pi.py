@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import get_db
 from backend.models import Pi
-from backend.schemas import PiDetail, PiSummary
+from backend.schemas import PiCreateRequest, PiDetail, PiSummary, PiUpdateRequest
 from backend.utils.helpers import paginate, validate_position
 
 router = APIRouter()
@@ -70,3 +70,61 @@ def get_pi_status(position: str, db: Session = Depends(get_db)):
     if not pi:
         raise HTTPException(status_code=404, detail=f"Pi at position {position} not found")
     return _pi_to_detail(pi)
+
+
+@router.post("", response_model=PiDetail, status_code=201)
+def create_pi(body: PiCreateRequest, db: Session = Depends(get_db)):
+    if db.query(Pi).filter(Pi.position == body.position).first():
+        raise HTTPException(status_code=409, detail=f"Position {body.position} already exists")
+    pi = Pi(
+        position=body.position,
+        mac=body.mac.lower(),
+        hostname=body.hostname,
+        current_ip=body.ip,
+        pi_version=body.pi_version,
+        tags=body.tags,
+        status=body.status,
+    )
+    db.add(pi)
+    db.commit()
+    db.refresh(pi)
+    return _pi_to_detail(pi)
+
+
+@router.patch("/{position}", response_model=PiDetail)
+def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db)):
+    try:
+        pos = validate_position(position)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    pi = db.query(Pi).filter(Pi.position == pos).first()
+    if not pi:
+        raise HTTPException(status_code=404, detail=f"Pi at position {position} not found")
+    if body.mac is not None:
+        pi.mac = body.mac.lower()
+    if body.hostname is not None:
+        pi.hostname = body.hostname
+    if body.ip is not None:
+        pi.current_ip = body.ip
+    if body.pi_version is not None:
+        pi.pi_version = body.pi_version
+    if body.tags is not None:
+        pi.tags = body.tags
+    if body.status is not None:
+        pi.status = body.status
+    db.commit()
+    db.refresh(pi)
+    return _pi_to_detail(pi)
+
+
+@router.delete("/{position}", status_code=204)
+def delete_pi(position: str, db: Session = Depends(get_db)):
+    try:
+        pos = validate_position(position)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    pi = db.query(Pi).filter(Pi.position == pos).first()
+    if not pi:
+        raise HTTPException(status_code=404, detail=f"Pi at position {position} not found")
+    db.delete(pi)
+    db.commit()

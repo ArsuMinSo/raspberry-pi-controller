@@ -28,6 +28,20 @@ class ApiClient:
         except requests.RequestException as e:
             raise ApiError(str(e))
 
+    def _patch(self, path: str, data: dict):
+        try:
+            r = self._session.patch(f"{self._base}{path}", json=data, timeout=30)
+            r.raise_for_status()
+            return r.json()
+        except requests.HTTPError as e:
+            try:
+                detail = e.response.json().get("detail", str(e))
+            except Exception:
+                detail = str(e)
+            raise ApiError(detail)
+        except requests.RequestException as e:
+            raise ApiError(str(e))
+
     def _post(self, path: str, data: dict):
         try:
             r = self._session.post(f"{self._base}{path}", json=data, timeout=60)
@@ -44,6 +58,23 @@ class ApiClient:
 
     def system_health(self) -> dict:
         return self._get("/health")
+
+    def create_pi(self, position: str, mac: str, hostname: str | None = None,
+                  ip: str | None = None, pi_version: int | None = None,
+                  tags: list[str] | None = None, status: str = "unreachable") -> dict:
+        return self._post("/pi", {
+            "position": position, "mac": mac, "hostname": hostname,
+            "ip": ip, "pi_version": pi_version, "tags": tags or [], "status": status,
+        })
+
+    def update_pi(self, position: str, **fields) -> dict:
+        return self._patch(f"/pi/{position}", {k: v for k, v in fields.items() if v is not None})
+
+    def delete_pi(self, position: str) -> None:
+        try:
+            self._session.delete(f"{self._base}/pi/{position}", timeout=30).raise_for_status()
+        except Exception as e:
+            raise ApiError(str(e))
 
     def list_pis(self, status: str | None = None, tags: list[str] | None = None) -> list[dict]:
         params: dict = {"limit": 500}

@@ -6,6 +6,7 @@ from textual import work
 
 from frontend.api_client import ApiClient, ApiError
 from frontend.utils.formatters import fmt_datetime, fmt_tags, status_markup
+from frontend.screens.manage_pi import ManagePiScreen
 
 
 class HomeScreen(Screen):
@@ -14,6 +15,9 @@ class HomeScreen(Screen):
         Binding("space", "toggle_select", "Select", show=True),
         Binding("a", "select_all", "All"),
         Binding("A", "deselect_all", "None"),
+        Binding("n", "add_pi", "Add"),
+        Binding("e", "edit_pi", "Edit"),
+        Binding("d", "delete_pi", "Delete"),
         Binding("x", "execute", "Execute"),
         Binding("h", "health", "Health"),
         Binding("l", "logs", "Logs"),
@@ -140,3 +144,75 @@ class HomeScreen(Screen):
 
     def action_logs(self) -> None:
         self.app.push_screen("logs")
+
+    def action_add_pi(self) -> None:
+        def _on_result(data: dict | None) -> None:
+            if data is None:
+                return
+            self._do_create_pi(data)
+
+        self.app.push_screen(ManagePiScreen(), _on_result)
+
+    def action_edit_pi(self) -> None:
+        pi = self._current_pi()
+        if pi is None:
+            self.notify("No Pi selected", severity="warning")
+            return
+
+        def _on_result(data: dict | None) -> None:
+            if data is None:
+                return
+            self._do_update_pi(pi["position"], data)
+
+        self.app.push_screen(ManagePiScreen(pi=pi), _on_result)
+
+    def action_delete_pi(self) -> None:
+        targets = list(self.selected) if self.selected else []
+        if not targets:
+            pos = self._current_position()
+            if pos:
+                targets = [pos]
+        if not targets:
+            self.notify("Nothing to delete", severity="warning")
+            return
+        self._do_delete_pis(targets)
+
+    def _current_pi(self) -> dict | None:
+        table = self.query_one(DataTable)
+        if table.cursor_row < 0 or table.cursor_row >= len(self._pis):
+            return None
+        return self._pis[table.cursor_row]
+
+    @work(thread=True)
+    def _do_create_pi(self, data: dict) -> None:
+        try:
+            self._api.create_pi(**data)
+            self.app.call_from_thread(self.notify, f"Added {data['position']}")
+            self.app.call_from_thread(self.load_pis)
+        except ApiError as e:
+            self.app.call_from_thread(self.notify, str(e), severity="error")
+
+    @work(thread=True)
+    def _do_update_pi(self, position: str, data: dict) -> None:
+        fields = {k: v for k, v in data.items() if k != "position"}
+        try:
+            self._api.update_pi(position, **fields)
+            self.app.call_from_thread(self.notify, f"Updated {position}")
+            self.app.call_from_thread(self.load_pis)
+        except ApiError as e:
+            self.app.call_from_thread(self.notify, str(e), severity="error")
+
+    @work(thread=True)
+    def _do_delete_pis(self, positions: list[str]) -> None:
+        errors = []
+        for pos in positions:
+            try:
+                self._api.delete_pi(pos)
+            except ApiError as e:
+                errors.append(f"{pos}: {e}")
+        if errors:
+            self.app.call_from_thread(self.notify, "\n".join(errors), severity="error")
+        else:
+            self.app.call_from_thread(self.notify, f"Deleted {len(positions)} Pi(s)")
+        self.app.call_from_thread(self.selected.difference_update, positions)
+        self.app.call_from_thread(self.load_pis)
