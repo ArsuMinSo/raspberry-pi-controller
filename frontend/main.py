@@ -1,4 +1,9 @@
 import sys
+from pathlib import Path
+
+# allow `python frontend/main.py` in addition to `python -m frontend.main`
+if __package__ is None or __package__ == "":
+    sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
