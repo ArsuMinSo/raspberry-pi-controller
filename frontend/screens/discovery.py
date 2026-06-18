@@ -309,13 +309,32 @@ class DiscoveryScreen(Screen):
         if row < 0 or row >= len(self._discovered):
             self.notify("No row selected", severity="warning")
             return
-        d = self._discovered[row]
+        self._prepare_add(self._discovered[row])
+
+    @work(thread=True)
+    def _prepare_add(self, d: dict) -> None:
+        import re
+        try:
+            pis = self._api.list_pis()
+        except ApiError:
+            pis = []
+        used = {
+            int(m.group(1))
+            for pi in pis
+            if (m := re.match(r"^00-(\d{3})$", pi.get("position", "")))
+        }
+        n = 1
+        while n in used:
+            n += 1
         prefill = {
+            "position": f"00-{n:03d}",
             "ip": d.get("ip"),
             "hostname": d.get("hostname"),
             "pi_version": d.get("pi_version"),
         }
+        self.app.call_from_thread(self._open_add_dialog, prefill)
 
+    def _open_add_dialog(self, prefill: dict) -> None:
         def _on_result(data: dict | None) -> None:
             if data is None:
                 return
