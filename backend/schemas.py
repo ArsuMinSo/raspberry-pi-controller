@@ -158,7 +158,7 @@ class LogEntry(BaseModel):
 
 class DiscoveredPi(BaseModel):
     ip: str
-    mac: str
+    mac: str | None
     hostname: str | None
     pi_version: int | None
 

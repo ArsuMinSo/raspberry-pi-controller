@@ -3,9 +3,12 @@ import json
 import re
 import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import paramiko
+from sqlalchemy import cast, Text
 from sqlalchemy.orm import Session
+from sqlalchemy.sql import func
 
 from backend.config import NetworkSettings, SSHSettings
 from backend.utils.helpers import load_private_key
@@ -13,7 +16,6 @@ from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
 
-_MAC_RE = re.compile(r"([0-9a-f]{2}(?::[0-9a-f]{2}){5})", re.IGNORECASE)
 _PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
 
 
@@ -23,18 +25,6 @@ def ping_host(ip: str) -> bool:
         capture_output=True,
     )
     return result.returncode == 0
-
-
-def get_mac_from_arp(ip: str) -> str | None:
-    result = subprocess.run(
-        ["ip", "neigh", "show", ip],
-        capture_output=True,
-        text=True,
-    )
-    m = _MAC_RE.search(result.stdout)
-    if m:
-        return m.group(1).lower()
-    return None
 
 
 def _extract_pi_version(model_line: str) -> int | None:
@@ -94,46 +84,64 @@ def _parse_hosts(scan_range: str) -> list:
     return list(ipaddress.ip_network(scan_range, strict=False).hosts())
 
 
-def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings, net_settings: NetworkSettings | None = None) -> DiscoveryScanResult:
+def _scan_host(
+    ip: str,
+    ssh_settings: SSHSettings,
+    do_probe: bool,
+    probe_timeout: int,
+) -> tuple[str, str | None, int | None, str | None] | None:
+    """Ping + optional SSH probe for one host. Returns None if host unreachable."""
+    if not ping_host(ip):
+        return None
+    if do_probe:
+        hostname, pi_version, serial = probe_pi(ip, ssh_settings, probe_timeout)
+    else:
+        hostname, pi_version, serial = None, None, None
+    return (ip, hostname, pi_version, serial)
+
+
+def scan_subnet(
+    subnet: str,
+    db: Session,
+    ssh_settings: SSHSettings,
+    net_settings: NetworkSettings | None = None,
+) -> DiscoveryScanResult:
     entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
 
     do_probe = net_settings.probe_ssh if net_settings else True
     probe_timeout = net_settings.probe_timeout_s if net_settings else 3
 
-    hosts = _parse_hosts(subnet)
+    hosts = [str(h) for h in _parse_hosts(subnet)]
+    workers = min(64, max(1, len(hosts)))
+
+    # Parallel ping + probe
+    alive: list[tuple[str, str | None, int | None, str | None]] = []
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {
+            ex.submit(_scan_host, ip, ssh_settings, do_probe, probe_timeout): ip
+            for ip in hosts
+        }
+        for future in as_completed(futures):
+            result = future.result()
+            if result is not None:
+                alive.append(result)
+
+    # Sort by IP for stable output
+    alive.sort(key=lambda r: ipaddress.IPv4Address(r[0]))
+
     discovered: list[DiscoveredPi] = []
+    discovered_ips: set[str] = set()
     added = 0
     updated = 0
 
-    seen_positions: set[str] = set()
+    for ip, hostname, pi_version, serial in alive:
+        discovered.append(DiscoveredPi(ip=ip, mac=None, hostname=hostname, pi_version=pi_version))
+        discovered_ips.add(ip)
 
-    for host in hosts:
-        ip = str(host)
-        if not ping_host(ip):
-            continue
-
-        mac = get_mac_from_arp(ip)
-        if not mac:
-            continue
-
-        if do_probe:
-            hostname, pi_version, serial = probe_pi(ip, ssh_settings, probe_timeout)
-        else:
-            hostname, pi_version, serial = None, None, None
-
-        discovered.append(DiscoveredPi(
-            ip=ip,
-            mac=mac,
-            hostname=hostname,
-            pi_version=pi_version,
-        ))
-
-        existing = db.query(Pi).filter(Pi.mac == mac).first()
+        existing = db.query(Pi).filter(Pi.current_ip == ip).first()
         if existing:
-            existing.current_ip = ip
             existing.status = "reachable"
-            from sqlalchemy.sql import func
             existing.last_seen = func.now()
             if hostname:
                 existing.hostname = hostname
@@ -141,18 +149,19 @@ def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings, net_setting
                 existing.pi_version = pi_version
             if serial:
                 existing.serial = serial
-            seen_positions.add(existing.position)
             updated += 1
         else:
             added += 1
 
     db.commit()
 
-    reachable_macs = {d.mac for d in discovered}
-    db.query(Pi).filter(
-        Pi.mac.notin_(reachable_macs),
-        Pi.status == "reachable",
-    ).update({"status": "unreachable"}, synchronize_session=False)
+    # Mark reachable Pis whose IP didn't respond as unreachable
+    reachable_q = db.query(Pi).filter(Pi.status == "reachable")
+    if discovered_ips:
+        reachable_q = reachable_q.filter(
+            cast(Pi.current_ip, Text).notin_(discovered_ips)
+        )
+    reachable_q.update({"status": "unreachable"}, synchronize_session=False)
     db.commit()
 
     duration_ms = int((time.monotonic() - start) * 1000)

@@ -97,7 +97,7 @@ class DiscoveryScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("IP", "MAC", "Hostname", "Pi Version")
+        self.query_one(DataTable).add_columns("IP", "Hostname", "Pi Version")
         self._load_range()
 
     @work(thread=True)
@@ -183,7 +183,6 @@ class DiscoveryScreen(Screen):
             pi_ver = d.get("pi_version")
             table.add_row(
                 d.get("ip", ""),
-                d.get("mac", ""),
                 d.get("hostname") or "—",
                 f"Pi {pi_ver}" if pi_ver else "—",
             )
