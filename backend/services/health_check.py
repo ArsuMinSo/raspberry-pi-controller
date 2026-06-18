@@ -3,7 +3,7 @@ import time
 
 import paramiko
 
-from backend.config import SSHSettings, Settings
+from backend.config import SSHSettings
 from backend.models import ActionLog, Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
@@ -84,7 +84,7 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> PiHealthResul
         client.close()
 
 
-def run_health_check(pis: list[Pi], db, settings: Settings) -> int:
+def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
     positions = [p.position for p in pis]
     entry = al.create_action(db, positions, "health", status="running")
     start = time.monotonic()
@@ -102,7 +102,7 @@ def run_health_check(pis: list[Pi], db, settings: Settings) -> int:
                 error="no IP recorded",
             ))
             continue
-        results.append(check_health(str(pi.current_ip), pi.position, settings.ssh))
+        results.append(check_health(str(pi.current_ip), pi.position, ssh))
 
     errors = [r for r in results if r.error]
     if len(errors) == 0:

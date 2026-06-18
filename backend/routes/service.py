@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.config import get_settings
+from backend.config import effective_ssh_settings, get_settings
 from backend.database import get_db
 from backend.models import Pi
 from backend.schemas import ActionQueued, PiCommandResult, ServiceRestartRequest
@@ -16,8 +16,6 @@ router = APIRouter()
 
 @router.post("/restart", response_model=ActionQueued)
 def restart_service(body: ServiceRestartRequest, db: Session = Depends(get_db)):
-    settings = get_settings()
-
     pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
     found = {p.position for p in pis}
     missing = [pos for pos in body.pis if pos not in found]
@@ -40,7 +38,7 @@ def restart_service(body: ServiceRestartRequest, db: Session = Depends(get_db)):
         if not p.current_ip or p.status == "unreachable"
     ]
 
-    ssh_results = execute_many(targets, command, settings.ssh)
+    ssh_results = execute_many(targets, command, effective_ssh_settings())
     all_results = skipped + [
         PiCommandResult(
             position=r.position,

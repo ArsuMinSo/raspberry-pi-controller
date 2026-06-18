@@ -5,7 +5,7 @@ from fastapi import Depends, FastAPI
 from sqlalchemy.orm import Session
 
 from backend.database import check_db, get_db
-from backend.routes import command, discovery, health, logs, pi, process, service
+from backend.routes import command, discovery, health, logs, pi, process, service, settings
 
 _start_time = time.monotonic()
 
@@ -30,6 +30,7 @@ app.include_router(process.router,   prefix="/process",   tags=["process"])
 app.include_router(service.router,   prefix="/service",   tags=["service"])
 app.include_router(logs.router,      prefix="/logs",      tags=["logs"])
 app.include_router(discovery.router, prefix="/discovery", tags=["discovery"])
+app.include_router(settings.router,  prefix="/settings",  tags=["settings"])
 
 
 @app.get("/health", tags=["system"])

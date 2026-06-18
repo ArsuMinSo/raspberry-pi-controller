@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.config import get_settings
+from backend.config import effective_ssh_settings, get_settings
 from backend.database import get_db
 from backend.models import Pi
 from backend.schemas import (
@@ -20,7 +20,6 @@ router = APIRouter()
 
 
 def _run_command(pis: list[Pi], command: str, db: Session) -> int:
-    settings = get_settings()
     positions = [p.position for p in pis]
     entry = al.create_action(db, positions, "execute", command=command, status="running")
     start = time.monotonic()
@@ -39,7 +38,7 @@ def _run_command(pis: list[Pi], command: str, db: Session) -> int:
         else:
             targets.append((str(pi.current_ip), pi.position))
 
-    ssh_results = execute_many(targets, command, settings.ssh)
+    ssh_results = execute_many(targets, command, effective_ssh_settings())
 
     all_results = skipped + [
         PiCommandResult(

@@ -7,6 +7,7 @@ from textual import work
 from frontend.api_client import ApiClient, ApiError
 from frontend.utils.formatters import fmt_datetime, fmt_tags, status_markup
 from frontend.screens.manage_pi import ManagePiScreen
+from frontend.screens.settings import SettingsScreen
 
 
 class HomeScreen(Screen):
@@ -21,6 +22,7 @@ class HomeScreen(Screen):
         Binding("x", "execute", "Execute"),
         Binding("h", "health", "Health"),
         Binding("l", "logs", "Logs"),
+        Binding("s", "settings", "Settings"),
     ]
 
     DEFAULT_CSS = """
@@ -201,6 +203,13 @@ class HomeScreen(Screen):
             self.app.call_from_thread(self.load_pis)
         except ApiError as e:
             self.app.call_from_thread(self.notify, str(e), severity="error")
+
+    def action_settings(self) -> None:
+        def _on_result(path: str | None) -> None:
+            if path:
+                self.notify(f"SSH key path updated")
+
+        self.app.push_screen(SettingsScreen(self._api), _on_result)
 
     @work(thread=True)
     def _do_delete_pis(self, positions: list[str]) -> None:

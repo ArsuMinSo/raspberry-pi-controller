@@ -7,7 +7,7 @@ import time
 import paramiko
 from sqlalchemy.orm import Session
 
-from backend.config import Settings
+from backend.config import SSHSettings
 from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
@@ -80,7 +80,7 @@ def probe_pi(ip: str, settings) -> tuple[str | None, str | None, int | None]:
         client.close()
 
 
-def scan_subnet(subnet: str, db: Session, settings: Settings) -> DiscoveryScanResult:
+def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings) -> DiscoveryScanResult:
     entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
 
@@ -100,7 +100,7 @@ def scan_subnet(subnet: str, db: Session, settings: Settings) -> DiscoveryScanRe
         if not mac:
             continue
 
-        hostname, pi_version, serial = probe_pi(ip, settings.ssh)
+        hostname, pi_version, serial = probe_pi(ip, ssh_settings)
 
         discovered.append(DiscoveredPi(
             ip=ip,

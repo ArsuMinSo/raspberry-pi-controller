@@ -108,3 +108,25 @@ def _load(path: str = "config.yaml") -> Settings:
 @functools.lru_cache(maxsize=1)
 def get_settings(path: str = "config.yaml") -> Settings:
     return _load(path)
+
+
+# Runtime SSH overrides — populated by PATCH /settings, take precedence over config.yaml.
+_ssh_overrides: dict = {}
+
+
+def get_ssh_overrides() -> dict:
+    return _ssh_overrides
+
+
+def apply_ssh_override(key_path: str | None = None) -> None:
+    if key_path is not None:
+        _ssh_overrides["private_key_path"] = key_path
+
+
+def effective_ssh_settings() -> SSHSettings:
+    """Returns SSH settings with any runtime overrides applied."""
+    base = get_settings().ssh
+    if not _ssh_overrides:
+        return base
+    import dataclasses
+    return dataclasses.replace(base, **_ssh_overrides)

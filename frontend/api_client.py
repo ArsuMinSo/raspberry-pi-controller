@@ -121,3 +121,9 @@ class ApiClient:
 
     def get_discovery_result(self, action_id: int) -> dict:
         return self._get(f"/discovery/scan/{action_id}")
+
+    def get_settings(self) -> dict:
+        return self._get("/settings")
+
+    def set_ssh_key_path(self, path: str) -> dict:
+        return self._patch("/settings", {"ssh_key_path": path})

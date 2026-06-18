@@ -3,7 +3,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.config import get_settings
+from backend.config import effective_ssh_settings
 from backend.database import get_db
 from backend.models import Pi
 from backend.schemas import ActionQueued, HealthCheckResult, HealthTriggerRequest, PiHealthResult
@@ -15,8 +15,6 @@ router = APIRouter()
 
 @router.post("/trigger", response_model=ActionQueued)
 def trigger_health(body: HealthTriggerRequest, db: Session = Depends(get_db)):
-    settings = get_settings()
-
     if body.all:
         pis = db.query(Pi).filter(Pi.status == "reachable").all()
         if not pis:
@@ -28,7 +26,7 @@ def trigger_health(body: HealthTriggerRequest, db: Session = Depends(get_db)):
         if missing:
             raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
 
-    action_id = run_health_check(pis, db, settings)
+    action_id = run_health_check(pis, db, effective_ssh_settings())
     return ActionQueued(action_id=action_id)
 
 
