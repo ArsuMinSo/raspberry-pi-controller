@@ -23,6 +23,8 @@ class SettingsPatch(BaseModel):
     username: str | None = None
     timeout_s: int | None = None
     subnet: str | None = None
+    probe_ssh: bool | None = None
+    probe_timeout_s: int | None = None
 
 
 class SSHTestRequest(BaseModel):
@@ -37,11 +39,19 @@ def _ssh_view(ssh) -> dict:
     }
 
 
+def _net_view(net) -> dict:
+    return {
+        "subnet": net.subnet,
+        "probe_ssh": net.probe_ssh,
+        "probe_timeout_s": net.probe_timeout_s,
+    }
+
+
 @router.get("")
 def get_settings_view():
     return {
         "ssh": _ssh_view(effective_ssh_settings()),
-        "network": {"subnet": effective_network_settings().subnet},
+        "network": _net_view(effective_network_settings()),
     }
 
 
@@ -52,12 +62,16 @@ def patch_settings(body: SettingsPatch):
         username=body.username,
         timeout_s=body.timeout_s,
     )
-    apply_network_override(subnet=body.subnet)
+    apply_network_override(
+        subnet=body.subnet,
+        probe_ssh=body.probe_ssh,
+        probe_timeout_s=body.probe_timeout_s,
+    )
     persist_ssh_settings()
     persist_network_settings()
     return {
         "ssh": _ssh_view(effective_ssh_settings()),
-        "network": {"subnet": effective_network_settings().subnet},
+        "network": _net_view(effective_network_settings()),
     }
 
 

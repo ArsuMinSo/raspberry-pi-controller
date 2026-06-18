@@ -47,6 +47,8 @@ class SSHSettings:
 class NetworkSettings:
     subnet: str
     scan_interval_s: int
+    probe_ssh: bool       # attempt SSH probe during scan (hostname/version)
+    probe_timeout_s: int  # SSH connect timeout during probe (shorter than command timeout)
 
 
 @dataclass
@@ -95,6 +97,8 @@ def _load(path: str = "config.yaml") -> Settings:
         network=NetworkSettings(
             subnet=net["subnet"],
             scan_interval_s=int(net["scan_interval_s"]),
+            probe_ssh=bool(net.get("probe_ssh", True)),
+            probe_timeout_s=int(net.get("probe_timeout_s", 3)),
         ),
         server=ServerSettings(
             host=srv["host"],
@@ -157,9 +161,17 @@ def persist_ssh_settings(path: str = "config.yaml") -> None:
 _network_overrides: dict = {}
 
 
-def apply_network_override(subnet: str | None = None) -> None:
+def apply_network_override(
+    subnet: str | None = None,
+    probe_ssh: bool | None = None,
+    probe_timeout_s: int | None = None,
+) -> None:
     if subnet is not None:
         _network_overrides["subnet"] = subnet
+    if probe_ssh is not None:
+        _network_overrides["probe_ssh"] = probe_ssh
+    if probe_timeout_s is not None:
+        _network_overrides["probe_timeout_s"] = probe_timeout_s
 
 
 def effective_network_settings() -> NetworkSettings:

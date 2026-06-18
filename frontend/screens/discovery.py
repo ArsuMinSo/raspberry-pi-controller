@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Button, DataTable, Footer, Header, Input, Label
+from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
@@ -50,6 +50,10 @@ class DiscoveryScreen(Screen):
     .range-input {
         width: 18;
     }
+    #probe-check {
+        width: auto;
+        margin-left: 2;
+    }
     #save-btn {
         width: auto;
         margin-left: 2;
@@ -84,6 +88,7 @@ class DiscoveryScreen(Screen):
             yield Input(placeholder="10.10.30.1", id="from-ip", classes="range-input")
             yield Label("To:", classes="range-label")
             yield Input(placeholder="10.10.30.254", id="to-ip", classes="range-input")
+            yield Checkbox("SSH probe", value=True, id="probe-check")
             yield Button("Save", variant="default", id="save-btn")
             yield Button("Scan  [s]", variant="primary", id="scan-btn")
             yield Label("", id="saved-note")
@@ -99,15 +104,18 @@ class DiscoveryScreen(Screen):
     def _load_range(self) -> None:
         try:
             data = self._api.get_settings()
-            stored = data.get("network", {}).get("subnet", "")
+            net = data.get("network", {})
+            stored = net.get("subnet", "")
+            probe_ssh = net.get("probe_ssh", True)
             from_ip, to_ip = _range_to_from_to(stored)
-            self.app.call_from_thread(self._set_range, from_ip, to_ip)
+            self.app.call_from_thread(self._set_range, from_ip, to_ip, probe_ssh)
         except ApiError:
             pass
 
-    def _set_range(self, from_ip: str, to_ip: str) -> None:
+    def _set_range(self, from_ip: str, to_ip: str, probe_ssh: bool) -> None:
         self.query_one("#from-ip", Input).value = from_ip
         self.query_one("#to-ip", Input).value = to_ip
+        self.query_one("#probe-check", Checkbox).value = probe_ssh
 
     def _build_range_str(self) -> str | None:
         from_ip = self.query_one("#from-ip", Input).value.strip()
@@ -123,18 +131,21 @@ class DiscoveryScreen(Screen):
             return None
         return f"{from_ip}-{to_ip}"
 
+    def _probe_ssh(self) -> bool:
+        return self.query_one("#probe-check", Checkbox).value
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-btn":
             r = self._build_range_str()
             if r:
-                self._do_save(r)
+                self._do_save(r, self._probe_ssh())
         elif event.button.id == "scan-btn":
             self.action_scan()
 
     @work(thread=True)
-    def _do_save(self, scan_range: str) -> None:
+    def _do_save(self, scan_range: str, probe_ssh: bool) -> None:
         try:
-            self._api.update_network_settings(scan_range)
+            self._api.update_network_settings(scan_range, probe_ssh=probe_ssh)
             self.app.call_from_thread(
                 self.query_one("#saved-note", Label).update, "[green]Saved[/green]"
             )
@@ -142,13 +153,14 @@ class DiscoveryScreen(Screen):
             self.app.call_from_thread(self.notify, str(e), severity="error")
 
     @work(thread=True)
-    def _do_scan(self, scan_range: str) -> None:
+    def _do_scan(self, scan_range: str, probe_ssh: bool) -> None:
+        probe_note = "with SSH probe" if probe_ssh else "ping+ARP only"
         self.app.call_from_thread(
             self.query_one("#subtitle", Label).update,
-            f"[yellow]Scanning {scan_range} …[/yellow]",
+            f"[yellow]Scanning {scan_range} ({probe_note}) …[/yellow]",
         )
         try:
-            self._api.update_network_settings(scan_range)
+            self._api.update_network_settings(scan_range, probe_ssh=probe_ssh)
             self.app.call_from_thread(
                 self.query_one("#saved-note", Label).update, "[green]Saved[/green]"
             )
@@ -185,7 +197,7 @@ class DiscoveryScreen(Screen):
     def action_scan(self) -> None:
         r = self._build_range_str()
         if r:
-            self._do_scan(r)
+            self._do_scan(r, self._probe_ssh())
 
     def action_back(self) -> None:
         self.app.pop_screen()

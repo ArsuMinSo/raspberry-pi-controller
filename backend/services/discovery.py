@@ -7,7 +7,7 @@ import time
 import paramiko
 from sqlalchemy.orm import Session
 
-from backend.config import SSHSettings
+from backend.config import NetworkSettings, SSHSettings
 from backend.utils.helpers import load_private_key
 from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
@@ -44,20 +44,20 @@ def _extract_pi_version(model_line: str) -> int | None:
     return None
 
 
-def probe_pi(ip: str, settings) -> tuple[str | None, str | None, int | None]:
+def probe_pi(ip: str, ssh: SSHSettings, probe_timeout_s: int = 3) -> tuple[str | None, str | None, int | None]:
     """Returns (hostname, pi_version, serial) via SSH. All None on failure."""
     import socket
-    key = load_private_key(settings.private_key_path)
+    key = load_private_key(ssh.private_key_path)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
         client.connect(
             ip,
-            username=settings.username,
+            username=ssh.username,
             pkey=key,
-            timeout=5,
-            banner_timeout=5,
-            auth_timeout=5,
+            timeout=probe_timeout_s,
+            banner_timeout=probe_timeout_s,
+            auth_timeout=probe_timeout_s,
         )
 
         def run(cmd):
@@ -94,9 +94,12 @@ def _parse_hosts(scan_range: str) -> list:
     return list(ipaddress.ip_network(scan_range, strict=False).hosts())
 
 
-def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings) -> DiscoveryScanResult:
+def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings, net_settings: NetworkSettings | None = None) -> DiscoveryScanResult:
     entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
+
+    do_probe = net_settings.probe_ssh if net_settings else True
+    probe_timeout = net_settings.probe_timeout_s if net_settings else 3
 
     hosts = _parse_hosts(subnet)
     discovered: list[DiscoveredPi] = []
@@ -114,7 +117,10 @@ def scan_subnet(subnet: str, db: Session, ssh_settings: SSHSettings) -> Discover
         if not mac:
             continue
 
-        hostname, pi_version, serial = probe_pi(ip, ssh_settings)
+        if do_probe:
+            hostname, pi_version, serial = probe_pi(ip, ssh_settings, probe_timeout)
+        else:
+            hostname, pi_version, serial = None, None, None
 
         discovered.append(DiscoveredPi(
             ip=ip,
