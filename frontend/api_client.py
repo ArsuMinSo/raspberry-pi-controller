@@ -125,5 +125,20 @@ class ApiClient:
     def get_settings(self) -> dict:
         return self._get("/settings")
 
-    def set_ssh_key_path(self, path: str) -> dict:
-        return self._patch("/settings", {"ssh_key_path": path})
+    def update_ssh_settings(
+        self,
+        key_path: str | None = None,
+        username: str | None = None,
+        timeout_s: int | None = None,
+    ) -> dict:
+        body = {}
+        if key_path is not None:
+            body["ssh_key_path"] = key_path
+        if username is not None:
+            body["username"] = username
+        if timeout_s is not None:
+            body["timeout_s"] = timeout_s
+        return self._patch("/settings", body)
+
+    def test_ssh_connection(self, ip: str) -> dict:
+        return self._post("/settings/test", {"ip": ip})

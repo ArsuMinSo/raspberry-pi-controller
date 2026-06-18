@@ -118,9 +118,17 @@ def get_ssh_overrides() -> dict:
     return _ssh_overrides
 
 
-def apply_ssh_override(key_path: str | None = None) -> None:
+def apply_ssh_override(
+    key_path: str | None = None,
+    username: str | None = None,
+    timeout_s: int | None = None,
+) -> None:
     if key_path is not None:
         _ssh_overrides["private_key_path"] = key_path
+    if username is not None:
+        _ssh_overrides["username"] = username
+    if timeout_s is not None:
+        _ssh_overrides["timeout_s"] = timeout_s
 
 
 def effective_ssh_settings() -> SSHSettings:
