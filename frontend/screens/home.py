@@ -22,6 +22,7 @@ class HomeScreen(Screen):
         Binding("x", "execute", "Execute"),
         Binding("h", "health", "Health"),
         Binding("l", "logs", "Logs"),
+        Binding("D", "discovery", "Discover"),
         Binding("s", "settings", "Settings"),
     ]
 
@@ -203,6 +204,9 @@ class HomeScreen(Screen):
             self.app.call_from_thread(self.load_pis)
         except ApiError as e:
             self.app.call_from_thread(self.notify, str(e), severity="error")
+
+    def action_discovery(self) -> None:
+        self.app.push_screen("discovery")
 
     def action_settings(self) -> None:
         def _on_result(path: str | None) -> None:

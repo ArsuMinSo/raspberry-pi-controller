@@ -10,6 +10,7 @@ from textual.binding import Binding
 
 from frontend.api_client import ApiClient
 from frontend.config import BACKEND_URL
+from frontend.screens.discovery import DiscoveryScreen
 from frontend.screens.execute import ExecuteScreen
 from frontend.screens.health import HealthScreen
 from frontend.screens.home import HomeScreen
@@ -49,6 +50,8 @@ class PiController(App):
                 super().push_screen(HealthScreen(self._api, home.selected))
             elif screen == "logs":
                 super().push_screen(LogsScreen(self._api))
+            elif screen == "discovery":
+                super().push_screen(DiscoveryScreen(self._api))
         else:
             super().push_screen(screen, *args, **kwargs)
 

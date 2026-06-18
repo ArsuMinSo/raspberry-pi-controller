@@ -147,6 +147,9 @@ class LogEntry(BaseModel):
     command: str | None
     exit_code: int | None
     status: str
+    stdout: str | None
+    stderr: str | None
+    duration_ms: int | None
 
     model_config = ConfigDict(from_attributes=True)
 

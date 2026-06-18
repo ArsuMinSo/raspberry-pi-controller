@@ -1,16 +1,17 @@
 from textual.app import ComposeResult
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Input, Label, Static
+from textual.widgets import DataTable, Footer, Header, Input, Label
 from textual.binding import Binding
-from textual.containers import Vertical
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
+from frontend.screens.detail import DetailScreen
 from frontend.utils.formatters import truncate
 
 
 class ExecuteScreen(Screen):
     BINDINGS = [
+        Binding("enter", "detail", "Detail", show=True),
         Binding("escape", "back", "Back"),
     ]
 
@@ -56,7 +57,7 @@ class ExecuteScreen(Screen):
         )
         yield Label("Command:", id="cmd-label")
         yield Input(placeholder="e.g. uptime", id="cmd-input")
-        yield Label("Results:", id="results-label")
+        yield Label("Results: (Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
@@ -111,7 +112,8 @@ class ExecuteScreen(Screen):
         status = result.get("status", "")
         color = "green" if status == "success" else ("red" if status == "fail" else "yellow")
         self.query_one("#results-label", Label).update(
-            f"[{color}]{status.upper()}[/{color}] — {success}/{total} succeeded"
+            f"[{color}]{status.upper()}[/{color}] — {success}/{total} succeeded  "
+            f"(Enter on row for full output)"
         )
         self.query_one(Input).disabled = False
         self.query_one(Input).clear()
@@ -121,6 +123,32 @@ class ExecuteScreen(Screen):
         self.query_one("#results-label", Label).update(f"[red]Error: {msg}[/red]")
         self.query_one(Input).disabled = False
         self.query_one(Input).focus()
+
+    def action_detail(self) -> None:
+        table = self.query_one(DataTable)
+        row = table.cursor_row
+        if row < 0 or row >= len(self._results):
+            return
+        r = self._results[row]
+        pos = r.get("position", "?")
+        ec = r.get("exit_code")
+        meta = [
+            ("Position", pos),
+            ("Exit code", str(ec) if ec is not None else "—"),
+            ("Error", r.get("error") or "—"),
+        ]
+        stdout = r.get("stdout") or ""
+        stderr = r.get("stderr") or ""
+        body = ""
+        if stdout:
+            body += "─── STDOUT ─────────────────────────────────────────\n"
+            body += stdout.rstrip() + "\n"
+        if stderr:
+            body += "\n─── STDERR ─────────────────────────────────────────\n"
+            body += stderr.rstrip() + "\n"
+        if not body:
+            body = "(no output)"
+        self.app.push_screen(DetailScreen(f"Result: {pos}", meta, body))
 
     def action_back(self) -> None:
         self.app.pop_screen()
