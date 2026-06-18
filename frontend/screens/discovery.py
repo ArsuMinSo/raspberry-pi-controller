@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label
+from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label, Select
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
@@ -45,6 +45,12 @@ class DiscoveryScreen(Screen):
         padding: 0 1;
         align: left middle;
     }
+    #probe-row {
+        height: 3;
+        padding: 0 1;
+        align: left middle;
+        background: $surface;
+    }
     .range-label {
         width: auto;
         padding: 0 1;
@@ -68,6 +74,21 @@ class DiscoveryScreen(Screen):
         width: auto;
         margin-left: 1;
         color: $text-muted;
+    }
+    #probe-user {
+        width: 16;
+    }
+    #probe-auth-select {
+        width: 14;
+        margin-left: 1;
+    }
+    #probe-pass {
+        width: 18;
+        margin-left: 1;
+    }
+    #probe-deploy {
+        width: auto;
+        margin-left: 2;
     }
     #subtitle {
         height: 1;
@@ -95,30 +116,73 @@ class DiscoveryScreen(Screen):
             yield Button("Save", variant="default", id="save-btn")
             yield Button("Scan  [s]", variant="primary", id="scan-btn")
             yield Label("", id="saved-note")
+        with Horizontal(id="probe-row"):
+            yield Label("Probe:", classes="range-label")
+            yield Label("User:", classes="range-label")
+            yield Input(placeholder="pi", id="probe-user")
+            yield Select(
+                [("Key", "key"), ("Password", "password")],
+                value="key",
+                id="probe-auth-select",
+                allow_blank=False,
+            )
+            yield Input(
+                placeholder="password",
+                id="probe-pass",
+                password=True,
+            )
+            yield Checkbox("Deploy key", value=False, id="probe-deploy")
         yield Label("Set range and press Scan or [bold]s[/bold]", id="subtitle")
         yield DataTable(id="disc-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
     def on_mount(self) -> None:
         self.query_one(DataTable).add_columns("IP", "Hostname", "Pi Version")
-        self._load_range()
+        self._load_settings()
+        self._update_probe_row_visibility()
 
     @work(thread=True)
-    def _load_range(self) -> None:
+    def _load_settings(self) -> None:
         try:
             data = self._api.get_settings()
             net = data.get("network", {})
             stored = net.get("subnet", "")
             probe_ssh = net.get("probe_ssh", True)
+            probe_username = net.get("probe_username", "")
+            probe_auth = net.get("probe_auth", "key")
+            probe_deploy_key = net.get("probe_deploy_key", False)
             from_ip, to_ip = _range_to_from_to(stored)
-            self.app.call_from_thread(self._set_range, from_ip, to_ip, probe_ssh)
+            self.app.call_from_thread(
+                self._set_all_settings,
+                from_ip, to_ip, probe_ssh, probe_username, probe_auth, probe_deploy_key,
+            )
         except ApiError:
             pass
 
-    def _set_range(self, from_ip: str, to_ip: str, probe_ssh: bool) -> None:
+    def _set_all_settings(
+        self,
+        from_ip: str,
+        to_ip: str,
+        probe_ssh: bool,
+        probe_username: str,
+        probe_auth: str,
+        probe_deploy_key: bool,
+    ) -> None:
         self.query_one("#from-ip", Input).value = from_ip
         self.query_one("#to-ip", Input).value = to_ip
         self.query_one("#probe-check", Checkbox).value = probe_ssh
+        if probe_username:
+            self.query_one("#probe-user", Input).value = probe_username
+        self.query_one("#probe-auth-select", Select).value = probe_auth
+        self.query_one("#probe-deploy", Checkbox).value = probe_deploy_key
+        self._update_probe_row_visibility()
+
+    def _update_probe_row_visibility(self) -> None:
+        probe_on = self.query_one("#probe-check", Checkbox).value
+        self.query_one("#probe-row").display = probe_on
+        auth = self._probe_auth()
+        self.query_one("#probe-pass", Input).display = auth == "password"
+        self.query_one("#probe-deploy", Checkbox).display = auth == "password"
 
     def _build_range_str(self) -> str | None:
         from_ip = self.query_one("#from-ip", Input).value.strip()
@@ -137,18 +201,49 @@ class DiscoveryScreen(Screen):
     def _probe_ssh(self) -> bool:
         return self.query_one("#probe-check", Checkbox).value
 
+    def _probe_auth(self) -> str:
+        val = self.query_one("#probe-auth-select", Select).value
+        return str(val) if val and val != Select.BLANK else "key"
+
+    def _probe_username(self) -> str | None:
+        v = self.query_one("#probe-user", Input).value.strip()
+        return v or None
+
+    def _probe_password(self) -> str | None:
+        if self._probe_auth() != "password":
+            return None
+        v = self.query_one("#probe-pass", Input).value
+        return v or None
+
+    def _probe_deploy_key(self) -> bool:
+        return self.query_one("#probe-deploy", Checkbox).value
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "probe-check":
+            self._update_probe_row_visibility()
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        if event.select.id == "probe-auth-select":
+            self._update_probe_row_visibility()
+
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "save-btn":
             r = self._build_range_str()
             if r:
-                self._do_save(r, self._probe_ssh())
+                self._do_save(r)
         elif event.button.id == "scan-btn":
             self.action_scan()
 
     @work(thread=True)
-    def _do_save(self, scan_range: str, probe_ssh: bool) -> None:
+    def _do_save(self, scan_range: str) -> None:
         try:
-            self._api.update_network_settings(scan_range, probe_ssh=probe_ssh)
+            self._api.update_network_settings(
+                scan_range,
+                probe_ssh=self._probe_ssh(),
+                probe_username=self._probe_username(),
+                probe_auth=self._probe_auth(),
+                probe_deploy_key=self._probe_deploy_key(),
+            )
             self.app.call_from_thread(
                 self.query_one("#saved-note", Label).update, "[green]Saved[/green]"
             )
@@ -156,18 +251,24 @@ class DiscoveryScreen(Screen):
             self.app.call_from_thread(self.notify, str(e), severity="error")
 
     @work(thread=True)
-    def _do_scan(self, scan_range: str, probe_ssh: bool) -> None:
-        probe_note = "with SSH probe" if probe_ssh else "ping+ARP only"
+    def _do_scan(self, scan_range: str) -> None:
+        probe_note = "with SSH probe" if self._probe_ssh() else "ping only"
         self.app.call_from_thread(
             self.query_one("#subtitle", Label).update,
             f"[yellow]Scanning {scan_range} ({probe_note}) …[/yellow]",
         )
         try:
-            self._api.update_network_settings(scan_range, probe_ssh=probe_ssh)
+            self._api.update_network_settings(
+                scan_range,
+                probe_ssh=self._probe_ssh(),
+                probe_username=self._probe_username(),
+                probe_auth=self._probe_auth(),
+                probe_deploy_key=self._probe_deploy_key(),
+            )
             self.app.call_from_thread(
                 self.query_one("#saved-note", Label).update, "[green]Saved[/green]"
             )
-            result = self._api.scan_discovery()
+            result = self._api.scan_discovery(probe_password=self._probe_password())
             self.app.call_from_thread(self._on_result, result)
         except ApiError as e:
             self.app.call_from_thread(
@@ -190,7 +291,6 @@ class DiscoveryScreen(Screen):
                 f"Pi {pi_ver}" if pi_ver else "—",
             )
 
-        new_count = len(self._discovered) - updated
         color = "green" if status == "success" else "red"
         self.query_one("#subtitle", Label).update(
             f"[{color}]{status.upper()}[/{color}]  "
@@ -201,7 +301,7 @@ class DiscoveryScreen(Screen):
     def action_scan(self) -> None:
         r = self._build_range_str()
         if r:
-            self._do_scan(r, self._probe_ssh())
+            self._do_scan(r)
 
     def action_add_to_db(self) -> None:
         table = self.query_one(DataTable)

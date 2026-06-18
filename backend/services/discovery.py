@@ -34,21 +34,53 @@ def _extract_pi_version(model_line: str) -> int | None:
     return None
 
 
-def probe_pi(ip: str, ssh: SSHSettings, probe_timeout_s: int = 3) -> tuple[str | None, str | None, int | None]:
+def _deploy_pub_key(client: paramiko.SSHClient, private_key_path: str) -> None:
+    pub_path = private_key_path + ".pub"
+    try:
+        with open(pub_path) as f:
+            pub_key = f.read().strip()
+    except OSError:
+        return
+    cmd = (
+        f"mkdir -p ~/.ssh && chmod 700 ~/.ssh && "
+        f"grep -qF '{pub_key}' ~/.ssh/authorized_keys 2>/dev/null || "
+        f"echo '{pub_key}' >> ~/.ssh/authorized_keys && "
+        f"chmod 600 ~/.ssh/authorized_keys"
+    )
+    client.exec_command(cmd, timeout=10)
+
+
+def probe_pi(
+    ip: str,
+    ssh: SSHSettings,
+    probe_timeout_s: int = 3,
+    probe_username: str | None = None,
+    auth: str = "key",
+    password: str | None = None,
+    deploy_key: bool = False,
+) -> tuple[str | None, str | None, int | None]:
     """Returns (hostname, pi_version, serial) via SSH. All None on failure."""
     import socket
-    key = load_private_key(ssh.private_key_path)
+    username = probe_username or ssh.username
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    connect_kwargs: dict = dict(
+        timeout=probe_timeout_s,
+        banner_timeout=probe_timeout_s,
+        auth_timeout=probe_timeout_s,
+    )
     try:
-        client.connect(
-            ip,
-            username=ssh.username,
-            pkey=key,
-            timeout=probe_timeout_s,
-            banner_timeout=probe_timeout_s,
-            auth_timeout=probe_timeout_s,
-        )
+        if auth == "password" and password:
+            client.connect(
+                ip, username=username, password=password,
+                look_for_keys=False, allow_agent=False,
+                **connect_kwargs,
+            )
+            if deploy_key:
+                _deploy_pub_key(client, ssh.private_key_path)
+        else:
+            key = load_private_key(ssh.private_key_path)
+            client.connect(ip, username=username, pkey=key, **connect_kwargs)
 
         def run(cmd):
             _, out, _ = client.exec_command(cmd, timeout=5)
@@ -89,12 +121,22 @@ def _scan_host(
     ssh_settings: SSHSettings,
     do_probe: bool,
     probe_timeout: int,
+    probe_username: str | None = None,
+    probe_auth: str = "key",
+    probe_password: str | None = None,
+    probe_deploy_key: bool = False,
 ) -> tuple[str, str | None, int | None, str | None] | None:
     """Ping + optional SSH probe for one host. Returns None if host unreachable."""
     if not ping_host(ip):
         return None
     if do_probe:
-        hostname, pi_version, serial = probe_pi(ip, ssh_settings, probe_timeout)
+        hostname, pi_version, serial = probe_pi(
+            ip, ssh_settings, probe_timeout,
+            probe_username=probe_username,
+            auth=probe_auth,
+            password=probe_password,
+            deploy_key=probe_deploy_key,
+        )
     else:
         hostname, pi_version, serial = None, None, None
     return (ip, hostname, pi_version, serial)
@@ -105,12 +147,16 @@ def scan_subnet(
     db: Session,
     ssh_settings: SSHSettings,
     net_settings: NetworkSettings | None = None,
+    probe_password: str | None = None,
 ) -> DiscoveryScanResult:
     entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
 
     do_probe = net_settings.probe_ssh if net_settings else True
     probe_timeout = net_settings.probe_timeout_s if net_settings else 3
+    probe_username = net_settings.probe_username if net_settings else None
+    probe_auth = net_settings.probe_auth if net_settings else "key"
+    probe_deploy_key = net_settings.probe_deploy_key if net_settings else False
 
     hosts = [str(h) for h in _parse_hosts(subnet)]
     workers = min(64, max(1, len(hosts)))
@@ -119,7 +165,10 @@ def scan_subnet(
     alive: list[tuple[str, str | None, int | None, str | None]] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {
-            ex.submit(_scan_host, ip, ssh_settings, do_probe, probe_timeout): ip
+            ex.submit(
+                _scan_host, ip, ssh_settings, do_probe, probe_timeout,
+                probe_username, probe_auth, probe_password, probe_deploy_key,
+            ): ip
             for ip in hosts
         }
         for future in as_completed(futures):

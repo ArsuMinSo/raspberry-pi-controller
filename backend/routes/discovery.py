@@ -1,21 +1,29 @@
 import json
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from backend.config import effective_network_settings, effective_ssh_settings, get_settings
+from backend.config import effective_network_settings, effective_ssh_settings
 from backend.database import get_db
-from backend.schemas import ActionQueued, DiscoveredPi, DiscoveryScanResult
+from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
 from backend.services.discovery import scan_subnet
 
 router = APIRouter()
 
 
+class ScanRequest(BaseModel):
+    probe_password: str | None = None
+
+
 @router.post("/scan", response_model=DiscoveryScanResult)
-def start_scan(db: Session = Depends(get_db)):
+def start_scan(body: ScanRequest = None, db: Session = Depends(get_db)):
     net = effective_network_settings()
-    result = scan_subnet(net.subnet, db, effective_ssh_settings(), net)
+    result = scan_subnet(
+        net.subnet, db, effective_ssh_settings(), net,
+        probe_password=body.probe_password if body else None,
+    )
     return result
 
 

@@ -6,10 +6,13 @@ database:
   port: 5432
   user: pi_controller
 network:
+  probe_auth: key
+  probe_deploy_key: false
   probe_ssh: true
   probe_timeout_s: 3
+  probe_username: vyroba
   scan_interval_s: 86400
-  subnet: 10.10.30.50-10.10.30.70
+  subnet: 10.10.30.1-10.10.30.254
 server:
   host: 0.0.0.0
   log_level: DEBUG

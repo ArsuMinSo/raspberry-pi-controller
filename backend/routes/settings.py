@@ -25,6 +25,9 @@ class SettingsPatch(BaseModel):
     subnet: str | None = None
     probe_ssh: bool | None = None
     probe_timeout_s: int | None = None
+    probe_username: str | None = None
+    probe_auth: str | None = None    # "key" or "password"
+    probe_deploy_key: bool | None = None
 
 
 class SSHTestRequest(BaseModel):
@@ -44,6 +47,9 @@ def _net_view(net) -> dict:
         "subnet": net.subnet,
         "probe_ssh": net.probe_ssh,
         "probe_timeout_s": net.probe_timeout_s,
+        "probe_username": net.probe_username,
+        "probe_auth": net.probe_auth,
+        "probe_deploy_key": net.probe_deploy_key,
     }
 
 
@@ -66,6 +72,9 @@ def patch_settings(body: SettingsPatch):
         subnet=body.subnet,
         probe_ssh=body.probe_ssh,
         probe_timeout_s=body.probe_timeout_s,
+        probe_username=body.probe_username,
+        probe_auth=body.probe_auth,
+        probe_deploy_key=body.probe_deploy_key,
     )
     persist_ssh_settings()
     persist_network_settings()

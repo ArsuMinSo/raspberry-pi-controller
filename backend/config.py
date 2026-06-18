@@ -47,8 +47,11 @@ class SSHSettings:
 class NetworkSettings:
     subnet: str
     scan_interval_s: int
-    probe_ssh: bool       # attempt SSH probe during scan (hostname/version)
-    probe_timeout_s: int  # SSH connect timeout during probe (shorter than command timeout)
+    probe_ssh: bool
+    probe_timeout_s: int
+    probe_username: str    # username for probe connections
+    probe_auth: str        # "key" or "password"
+    probe_deploy_key: bool # copy SSH pub key during probe (password auth only)
 
 
 @dataclass
@@ -99,6 +102,9 @@ def _load(path: str = "config.yaml") -> Settings:
             scan_interval_s=int(net["scan_interval_s"]),
             probe_ssh=bool(net.get("probe_ssh", True)),
             probe_timeout_s=int(net.get("probe_timeout_s", 3)),
+            probe_username=str(net.get("probe_username", ssh["username"])),
+            probe_auth=str(net.get("probe_auth", "key")),
+            probe_deploy_key=bool(net.get("probe_deploy_key", False)),
         ),
         server=ServerSettings(
             host=srv["host"],
@@ -165,6 +171,9 @@ def apply_network_override(
     subnet: str | None = None,
     probe_ssh: bool | None = None,
     probe_timeout_s: int | None = None,
+    probe_username: str | None = None,
+    probe_auth: str | None = None,
+    probe_deploy_key: bool | None = None,
 ) -> None:
     if subnet is not None:
         _network_overrides["subnet"] = subnet
@@ -172,6 +181,12 @@ def apply_network_override(
         _network_overrides["probe_ssh"] = probe_ssh
     if probe_timeout_s is not None:
         _network_overrides["probe_timeout_s"] = probe_timeout_s
+    if probe_username is not None:
+        _network_overrides["probe_username"] = probe_username
+    if probe_auth is not None:
+        _network_overrides["probe_auth"] = probe_auth
+    if probe_deploy_key is not None:
+        _network_overrides["probe_deploy_key"] = probe_deploy_key
 
 
 def effective_network_settings() -> NetworkSettings:

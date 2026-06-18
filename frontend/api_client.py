@@ -120,8 +120,8 @@ class ApiClient:
             params["pi"] = pi
         return self._get("/logs", params)
 
-    def scan_discovery(self) -> dict:
-        return self._post("/discovery/scan", {})
+    def scan_discovery(self, probe_password: str | None = None) -> dict:
+        return self._post("/discovery/scan", {"probe_password": probe_password})
 
     def get_discovery_result(self, action_id: int) -> dict:
         return self._get(f"/discovery/scan/{action_id}")
@@ -144,10 +144,23 @@ class ApiClient:
             body["timeout_s"] = timeout_s
         return self._patch("/settings", body)
 
-    def update_network_settings(self, subnet: str, probe_ssh: bool | None = None) -> dict:
+    def update_network_settings(
+        self,
+        subnet: str,
+        probe_ssh: bool | None = None,
+        probe_username: str | None = None,
+        probe_auth: str | None = None,
+        probe_deploy_key: bool | None = None,
+    ) -> dict:
         body: dict = {"subnet": subnet}
         if probe_ssh is not None:
             body["probe_ssh"] = probe_ssh
+        if probe_username is not None:
+            body["probe_username"] = probe_username
+        if probe_auth is not None:
+            body["probe_auth"] = probe_auth
+        if probe_deploy_key is not None:
+            body["probe_deploy_key"] = probe_deploy_key
         return self._patch("/settings", body)
 
     def test_ssh_connection(self, ip: str) -> dict:
