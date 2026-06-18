@@ -1,14 +1,36 @@
 import json
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 
 import paramiko
+from sqlalchemy.sql import func
 
 from backend.config import SSHSettings
 from backend.utils.helpers import load_private_key
 from backend.models import ActionLog, Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
+
+
+_PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
+_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+_MAC_PLACEHOLDER = "00:00:00:00:00:00"
+
+
+def _extract_pi_version(model_line: str) -> int | None:
+    m = _PI_VERSION_RE.search(model_line)
+    return int(m.group(1)) if m else None
+
+
+@dataclass
+class HealthCheckData:
+    result: PiHealthResult
+    hostname: str | None
+    mac: str | None
+    pi_version: int | None
+    serial: str | None
 
 
 def _parse_cpu(raw: str) -> float | None:
@@ -34,12 +56,29 @@ def _parse_disk(raw: str) -> tuple[float | None, float | None]:
         return None, None
 
 
-def check_health(ip: str, position: str, settings: SSHSettings) -> PiHealthResult:
+def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckData:
     import socket
 
     key = load_private_key(settings.private_key_path)
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+
+    def _error_data(msg: str) -> HealthCheckData:
+        return HealthCheckData(
+            result=PiHealthResult(
+                position=position,
+                cpu_percent=None,
+                mem_used_mb=None,
+                mem_total_mb=None,
+                disk_used_gb=None,
+                disk_total_gb=None,
+                error=msg,
+            ),
+            hostname=None,
+            mac=None,
+            pi_version=None,
+            serial=None,
+        )
 
     try:
         client.connect(
@@ -58,30 +97,43 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> PiHealthResul
         cpu_raw = run("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'")
         mem_raw = run("free -m | awk '/^Mem:/{print $2, $3}'")
         disk_raw = run("df -m / | awk 'NR==2{print $2, $3}'")
+        hostname_raw = run("hostname").strip() or None
+        cpuinfo = run("cat /proc/cpuinfo")
+        mac_raw = run(
+            "ip link show | awk '/link\\/ether/{print $2; exit}'"
+        ).strip().lower()
+
+        model_line = next(
+            (l for l in cpuinfo.splitlines() if l.lower().startswith("model")), ""
+        )
+        serial_line = next(
+            (l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), ""
+        )
+        pi_version = _extract_pi_version(model_line)
+        serial = serial_line.split(":")[-1].strip() or None if serial_line else None
+        mac = mac_raw if _MAC_RE.match(mac_raw) else None
 
         cpu = _parse_cpu(cpu_raw)
         mem_total, mem_used = _parse_mem(mem_raw)
         disk_total, disk_used = _parse_disk(disk_raw)
 
-        return PiHealthResult(
-            position=position,
-            cpu_percent=cpu,
-            mem_used_mb=mem_used,
-            mem_total_mb=mem_total,
-            disk_used_gb=disk_used,
-            disk_total_gb=disk_total,
-            error=None,
+        return HealthCheckData(
+            result=PiHealthResult(
+                position=position,
+                cpu_percent=cpu,
+                mem_used_mb=mem_used,
+                mem_total_mb=mem_total,
+                disk_used_gb=disk_used,
+                disk_total_gb=disk_total,
+                error=None,
+            ),
+            hostname=hostname_raw,
+            mac=mac,
+            pi_version=pi_version,
+            serial=serial,
         )
     except (paramiko.SSHException, OSError, socket.timeout) as e:
-        return PiHealthResult(
-            position=position,
-            cpu_percent=None,
-            mem_used_mb=None,
-            mem_total_mb=None,
-            disk_used_gb=None,
-            disk_total_gb=None,
-            error=str(e),
-        )
+        return _error_data(str(e))
     finally:
         client.close()
 
@@ -93,14 +145,16 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
 
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
     workers = min(ssh.parallel_limit, max(1, len(targets)))
-    result_map: dict[str, PiHealthResult] = {}
+    data_map: dict[str, HealthCheckData] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {ex.submit(check_health, ip, pos, ssh): pos for ip, pos in targets}
         for future in as_completed(futures):
-            r = future.result()
-            result_map[r.position] = r
+            d = future.result()
+            data_map[d.result.position] = d
 
     results: list[PiHealthResult] = []
+    pi_map = {p.position: p for p in pis}
+
     for pi in pis:
         if pi.current_ip is None:
             results.append(PiHealthResult(
@@ -112,8 +166,26 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
                 disk_total_gb=None,
                 error="no IP recorded",
             ))
+            continue
+
+        d = data_map[pi.position]
+        results.append(d.result)
+
+        if d.result.error is None:
+            pi.status = "reachable"
+            pi.last_seen = func.now()
+            if d.hostname:
+                pi.hostname = d.hostname
+            if d.mac and d.mac != _MAC_PLACEHOLDER:
+                pi.mac = d.mac
+            if d.pi_version is not None:
+                pi.pi_version = d.pi_version
+            if d.serial:
+                pi.serial = d.serial
         else:
-            results.append(result_map[pi.position])
+            pi.status = "unreachable"
+
+    db.commit()
 
     errors = [r for r in results if r.error]
     if len(errors) == 0:
