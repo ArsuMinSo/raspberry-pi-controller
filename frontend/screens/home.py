@@ -12,6 +12,30 @@ from frontend.screens.manage_pi import ManagePiScreen
 from frontend.screens.settings import SettingsScreen
 
 
+_BASE_HEADERS = ("", "Position", "Hostname", "IP", "MAC", "Status", "Ver", "Tags", "Last Seen")
+
+_SORT_KEYS = [
+    None,
+    lambda p: (p.get("position") or "").lower(),
+    lambda p: (p.get("hostname") or "").lower(),
+    lambda p: _ip_sort_key(p.get("ip")),
+    lambda p: (p.get("mac") or "").lower(),
+    lambda p: p.get("status") or "",
+    lambda p: p.get("pi_version") or 0,
+    lambda p: ",".join(sorted(p.get("tags") or [])),
+    lambda p: str(p.get("last_seen") or ""),
+]
+
+
+def _ip_sort_key(ip: str | None) -> tuple:
+    if not ip:
+        return (999, 999, 999, 999)
+    try:
+        return tuple(int(part) for part in ip.split("."))
+    except ValueError:
+        return (999, 999, 999, 999)
+
+
 class HomeScreen(Screen):
     BINDINGS = [
         Binding("r", "refresh", "Refresh"),
@@ -48,6 +72,8 @@ class HomeScreen(Screen):
         self._api = api
         self._pis: list[dict] = []
         self.selected: set[str] = set()
+        self._sort_col: int | None = None
+        self._sort_asc: bool = True
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -56,8 +82,7 @@ class HomeScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("", "Position", "Hostname", "IP", "MAC", "Status", "Ver", "Tags", "Last Seen")
+        self._redraw_table()
         self.load_pis()
 
     @work(thread=True)
@@ -71,13 +96,31 @@ class HomeScreen(Screen):
 
     def _on_pis_loaded(self, pis: list[dict]) -> None:
         self._pis = pis
+        self._apply_sort()
+        reachable = sum(1 for p in pis if p.get("status") == "reachable")
+        self.query_one("#subtitle", Label).update(
+            f"{len(pis)} Pi(s) — {reachable} reachable, {len(self.selected)} selected"
+        )
+
+    def _on_load_error(self, msg: str) -> None:
+        self.query_one("#subtitle", Label).update(f"[red]Error: {msg}[/red]")
+
+    def _apply_sort(self) -> None:
+        if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
+            self._pis.sort(key=_SORT_KEYS[self._sort_col], reverse=not self._sort_asc)
+        self._redraw_table()
+
+    def _redraw_table(self) -> None:
         table = self.query_one(DataTable)
-        table.clear()
-        for pi in pis:
+        table.clear(columns=True)
+        headers = list(_BASE_HEADERS)
+        if self._sort_col is not None:
+            headers[self._sort_col] += " ▲" if self._sort_asc else " ▼"
+        table.add_columns(*headers)
+        for pi in self._pis:
             pos = pi.get("position", "")
-            sel = "✓" if pos in self.selected else " "
             table.add_row(
-                sel,
+                "✓" if pos in self.selected else " ",
                 pos,
                 pi.get("hostname") or "—",
                 pi.get("ip") or "—",
@@ -88,13 +131,17 @@ class HomeScreen(Screen):
                 fmt_datetime(pi.get("last_seen")),
                 key=pos,
             )
-        reachable = sum(1 for p in pis if p.get("status") == "reachable")
-        self.query_one("#subtitle", Label).update(
-            f"{len(pis)} Pi(s) — {reachable} reachable, {len(self.selected)} selected"
-        )
 
-    def _on_load_error(self, msg: str) -> None:
-        self.query_one("#subtitle", Label).update(f"[red]Error: {msg}[/red]")
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        col = event.column_index
+        if col == 0 or _SORT_KEYS[col] is None:
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        self._apply_sort()
 
     def _refresh_subtitle(self) -> None:
         reachable = sum(1 for p in self._pis if p.get("status") == "reachable")
