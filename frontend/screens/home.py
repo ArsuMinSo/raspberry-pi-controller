@@ -6,6 +6,7 @@ from textual import work
 
 from frontend.api_client import ApiClient, ApiError
 from frontend.utils.formatters import fmt_datetime, fmt_tags, status_markup
+from frontend.screens.confirm import ConfirmScreen
 from frontend.screens.deploy_key import DeployKeyScreen
 from frontend.screens.manage_pi import ManagePiScreen
 from frontend.screens.settings import SettingsScreen
@@ -181,7 +182,18 @@ class HomeScreen(Screen):
         if not targets:
             self.notify("Nothing to delete", severity="warning")
             return
-        self._do_delete_pis(targets)
+        if len(targets) == 1:
+            msg = f"Delete [bold]{targets[0]}[/bold]?"
+        else:
+            msg = f"Delete [bold]{len(targets)} Pis[/bold]?\n{', '.join(sorted(targets)[:10])}" + (
+                f"\n… and {len(targets) - 10} more" if len(targets) > 10 else ""
+            )
+
+        def _on_confirm(confirmed: bool) -> None:
+            if confirmed:
+                self._do_delete_pis(targets)
+
+        self.app.push_screen(ConfirmScreen(msg, title="Delete Pi(s)"), _on_confirm)
 
     def _current_pi(self) -> dict | None:
         table = self.query_one(DataTable)
