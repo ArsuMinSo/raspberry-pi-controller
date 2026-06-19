@@ -1,3 +1,4 @@
+import signal
 import sys
 from pathlib import Path
 
@@ -23,8 +24,11 @@ class PiController(App):
 
     BINDINGS = [
         Binding("q", "quit", "Quit", priority=True),
-        Binding("ctrl+c", "quit", "Quit", show=False, priority=True),
+        Binding("ctrl+c", "noop", show=False, priority=True),
     ]
+
+    def action_noop(self) -> None:
+        pass
 
     CSS = """
     Screen {
@@ -57,6 +61,7 @@ class PiController(App):
 
 
 def main() -> None:
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     api = ApiClient(BACKEND_URL)
     app = PiController(api)
     app.run()
