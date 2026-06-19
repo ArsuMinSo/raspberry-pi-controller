@@ -12,8 +12,27 @@ from frontend.api_client import ApiClient, ApiError
 from frontend.screens.manage_pi import ManagePiScreen
 
 
+_BASE_HEADERS = ("", "IP", "Hostname", "Pi Version", "MAC")
+
+_SORT_KEYS = [
+    None,
+    lambda d: _ip_sort_key(d.get("ip")),
+    lambda d: (d.get("hostname") or "").lower(),
+    lambda d: d.get("pi_version") or 0,
+    lambda d: (d.get("mac") or "").lower(),
+]
+
+
+def _ip_sort_key(ip: str | None) -> tuple:
+    if not ip:
+        return (999, 999, 999, 999)
+    try:
+        return tuple(int(part) for part in ip.split("."))
+    except ValueError:
+        return (999, 999, 999, 999)
+
+
 def _range_to_from_to(scan_range: str) -> tuple[str, str]:
-    """Parse stored range (CIDR or start-end) back into (from_ip, to_ip)."""
     scan_range = scan_range.strip()
     if not scan_range:
         return "", ""
@@ -106,7 +125,9 @@ class DiscoveryScreen(Screen):
         super().__init__()
         self._api = api
         self._discovered: list[dict] = []
-        self._selected: set[int] = set()
+        self._selected: set[str] = set()  # keyed by IP
+        self._sort_col: int | None = None
+        self._sort_asc: bool = True
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -136,7 +157,7 @@ class DiscoveryScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.query_one(DataTable).add_columns("", "IP", "Hostname", "Pi Version", "MAC")
+        self._redraw_table()
         self._load_settings()
         self._update_probe_row_visibility()
 
@@ -233,6 +254,40 @@ class DiscoveryScreen(Screen):
         elif event.button.id == "scan-btn":
             self.action_scan()
 
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        col = event.column_index
+        if col == 0 or _SORT_KEYS[col] is None:
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        self._apply_sort()
+
+    def _apply_sort(self) -> None:
+        if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
+            self._discovered.sort(key=_SORT_KEYS[self._sort_col], reverse=not self._sort_asc)
+        self._redraw_table()
+
+    def _redraw_table(self) -> None:
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        headers = list(_BASE_HEADERS)
+        if self._sort_col is not None:
+            headers[self._sort_col] += " ▲" if self._sort_asc else " ▼"
+        table.add_columns(*headers)
+        for d in self._discovered:
+            ip = d.get("ip", "")
+            pi_ver = d.get("pi_version")
+            table.add_row(
+                "✓" if ip in self._selected else " ",
+                ip,
+                d.get("hostname") or "—",
+                f"Pi {pi_ver}" if pi_ver else "—",
+                d.get("mac") or "—",
+            )
+
     @work(thread=True)
     def _do_save(self, scan_range: str) -> None:
         try:
@@ -281,17 +336,9 @@ class DiscoveryScreen(Screen):
         updated = result.get("updated", 0)
         status = result.get("status", "")
 
-        table = self.query_one(DataTable)
-        table.clear()
-        for d in self._discovered:
-            pi_ver = d.get("pi_version")
-            table.add_row(
-                " ",
-                d.get("ip", ""),
-                d.get("hostname") or "—",
-                f"Pi {pi_ver}" if pi_ver else "—",
-                d.get("mac") or "—",
-            )
+        if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
+            self._discovered.sort(key=_SORT_KEYS[self._sort_col], reverse=not self._sort_asc)
+        self._redraw_table()
 
         color = "green" if status == "success" else "red"
         self.query_one("#subtitle", Label).update(
@@ -315,11 +362,12 @@ class DiscoveryScreen(Screen):
         row = table.cursor_row
         if row < 0 or row >= len(self._discovered):
             return
-        if row in self._selected:
-            self._selected.discard(row)
+        ip = self._discovered[row].get("ip", "")
+        if ip in self._selected:
+            self._selected.discard(ip)
         else:
-            self._selected.add(row)
-        table.update_cell_at((row, 0), "✓" if row in self._selected else " ")
+            self._selected.add(ip)
+        table.update_cell_at((row, 0), "✓" if ip in self._selected else " ")
         self._refresh_subtitle()
 
     def action_scan(self) -> None:
@@ -390,8 +438,9 @@ class DiscoveryScreen(Screen):
 
         items = []
         n = 1
-        for idx in sorted(self._selected):
-            d = self._discovered[idx]
+        for d in self._discovered:
+            if d.get("ip", "") not in self._selected:
+                continue
             while n in used_slots:
                 n += 1
             position = f"00-{n:03d}"
