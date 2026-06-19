@@ -12,7 +12,13 @@ from frontend.api_client import ApiClient, ApiError
 from frontend.screens.manage_pi import ManagePiScreen
 
 
-_BASE_HEADERS = ("", "IP", "Hostname", "Pi Version", "MAC")
+_COLUMNS = [
+    ("", 2),
+    ("IP", 16),
+    ("Hostname", 24),
+    ("Pi Version", 12),
+    ("MAC", 19),
+]
 
 _SORT_KEYS = [
     None,
@@ -273,10 +279,10 @@ class DiscoveryScreen(Screen):
     def _redraw_table(self) -> None:
         table = self.query_one(DataTable)
         table.clear(columns=True)
-        headers = list(_BASE_HEADERS)
-        if self._sort_col is not None:
-            headers[self._sort_col] += " ▲" if self._sort_asc else " ▼"
-        table.add_columns(*headers)
+        for i, (label, width) in enumerate(_COLUMNS):
+            if self._sort_col == i:
+                label += " ▲" if self._sort_asc else " ▼"
+            table.add_column(label, width=width)
         for d in self._discovered:
             ip = d.get("ip", "")
             pi_ver = d.get("pi_version")

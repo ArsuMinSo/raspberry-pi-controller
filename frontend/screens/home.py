@@ -12,7 +12,17 @@ from frontend.screens.manage_pi import ManagePiScreen
 from frontend.screens.settings import SettingsScreen
 
 
-_BASE_HEADERS = ("", "Position", "Hostname", "IP", "MAC", "Status", "Ver", "Tags", "Last Seen")
+_COLUMNS = [
+    ("", 2),
+    ("Position", 10),
+    ("Hostname", 24),
+    ("IP", 16),
+    ("MAC", 19),
+    ("Status", 14),
+    ("Ver", 5),
+    ("Tags", 24),
+    ("Last Seen", 22),
+]
 
 _SORT_KEYS = [
     None,
@@ -113,10 +123,10 @@ class HomeScreen(Screen):
     def _redraw_table(self) -> None:
         table = self.query_one(DataTable)
         table.clear(columns=True)
-        headers = list(_BASE_HEADERS)
-        if self._sort_col is not None:
-            headers[self._sort_col] += " ▲" if self._sort_asc else " ▼"
-        table.add_columns(*headers)
+        for i, (label, width) in enumerate(_COLUMNS):
+            if self._sort_col == i:
+                label += " ▲" if self._sort_asc else " ▼"
+            table.add_column(label, width=width)
         for pi in self._pis:
             pos = pi.get("position", "")
             table.add_row(
