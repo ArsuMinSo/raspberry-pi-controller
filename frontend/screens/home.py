@@ -56,7 +56,7 @@ class HomeScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("", "Position", "Hostname", "IP", "Status", "Ver", "Tags", "Last Seen")
+        table.add_columns("", "Position", "Hostname", "IP", "MAC", "Status", "Ver", "Tags", "Last Seen")
         self.load_pis()
 
     @work(thread=True)
@@ -80,6 +80,7 @@ class HomeScreen(Screen):
                 pos,
                 pi.get("hostname") or "—",
                 pi.get("ip") or "—",
+                pi.get("mac") or "—",
                 status_markup(pi.get("status", "unreachable")),
                 str(pi.get("pi_version") or "—"),
                 fmt_tags(pi.get("tags", [])),
