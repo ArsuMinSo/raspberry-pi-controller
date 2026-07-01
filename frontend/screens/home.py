@@ -245,47 +245,53 @@ class HomeScreen(Screen):
     def action_health(self) -> None:
         if self.selected:
             positions = sorted(self.selected)
-            short = ", ".join(positions[:5])
-            if len(positions) > 5:
-                short += f" +{len(positions) - 5} more"
-            self._set_health_status(f"[yellow]Checking {len(positions)} Pi(s): {short}…[/yellow]")
-            self._run_health(positions=positions)
         else:
-            reachable = [p["position"] for p in self._pis if p.get("status") == "reachable"]
-            short = ", ".join(reachable[:5])
-            if len(reachable) > 5:
-                short += f" +{len(reachable) - 5} more"
-            self._set_health_status(f"[yellow]Checking {len(reachable)} reachable Pi(s): {short}…[/yellow]")
-            self._run_health(all_pis=True)
+            positions = [p["position"] for p in self._pis if p.get("status") == "reachable"]
+        if not positions:
+            self.notify("No reachable Pis to check", severity="warning")
+            return
+        self._set_health_status(f"[yellow]Starting health check for {len(positions)} Pi(s)…[/yellow]")
+        self._run_health(positions)
 
     @work(thread=True)
-    def _run_health(self, positions: list[str] | None = None, all_pis: bool = False) -> None:
-        try:
-            if all_pis or not positions:
-                resp = self._api.trigger_health(all_pis=True)
-            else:
-                resp = self._api.trigger_health(positions=positions)
-            action_id = resp["action_id"]
-            result = self._api.get_health_result(action_id)
-            self.app.call_from_thread(self._on_health_result, result)
-        except ApiError as e:
-            self.app.call_from_thread(
-                self._set_health_status, f"[red]Health check error: {e}[/red]"
-            )
+    def _run_health(self, positions: list[str]) -> None:
+        total = len(positions)
+        ok_count = 0
 
-    def _on_health_result(self, result: dict) -> None:
-        for r in result.get("results", []):
-            pos = r.get("position")
-            if pos:
-                self._health[pos] = r
+        for i, pos in enumerate(positions):
+            self.app.call_from_thread(self._update_health_bar, i, total, pos)
+            try:
+                resp = self._api.trigger_health(positions=[pos])
+                action_id = resp["action_id"]
+                result = self._api.get_health_result(action_id)
+                for r in result.get("results", []):
+                    p = r.get("position")
+                    if p:
+                        self._health[p] = r
+                if result.get("status") == "success":
+                    ok_count += 1
+                self.app.call_from_thread(self._merge_and_redraw)
+            except ApiError:
+                pass
+
+        self.app.call_from_thread(self._on_health_done, ok_count, total)
+
+    def _update_health_bar(self, done: int, total: int, current: str) -> None:
+        pct = done / total if total > 0 else 0
+        filled = int(30 * pct)
+        bar = "█" * filled + "░" * (30 - filled)
+        self._set_health_status(
+            f"[yellow][{bar}] {done}/{total}  checking {current}…[/yellow]"
+        )
+
+    def _merge_and_redraw(self) -> None:
         self._merge_health()
         self._apply_sort()
-        n  = len(result.get("results", []))
-        ok = sum(1 for r in result.get("results", []) if not r.get("error"))
-        status = result.get("status", "")
-        color = "green" if status == "success" else ("red" if status == "fail" else "yellow")
+
+    def _on_health_done(self, ok: int, total: int) -> None:
+        color = "green" if ok == total else ("red" if ok == 0 else "yellow")
         self._set_health_status(
-            f"[{color}]Health: {ok}/{n} OK[/{color}]"
+            f"[{color}][{'█' * 30}] {ok}/{total} OK[/{color}]"
             "  [dim]CPU: load avg % (1/5/15 min)[/dim]"
         )
 
