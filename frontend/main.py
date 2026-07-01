@@ -13,7 +13,6 @@ from frontend.api_client import ApiClient
 from frontend.config import BACKEND_URL
 from frontend.screens.discovery import DiscoveryScreen
 from frontend.screens.execute import ExecuteScreen
-from frontend.screens.health import HealthScreen
 from frontend.screens.home import HomeScreen
 from frontend.screens.logs import LogsScreen
 
@@ -50,8 +49,6 @@ class PiController(App):
             home = self._home
             if screen == "execute" and home is not None:
                 super().push_screen(ExecuteScreen(self._api, home.selected))
-            elif screen == "health" and home is not None:
-                super().push_screen(HealthScreen(self._api, home.selected))
             elif screen == "logs":
                 super().push_screen(LogsScreen(self._api))
             elif screen == "discovery":

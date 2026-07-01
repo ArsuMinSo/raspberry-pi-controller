@@ -13,14 +13,19 @@ from frontend.screens.settings import SettingsScreen
 
 
 _COLUMNS = [
-    ("", 2),
+    ("",          2),
     ("Position", 10),
     ("Hostname", 24),
-    ("IP", 16),
-    ("MAC", 19),
-    ("Status", 14),
-    ("Ver", 5),
-    ("Tags", 24),
+    ("IP",       16),
+    ("MAC",      19),
+    ("Status",   14),
+    ("Ver",       5),
+    ("CPU 1m%",   9),
+    ("CPU 5m%",   9),
+    ("CPU 15m%", 10),
+    ("RAM%",      7),
+    ("Temp °C",   9),
+    ("Tags",     24),
     ("Last Seen", 22),
 ]
 
@@ -32,6 +37,11 @@ _SORT_KEYS = [
     lambda p: (p.get("mac") or "").lower(),
     lambda p: p.get("status") or "",
     lambda p: p.get("pi_version") or 0,
+    lambda p: p.get("cpu_1m") or 0.0,
+    lambda p: p.get("cpu_5m") or 0.0,
+    lambda p: p.get("cpu_15m") or 0.0,
+    lambda p: p.get("mem_percent") or 0.0,
+    lambda p: p.get("temp_c") or 0.0,
     lambda p: ",".join(sorted(p.get("tags") or [])),
     lambda p: str(p.get("last_seen") or ""),
 ]
@@ -75,12 +85,18 @@ class HomeScreen(Screen):
     DataTable {
         height: 1fr;
     }
+    #health-status {
+        height: 1;
+        padding: 0 1;
+        color: $text-muted;
+    }
     """
 
     def __init__(self, api: ApiClient):
         super().__init__()
         self._api = api
         self._pis: list[dict] = []
+        self._health: dict[str, dict] = {}
         self.selected: set[str] = set()
         self._sort_col: int | None = None
         self._sort_asc: bool = True
@@ -89,6 +105,7 @@ class HomeScreen(Screen):
         yield Header()
         yield Label("Loading Pi inventory…", id="subtitle")
         yield DataTable(id="pi-table", cursor_type="row", zebra_stripes=True)
+        yield Label("", id="health-status")
         yield Footer()
 
     def on_mount(self) -> None:
@@ -106,6 +123,7 @@ class HomeScreen(Screen):
 
     def _on_pis_loaded(self, pis: list[dict]) -> None:
         self._pis = pis
+        self._merge_health()
         self._apply_sort()
         reachable = sum(1 for p in pis if p.get("status") == "reachable")
         self.query_one("#subtitle", Label).update(
@@ -114,6 +132,17 @@ class HomeScreen(Screen):
 
     def _on_load_error(self, msg: str) -> None:
         self.query_one("#subtitle", Label).update(f"[red]Error: {msg}[/red]")
+
+    def _merge_health(self) -> None:
+        for pi in self._pis:
+            pos = pi.get("position")
+            if pos and pos in self._health:
+                h = self._health[pos]
+                pi["cpu_1m"]      = h.get("cpu_1m")
+                pi["cpu_5m"]      = h.get("cpu_5m")
+                pi["cpu_15m"]     = h.get("cpu_15m")
+                pi["mem_percent"] = h.get("mem_percent")
+                pi["temp_c"]      = h.get("temp_c")
 
     def _apply_sort(self) -> None:
         if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
@@ -128,7 +157,12 @@ class HomeScreen(Screen):
                 label += " ▲" if self._sort_asc else " ▼"
             table.add_column(label, width=width)
         for pi in self._pis:
-            pos = pi.get("position", "")
+            pos     = pi.get("position", "")
+            cpu_1m  = pi.get("cpu_1m")
+            cpu_5m  = pi.get("cpu_5m")
+            cpu_15m = pi.get("cpu_15m")
+            mem_pct = pi.get("mem_percent")
+            temp    = pi.get("temp_c")
             table.add_row(
                 "✓" if pos in self.selected else " ",
                 pos,
@@ -137,6 +171,11 @@ class HomeScreen(Screen):
                 pi.get("mac") or "—",
                 status_markup(pi.get("status", "unreachable")),
                 str(pi.get("pi_version") or "—"),
+                f"{cpu_1m:.1f}"  if cpu_1m  is not None else "—",
+                f"{cpu_5m:.1f}"  if cpu_5m  is not None else "—",
+                f"{cpu_15m:.1f}" if cpu_15m is not None else "—",
+                f"{mem_pct:.1f}" if mem_pct is not None else "—",
+                f"{temp:.1f}"    if temp    is not None else "—",
                 fmt_tags(pi.get("tags", [])),
                 fmt_datetime(pi.get("last_seen")),
                 key=pos,
@@ -204,7 +243,54 @@ class HomeScreen(Screen):
         self.app.push_screen("execute")
 
     def action_health(self) -> None:
-        self.app.push_screen("health")
+        if self.selected:
+            positions = sorted(self.selected)
+            short = ", ".join(positions[:5])
+            if len(positions) > 5:
+                short += f" +{len(positions) - 5} more"
+            self._set_health_status(f"[yellow]Checking {len(positions)} Pi(s): {short}…[/yellow]")
+            self._run_health(positions=positions)
+        else:
+            reachable = [p["position"] for p in self._pis if p.get("status") == "reachable"]
+            short = ", ".join(reachable[:5])
+            if len(reachable) > 5:
+                short += f" +{len(reachable) - 5} more"
+            self._set_health_status(f"[yellow]Checking {len(reachable)} reachable Pi(s): {short}…[/yellow]")
+            self._run_health(all_pis=True)
+
+    @work(thread=True)
+    def _run_health(self, positions: list[str] | None = None, all_pis: bool = False) -> None:
+        try:
+            if all_pis or not positions:
+                resp = self._api.trigger_health(all_pis=True)
+            else:
+                resp = self._api.trigger_health(positions=positions)
+            action_id = resp["action_id"]
+            result = self._api.get_health_result(action_id)
+            self.app.call_from_thread(self._on_health_result, result)
+        except ApiError as e:
+            self.app.call_from_thread(
+                self._set_health_status, f"[red]Health check error: {e}[/red]"
+            )
+
+    def _on_health_result(self, result: dict) -> None:
+        for r in result.get("results", []):
+            pos = r.get("position")
+            if pos:
+                self._health[pos] = r
+        self._merge_health()
+        self._apply_sort()
+        n  = len(result.get("results", []))
+        ok = sum(1 for r in result.get("results", []) if not r.get("error"))
+        status = result.get("status", "")
+        color = "green" if status == "success" else ("red" if status == "fail" else "yellow")
+        self._set_health_status(
+            f"[{color}]Health: {ok}/{n} OK[/{color}]"
+            "  [dim]CPU: load avg % (1/5/15 min)[/dim]"
+        )
+
+    def _set_health_status(self, msg: str) -> None:
+        self.query_one("#health-status", Label).update(msg)
 
     def action_logs(self) -> None:
         self.app.push_screen("logs")
@@ -250,7 +336,10 @@ class HomeScreen(Screen):
             if confirmed:
                 self._do_delete_pis(targets)
 
-        self.app.push_screen(ConfirmScreen(msg, title="Delete Pi(s)", confirm_label="Delete  [Enter]"), _on_confirm)
+        self.app.push_screen(
+            ConfirmScreen(msg, title="Delete Pi(s)", confirm_label="Delete  [Enter]"),
+            _on_confirm,
+        )
 
     def _current_pi(self) -> dict | None:
         table = self.query_one(DataTable)
