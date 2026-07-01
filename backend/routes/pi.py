@@ -13,7 +13,7 @@ from backend.schemas import (
     DeployKeyRequest, DeployKeyResponse, DeployKeyResult,
     PiCreateRequest, PiDetail, PiSummary, PiUpdateRequest,
 )
-from backend.utils.helpers import paginate, validate_position
+from backend.utils.helpers import MAC_PLACEHOLDER, paginate, validate_position
 
 router = APIRouter()
 
@@ -25,6 +25,7 @@ def _pi_to_summary(pi: Pi) -> PiSummary:
         hostname=pi.hostname,
         position=pi.position,
         ip=str(pi.current_ip) if pi.current_ip else None,
+        pi_version=pi.pi_version,
         status=pi.status,
         last_seen=pi.last_seen,
         tags=pi.tags or [],
@@ -124,9 +125,6 @@ def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db
     db.commit()
     db.refresh(pi)
     return _pi_to_detail(pi)
-
-
-_MAC_PLACEHOLDER = "00:00:00:00:00:00"
 
 
 @router.post("/bulk", response_model=BulkPiCreateResponse, status_code=200)

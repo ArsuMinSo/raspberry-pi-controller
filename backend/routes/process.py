@@ -4,10 +4,10 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from backend.config import effective_ssh_settings, get_settings
+from backend.config import effective_ssh_settings
 from backend.database import get_db
 from backend.models import Pi
-from backend.schemas import ActionQueued, PiCommandResult, ProcessKillRequest
+from backend.schemas import ActionQueued, CommandExecutionResult, PiCommandResult, ProcessKillRequest
 from backend.services import audit_log as al
 from backend.services.ssh_executor import execute_many
 
@@ -68,3 +68,25 @@ def kill_process(body: ProcessKillRequest, db: Session = Depends(get_db)):
         duration_ms=duration_ms,
     )
     return ActionQueued(action_id=entry.id)
+
+
+@router.get("/kill/{action_id}", response_model=CommandExecutionResult)
+def get_kill_result(action_id: int, db: Session = Depends(get_db)):
+    entry = al.get_action(db, action_id)
+    if not entry or entry.action != "kill":
+        raise HTTPException(status_code=404, detail=f"Kill action {action_id} not found")
+
+    results: list[PiCommandResult] = []
+    if entry.stdout:
+        try:
+            results = [PiCommandResult(**r) for r in json.loads(entry.stdout)]
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    return CommandExecutionResult(
+        action_id=entry.id,
+        status=entry.status,
+        results=results,
+        started_at=entry.timestamp,
+        completed_at=None,
+    )

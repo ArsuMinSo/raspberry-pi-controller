@@ -19,6 +19,7 @@ class PiSummary(BaseModel):
     hostname: str | None
     position: str
     ip: str | None
+    pi_version: int | None
     status: Literal["reachable", "unreachable"]
     last_seen: datetime | None
     tags: list[str]

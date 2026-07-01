@@ -1,6 +1,5 @@
 import ipaddress
 import json
-import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,13 +10,10 @@ from sqlalchemy.orm import Session
 from sqlalchemy.sql import func
 
 from backend.config import NetworkSettings, SSHSettings
-from backend.utils.helpers import load_private_key
+from backend.utils.helpers import extract_pi_version, is_valid_mac, load_private_key
 from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
-
-_PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
-_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 
 
 def ping_host(ip: str) -> bool:
@@ -26,13 +22,6 @@ def ping_host(ip: str) -> bool:
         capture_output=True,
     )
     return result.returncode == 0
-
-
-def _extract_pi_version(model_line: str) -> int | None:
-    m = _PI_VERSION_RE.search(model_line)
-    if m:
-        return int(m.group(1))
-    return None
 
 
 def _deploy_pub_key(client: paramiko.SSHClient, private_key_path: str) -> None:
@@ -97,9 +86,9 @@ def probe_pi(
         serial_line = next(
             (l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), ""
         )
-        pi_version = _extract_pi_version(model_line)
+        pi_version = extract_pi_version(model_line)
         serial = serial_line.split(":")[-1].strip() if serial_line else None
-        mac = mac_raw if _MAC_RE.match(mac_raw) else None
+        mac = mac_raw if is_valid_mac(mac_raw) else None
         return hostname, pi_version, serial, mac
     except (paramiko.SSHException, OSError, socket.timeout):
         return None, None, None, None
@@ -129,7 +118,7 @@ def _scan_host(
     probe_auth: str = "key",
     probe_password: str | None = None,
     probe_deploy_key: bool = False,
-) -> tuple[str, str | None, int | None, str | None] | None:
+) -> tuple[str, str | None, int | None, str | None, str | None] | None:
     """Ping + optional SSH probe for one host. Returns None if host unreachable."""
     if not ping_host(ip):
         return None

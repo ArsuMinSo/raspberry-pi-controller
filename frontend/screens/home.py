@@ -250,7 +250,7 @@ class HomeScreen(Screen):
             if confirmed:
                 self._do_delete_pis(targets)
 
-        self.app.push_screen(ConfirmScreen(msg, title="Delete Pi(s)"), _on_confirm)
+        self.app.push_screen(ConfirmScreen(msg, title="Delete Pi(s)", confirm_label="Delete  [Enter]"), _on_confirm)
 
     def _current_pi(self) -> dict | None:
         table = self.query_one(DataTable)
@@ -292,11 +292,7 @@ class HomeScreen(Screen):
         self.app.push_screen(DeployKeyScreen(self._api, targets))
 
     def action_settings(self) -> None:
-        def _on_result(path: str | None) -> None:
-            if path:
-                self.notify(f"SSH key path updated")
-
-        self.app.push_screen(SettingsScreen(self._api), _on_result)
+        self.app.push_screen(SettingsScreen(self._api))
 
     @work(thread=True)
     def _do_delete_pis(self, positions: list[str]) -> None:

@@ -1,5 +1,4 @@
 import json
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -8,20 +7,10 @@ import paramiko
 from sqlalchemy.sql import func
 
 from backend.config import SSHSettings
-from backend.utils.helpers import load_private_key
-from backend.models import ActionLog, Pi
+from backend.utils.helpers import MAC_PLACEHOLDER, extract_pi_version, is_valid_mac, load_private_key
+from backend.models import Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
-
-
-_PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
-_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
-_MAC_PLACEHOLDER = "00:00:00:00:00:00"
-
-
-def _extract_pi_version(model_line: str) -> int | None:
-    m = _PI_VERSION_RE.search(model_line)
-    return int(m.group(1)) if m else None
 
 
 @dataclass
@@ -109,9 +98,9 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
         serial_line = next(
             (l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), ""
         )
-        pi_version = _extract_pi_version(model_line)
+        pi_version = extract_pi_version(model_line)
         serial = serial_line.split(":")[-1].strip() or None if serial_line else None
-        mac = mac_raw if _MAC_RE.match(mac_raw) else None
+        mac = mac_raw if is_valid_mac(mac_raw) else None
 
         cpu = _parse_cpu(cpu_raw)
         mem_total, mem_used = _parse_mem(mem_raw)
@@ -176,7 +165,7 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
             pi.last_seen = func.now()
             if d.hostname:
                 pi.hostname = d.hostname
-            if d.mac and d.mac != _MAC_PLACEHOLDER:
+            if d.mac and d.mac != MAC_PLACEHOLDER:
                 pi.mac = d.mac
             if d.pi_version is not None:
                 pi.pi_version = d.pi_version

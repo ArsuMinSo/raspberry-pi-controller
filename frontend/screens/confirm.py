@@ -44,10 +44,11 @@ class ConfirmScreen(ModalScreen[bool]):
     }
     """
 
-    def __init__(self, message: str, title: str = "Confirm"):
+    def __init__(self, message: str, title: str = "Confirm", confirm_label: str = "Confirm  [Enter]"):
         super().__init__()
         self._message = message
         self._title = title
+        self._confirm_label = confirm_label
 
     def compose(self) -> ComposeResult:
         with Static(id="confirm-dialog"):
@@ -55,7 +56,7 @@ class ConfirmScreen(ModalScreen[bool]):
             yield Label(self._message, id="confirm-msg")
             with Horizontal(id="btn-row"):
                 yield Button("Cancel  [Esc]", variant="default", id="btn-cancel")
-                yield Button("Delete  [Enter]", variant="error", id="btn-confirm")
+                yield Button(self._confirm_label, variant="error", id="btn-confirm")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         self.dismiss(event.button.id == "btn-confirm")

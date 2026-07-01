@@ -2,8 +2,11 @@ import re
 
 import paramiko
 
-_MAC_RE = re.compile(r"^([0-9a-f]{2}:){5}[0-9a-f]{2}$")
+_MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 _POS_RE = re.compile(r"^\d{2}-\d{3}$")
+_PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
+
+MAC_PLACEHOLDER = "00:00:00:00:00:00"
 
 
 def normalise_mac(mac: str) -> str:
@@ -11,6 +14,15 @@ def normalise_mac(mac: str) -> str:
     if not _MAC_RE.match(m):
         raise ValueError(f"Invalid MAC address: {mac}")
     return m
+
+
+def is_valid_mac(mac: str) -> bool:
+    return bool(_MAC_RE.match(mac))
+
+
+def extract_pi_version(model_line: str) -> int | None:
+    m = _PI_VERSION_RE.search(model_line)
+    return int(m.group(1)) if m else None
 
 
 def validate_position(position: str) -> str:

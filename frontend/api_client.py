@@ -105,7 +105,10 @@ class ApiClient:
         })
 
     def get_process_result(self, action_id: int) -> dict:
-        return self._get(f"/command/{action_id}")
+        return self._get(f"/process/kill/{action_id}")
+
+    def get_service_result(self, action_id: int) -> dict:
+        return self._get(f"/service/restart/{action_id}")
 
     def restart_service(self, positions: list[str], service: str) -> dict:
         return self._post("/service/restart", {"pis": positions, "service": service})
