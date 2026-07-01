@@ -338,6 +338,11 @@ class DiscoveryScreen(Screen):
     def _on_result(self, result: dict) -> None:
         self._discovered = result.get("discovered", [])
         self._selected.clear()
+        if self._probe_ssh():
+            self._selected = {
+                d["ip"] for d in self._discovered
+                if d.get("ip") and (d.get("hostname") is not None or d.get("mac") is not None)
+            }
         added = result.get("added", 0)
         updated = result.get("updated", 0)
         status = result.get("status", "")
