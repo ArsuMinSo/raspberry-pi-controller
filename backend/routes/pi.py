@@ -145,7 +145,7 @@ def bulk_create_pis(body: BulkPiCreateRequest, db: Session = Depends(get_db)):
 
         # MAC conflict (skip placeholder)
         mac = item.mac.lower()
-        if mac != _MAC_PLACEHOLDER:
+        if mac != MAC_PLACEHOLDER:
             existing = db.query(Pi).filter(Pi.mac == mac).first()
             if existing:
                 results.append(BulkPiCreateItemResult(
