@@ -45,7 +45,13 @@ class HealthScreen(Screen):
 
     def on_mount(self) -> None:
         table = self.query_one(DataTable)
-        table.add_columns("Position", "CPU %", "Mem Used", "Mem Total", "Disk Used", "Disk Total", "Error")
+        table.add_columns(
+            "Position",
+            "CPU 1m%", "CPU 5m%", "CPU 15m%",
+            "RAM%",
+            "Temp °C",
+            "Error",
+        )
         if self._selected:
             self._run_check()
 
@@ -71,27 +77,19 @@ class HealthScreen(Screen):
         table = self.query_one(DataTable)
         table.clear()
         for r in results:
-            cpu = r.get("cpu_percent")
-            mem_used = r.get("mem_used_mb")
-            mem_total = r.get("mem_total_mb")
-            disk_used = r.get("disk_used_gb")
-            disk_total = r.get("disk_total_gb")
-
-            cpu_str = f"{cpu:.1f}" if cpu is not None else "—"
-            mem_used_str = f"{mem_used}MB" if mem_used is not None else "—"
-            mem_total_str = f"{mem_total}MB" if mem_total is not None else "—"
-            disk_used_str = f"{disk_used:.1f}GB" if disk_used is not None else "—"
-            disk_total_str = f"{disk_total:.1f}GB" if disk_total is not None else "—"
-            error = r.get("error") or ""
-
+            cpu_1m   = r.get("cpu_1m")
+            cpu_5m   = r.get("cpu_5m")
+            cpu_15m  = r.get("cpu_15m")
+            mem_pct  = r.get("mem_percent")
+            temp     = r.get("temp_c")
             table.add_row(
                 r.get("position", ""),
-                cpu_str,
-                mem_used_str,
-                mem_total_str,
-                disk_used_str,
-                disk_total_str,
-                error,
+                f"{cpu_1m:.1f}"  if cpu_1m  is not None else "—",
+                f"{cpu_5m:.1f}"  if cpu_5m  is not None else "—",
+                f"{cpu_15m:.1f}" if cpu_15m is not None else "—",
+                f"{mem_pct:.1f}" if mem_pct is not None else "—",
+                f"{temp:.1f}"    if temp    is not None else "—",
+                r.get("error") or "",
                 key=r.get("position"),
             )
 
@@ -99,6 +97,7 @@ class HealthScreen(Screen):
         color = "green" if status == "success" else ("red" if status == "fail" else "yellow")
         self.query_one("#subtitle", Label).update(
             f"[{color}]{status.upper()}[/{color}] — {len(results)} Pi(s) checked"
+            "  [dim]CPU: load avg % (1/5/15 min)[/dim]"
         )
 
     def _on_error(self, msg: str) -> None:

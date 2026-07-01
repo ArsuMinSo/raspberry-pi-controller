@@ -78,11 +78,11 @@ class HealthTriggerRequest(BaseModel):
 
 class PiHealthResult(BaseModel):
     position: str
-    cpu_percent: float | None
-    mem_used_mb: int | None
-    mem_total_mb: int | None
-    disk_used_gb: float | None
-    disk_total_gb: float | None
+    cpu_1m: float | None
+    cpu_5m: float | None
+    cpu_15m: float | None
+    mem_percent: float | None
+    temp_c: float | None
     error: str | None
 
 

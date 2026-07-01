@@ -22,27 +22,56 @@ class HealthCheckData:
     serial: str | None
 
 
-def _parse_cpu(raw: str) -> float | None:
+# Single script — one SSH exec per Pi instead of N round trips.
+# Sections delimited by ---SEP--- so output is split by index.
+# Sections: loadavg | ncores | mem(total used) | temp_milli | hostname | mac | cpuinfo
+_HEALTH_SCRIPT = (
+    "cat /proc/loadavg; echo '---SEP---';"
+    " nproc; echo '---SEP---';"
+    " free -m | awk '/^Mem:/{print $2, $3}'; echo '---SEP---';"
+    " cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 0; echo '---SEP---';"
+    " hostname; echo '---SEP---';"
+    " ip link show | awk '/link\\/ether/{print $2; exit}'; echo '---SEP---';"
+    " cat /proc/cpuinfo"
+)
+
+
+def _parse_loadavg_pct(
+    loadavg_raw: str, ncores_raw: str
+) -> tuple[float | None, float | None, float | None]:
     try:
-        return round(float(raw.strip()), 2)
+        ncores = max(int(ncores_raw.strip()), 1)
+    except (ValueError, AttributeError):
+        ncores = 1
+    try:
+        parts = loadavg_raw.strip().split()
+        l1, l5, l15 = float(parts[0]), float(parts[1]), float(parts[2])
+        def pct(load: float) -> float:
+            return round(min(load / ncores * 100.0, 100.0), 1)
+        return pct(l1), pct(l5), pct(l15)
+    except (ValueError, IndexError, AttributeError):
+        return None, None, None
+
+
+def _parse_mem_pct(raw: str) -> float | None:
+    try:
+        total, used = (int(x) for x in raw.strip().split())
+        if total == 0:
+            return None
+        return round(used / total * 100.0, 1)
     except (ValueError, AttributeError):
         return None
 
 
-def _parse_mem(raw: str) -> tuple[int | None, int | None]:
+def _parse_temp(raw: str) -> float | None:
+    raw = (raw or "").strip()
+    if not raw or raw == "0":
+        return None
     try:
-        parts = raw.strip().split()
-        return int(parts[0]), int(parts[1])
-    except (ValueError, IndexError):
-        return None, None
-
-
-def _parse_disk(raw: str) -> tuple[float | None, float | None]:
-    try:
-        parts = raw.strip().split()
-        return round(int(parts[0]) / 1024, 2), round(int(parts[1]) / 1024, 2)
-    except (ValueError, IndexError):
-        return None, None
+        v = int(raw)
+        return round(v / 1000.0, 1) if v > 1000 else round(float(v), 1)
+    except ValueError:
+        return None
 
 
 def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckData:
@@ -52,21 +81,15 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
-    def _error_data(msg: str) -> HealthCheckData:
+    def _error(msg: str) -> HealthCheckData:
         return HealthCheckData(
             result=PiHealthResult(
                 position=position,
-                cpu_percent=None,
-                mem_used_mb=None,
-                mem_total_mb=None,
-                disk_used_gb=None,
-                disk_total_gb=None,
+                cpu_1m=None, cpu_5m=None, cpu_15m=None,
+                mem_percent=None, temp_c=None,
                 error=msg,
             ),
-            hostname=None,
-            mac=None,
-            pi_version=None,
-            serial=None,
+            hostname=None, mac=None, pi_version=None, serial=None,
         )
 
     try:
@@ -78,51 +101,43 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
             banner_timeout=settings.timeout_s,
             auth_timeout=settings.timeout_s,
         )
+        _, out, _ = client.exec_command(_HEALTH_SCRIPT, timeout=settings.timeout_s)
+        raw = out.read().decode(errors="replace")
 
-        def run(cmd: str) -> str:
-            _, out, _ = client.exec_command(cmd, timeout=settings.timeout_s)
-            return out.read().decode(errors="replace")
+        parts = [p.strip() for p in raw.split("---SEP---")]
 
-        cpu_raw = run("top -bn1 | grep 'Cpu(s)' | awk '{print $2 + $4}'")
-        mem_raw = run("free -m | awk '/^Mem:/{print $2, $3}'")
-        disk_raw = run("df -m / | awk 'NR==2{print $2, $3}'")
-        hostname_raw = run("hostname").strip() or None
-        cpuinfo = run("cat /proc/cpuinfo")
-        mac_raw = run(
-            "ip link show | awk '/link\\/ether/{print $2; exit}'"
-        ).strip().lower()
+        def sec(i: int) -> str:
+            return parts[i] if i < len(parts) else ""
 
-        model_line = next(
-            (l for l in cpuinfo.splitlines() if l.lower().startswith("model")), ""
-        )
-        serial_line = next(
-            (l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), ""
-        )
+        loadavg_raw  = sec(0)
+        ncores_raw   = sec(1)
+        mem_raw      = sec(2)
+        temp_raw     = sec(3)
+        hostname_raw = sec(4) or None
+        mac_raw      = sec(5).lower()
+        cpuinfo      = sec(6)
+
+        cpu_1m, cpu_5m, cpu_15m = _parse_loadavg_pct(loadavg_raw, ncores_raw)
+        mem_percent = _parse_mem_pct(mem_raw)
+        temp_c = _parse_temp(temp_raw)
+
+        model_line  = next((l for l in cpuinfo.splitlines() if l.lower().startswith("model")), "")
+        serial_line = next((l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), "")
         pi_version = extract_pi_version(model_line)
         serial = serial_line.split(":")[-1].strip() or None if serial_line else None
         mac = mac_raw if is_valid_mac(mac_raw) else None
 
-        cpu = _parse_cpu(cpu_raw)
-        mem_total, mem_used = _parse_mem(mem_raw)
-        disk_total, disk_used = _parse_disk(disk_raw)
-
         return HealthCheckData(
             result=PiHealthResult(
                 position=position,
-                cpu_percent=cpu,
-                mem_used_mb=mem_used,
-                mem_total_mb=mem_total,
-                disk_used_gb=disk_used,
-                disk_total_gb=disk_total,
+                cpu_1m=cpu_1m, cpu_5m=cpu_5m, cpu_15m=cpu_15m,
+                mem_percent=mem_percent, temp_c=temp_c,
                 error=None,
             ),
-            hostname=hostname_raw,
-            mac=mac,
-            pi_version=pi_version,
-            serial=serial,
+            hostname=hostname_raw, mac=mac, pi_version=pi_version, serial=serial,
         )
     except (paramiko.SSHException, OSError, socket.timeout) as e:
-        return _error_data(str(e))
+        return _error(str(e))
     finally:
         client.close()
 
@@ -142,17 +157,13 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
             data_map[d.result.position] = d
 
     results: list[PiHealthResult] = []
-    pi_map = {p.position: p for p in pis}
 
     for pi in pis:
         if pi.current_ip is None:
             results.append(PiHealthResult(
                 position=pi.position,
-                cpu_percent=None,
-                mem_used_mb=None,
-                mem_total_mb=None,
-                disk_used_gb=None,
-                disk_total_gb=None,
+                cpu_1m=None, cpu_5m=None, cpu_15m=None,
+                mem_percent=None, temp_c=None,
                 error="no IP recorded",
             ))
             continue
@@ -186,8 +197,7 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
 
     duration_ms = int((time.monotonic() - start) * 1000)
     al.update_action(
-        db,
-        entry.id,
+        db, entry.id,
         status=status,
         stdout=json.dumps([r.model_dump() for r in results]),
         duration_ms=duration_ms,
