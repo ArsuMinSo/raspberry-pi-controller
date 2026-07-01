@@ -6,8 +6,8 @@ database:
   port: 5432
   user: pi_controller
 network:
-  probe_auth: password
-  probe_deploy_key: true
+  probe_auth: key
+  probe_deploy_key: false
   probe_ssh: true
   probe_timeout_s: 5
   probe_username: vyroba
