@@ -145,6 +145,7 @@ class HomeScreen(Screen):
                 pi["cpu_15m"]     = h.get("cpu_15m")
                 pi["mem_percent"] = h.get("mem_percent")
                 pi["temp_c"]      = h.get("temp_c")
+                pi["status"]      = "unreachable" if h.get("error") else "reachable"
 
     def _apply_sort(self) -> None:
         if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
