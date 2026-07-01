@@ -22,20 +22,6 @@ class HealthCheckData:
     serial: str | None
 
 
-# Single script — one SSH exec per Pi instead of N round trips.
-# Sections delimited by ---SEP--- so output is split by index.
-# Sections: loadavg | ncores | mem(total used) | temp_milli | hostname | mac | cpuinfo
-_HEALTH_SCRIPT = (
-    "cat /proc/loadavg; echo '---SEP---';"
-    " nproc; echo '---SEP---';"
-    " free -m | awk '/^Mem:/{print $2, $3}'; echo '---SEP---';"
-    " cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null || echo 0; echo '---SEP---';"
-    " hostname; echo '---SEP---';"
-    " ip link show | awk '/link\\/ether/{print $2; exit}'; echo '---SEP---';"
-    " cat /proc/cpuinfo"
-)
-
-
 def _parse_loadavg_pct(
     loadavg_raw: str, ncores_raw: str
 ) -> tuple[float | None, float | None, float | None]:
@@ -54,18 +40,16 @@ def _parse_loadavg_pct(
 
 
 def _parse_mem_pct(raw: str) -> float | None:
+    # raw is pre-computed % from awk on /proc/meminfo
     try:
-        total, used = (int(x) for x in raw.strip().split())
-        if total == 0:
-            return None
-        return round(used / total * 100.0, 1)
-    except (ValueError, AttributeError):
+        return round(float((raw or "").strip()), 1)
+    except ValueError:
         return None
 
 
 def _parse_temp(raw: str) -> float | None:
     raw = (raw or "").strip()
-    if not raw or raw == "0":
+    if not raw:
         return None
     try:
         v = int(raw)
@@ -101,31 +85,31 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
             banner_timeout=settings.timeout_s,
             auth_timeout=settings.timeout_s,
         )
-        _, out, _ = client.exec_command(_HEALTH_SCRIPT, timeout=settings.timeout_s)
-        raw = out.read().decode(errors="replace")
 
-        parts = [p.strip() for p in raw.split("---SEP---")]
+        def run(cmd: str) -> str:
+            _, out, _ = client.exec_command(cmd, timeout=settings.timeout_s)
+            return out.read().decode(errors="replace")
 
-        def sec(i: int) -> str:
-            return parts[i] if i < len(parts) else ""
-
-        loadavg_raw  = sec(0)
-        ncores_raw   = sec(1)
-        mem_raw      = sec(2)
-        temp_raw     = sec(3)
-        hostname_raw = sec(4) or None
-        mac_raw      = sec(5).lower()
-        cpuinfo      = sec(6)
+        loadavg_raw  = run("cat /proc/loadavg")
+        ncores_raw   = run("nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo")
+        mem_pct_raw  = run(
+            "awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} "
+            "END{if(t>0) printf \"%.1f\", (t-a)/t*100}' /proc/meminfo"
+        )
+        temp_raw     = run("cat /sys/class/thermal/thermal_zone0/temp 2>/dev/null")
+        hostname_raw = run("hostname").strip() or None
+        mac_raw      = run("ip link show | awk '/link\\/ether/{print $2; exit}'").strip().lower()
+        cpuinfo      = run("cat /proc/cpuinfo")
 
         cpu_1m, cpu_5m, cpu_15m = _parse_loadavg_pct(loadavg_raw, ncores_raw)
-        mem_percent = _parse_mem_pct(mem_raw)
-        temp_c = _parse_temp(temp_raw)
+        mem_percent = _parse_mem_pct(mem_pct_raw)
+        temp_c      = _parse_temp(temp_raw)
 
         model_line  = next((l for l in cpuinfo.splitlines() if l.lower().startswith("model")), "")
         serial_line = next((l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), "")
-        pi_version = extract_pi_version(model_line)
-        serial = serial_line.split(":")[-1].strip() or None if serial_line else None
-        mac = mac_raw if is_valid_mac(mac_raw) else None
+        pi_version  = extract_pi_version(model_line)
+        serial      = serial_line.split(":")[-1].strip() or None if serial_line else None
+        mac         = mac_raw if is_valid_mac(mac_raw) else None
 
         return HealthCheckData(
             result=PiHealthResult(
