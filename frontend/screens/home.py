@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from textual.app import ComposeResult
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Header, Label
@@ -257,31 +259,38 @@ class HomeScreen(Screen):
     def _run_health(self, positions: list[str]) -> None:
         total = len(positions)
         ok_count = 0
+        done = 0
 
-        for i, pos in enumerate(positions):
-            self.app.call_from_thread(self._update_health_bar, i, total, pos)
+        def _check_one(pos: str) -> tuple[str, dict | None]:
             try:
                 resp = self._api.trigger_health(positions=[pos])
-                action_id = resp["action_id"]
-                result = self._api.get_health_result(action_id)
-                for r in result.get("results", []):
-                    p = r.get("position")
-                    if p:
-                        self._health[p] = r
-                if result.get("status") == "success":
-                    ok_count += 1
-                self.app.call_from_thread(self._merge_and_redraw)
+                return pos, self._api.get_health_result(resp["action_id"])
             except ApiError:
-                pass
+                return pos, None
+
+        with ThreadPoolExecutor(max_workers=min(10, total)) as ex:
+            futures = {ex.submit(_check_one, pos): pos for pos in positions}
+            for future in as_completed(futures):
+                pos, result = future.result()
+                done += 1
+                if result:
+                    for r in result.get("results", []):
+                        p = r.get("position")
+                        if p:
+                            self._health[p] = r
+                    if result.get("status") == "success":
+                        ok_count += 1
+                self.app.call_from_thread(self._update_health_bar, done, total, pos)
+                self.app.call_from_thread(self._merge_and_redraw)
 
         self.app.call_from_thread(self._on_health_done, ok_count, total)
 
-    def _update_health_bar(self, done: int, total: int, current: str) -> None:
+    def _update_health_bar(self, done: int, total: int, last: str) -> None:
         pct = done / total if total > 0 else 0
         filled = int(30 * pct)
         bar = "█" * filled + "░" * (30 - filled)
         self._set_health_status(
-            f"[yellow][{bar}] {done}/{total}  checking {current}…[/yellow]"
+            f"[yellow][{bar}] {done}/{total}  ✓ {last}[/yellow]"
         )
 
     def _merge_and_redraw(self) -> None:
