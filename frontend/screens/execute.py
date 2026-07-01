@@ -9,6 +9,23 @@ from frontend.screens.detail import DetailScreen
 from frontend.utils.formatters import truncate
 
 
+_COLUMNS = [
+    ("Position", 12),
+    ("Exit",      6),
+    ("Stdout",   50),
+    ("Stderr",   30),
+    ("Error",    30),
+]
+
+_SORT_KEYS = [
+    lambda r: (r.get("position") or "").lower(),
+    lambda r: r.get("exit_code") if r.get("exit_code") is not None else -1,
+    None,
+    None,
+    lambda r: (r.get("error") or "").lower(),
+]
+
+
 class ExecuteScreen(Screen):
     BINDINGS = [
         Binding("v", "detail", "View detail"),
@@ -48,6 +65,8 @@ class ExecuteScreen(Screen):
         self._api = api
         self._selected = sorted(selected)
         self._results: list[dict] = []
+        self._sort_col: int | None = None
+        self._sort_asc: bool = True
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -62,9 +81,42 @@ class ExecuteScreen(Screen):
         yield Footer()
 
     def on_mount(self) -> None:
-        table = self.query_one(DataTable)
-        table.add_columns("Position", "Exit", "Stdout", "Stderr", "Error")
+        self._redraw_table()
         self.query_one(Input).focus()
+
+    def _apply_sort(self) -> None:
+        if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
+            self._results.sort(key=_SORT_KEYS[self._sort_col], reverse=not self._sort_asc)
+        self._redraw_table()
+
+    def _redraw_table(self) -> None:
+        table = self.query_one(DataTable)
+        table.clear(columns=True)
+        for i, (label, width) in enumerate(_COLUMNS):
+            if self._sort_col == i:
+                label += " ▲" if self._sort_asc else " ▼"
+            table.add_column(label, width=width)
+        for r in self._results:
+            ec = r.get("exit_code")
+            table.add_row(
+                r.get("position", ""),
+                str(ec) if ec is not None else "—",
+                truncate(r.get("stdout"), 60),
+                truncate(r.get("stderr"), 40),
+                r.get("error") or "",
+                key=r.get("position"),
+            )
+
+    def on_data_table_header_selected(self, event: DataTable.HeaderSelected) -> None:
+        col = event.column_index
+        if _SORT_KEYS[col] is None:
+            return
+        if self._sort_col == col:
+            self._sort_asc = not self._sort_asc
+        else:
+            self._sort_col = col
+            self._sort_asc = True
+        self._apply_sort()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         command = event.value.strip()
@@ -87,27 +139,14 @@ class ExecuteScreen(Screen):
         self.query_one("#results-label", Label).update(
             f"[yellow]Executing:[/yellow] {command}"
         )
-        self.query_one(DataTable).clear()
+        self._results = []
+        self._redraw_table()
         self.query_one(Input).disabled = True
 
     def _on_results(self, result: dict) -> None:
         self._results = result.get("results", [])
-        table = self.query_one(DataTable)
-        table.clear()
-        success = 0
-        for r in self._results:
-            ec = r.get("exit_code")
-            ec_str = str(ec) if ec is not None else "—"
-            if ec == 0:
-                success += 1
-            table.add_row(
-                r.get("position", ""),
-                ec_str,
-                truncate(r.get("stdout"), 60),
-                truncate(r.get("stderr"), 40),
-                r.get("error") or "",
-                key=r.get("position"),
-            )
+        self._apply_sort()
+        success = sum(1 for r in self._results if r.get("exit_code") == 0)
         total = len(self._results)
         status = result.get("status", "")
         color = "green" if status == "success" else ("red" if status == "fail" else "yellow")
