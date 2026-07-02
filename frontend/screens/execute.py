@@ -1,3 +1,5 @@
+import base64
+
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.screen import Screen
@@ -107,12 +109,19 @@ class ExecuteScreen(Screen):
             self.query_one("#sudo-pass", Input).display = event.value
 
     def _build_command(self, raw: str) -> str:
+        """Must be called from the main thread (accesses widgets)."""
         if not self.query_one("#sudo-check", Checkbox).value:
             return raw
         password = self.query_one("#sudo-pass", Input).value
         if password:
-            escaped = password.replace("'", "'\\''")
-            return f"echo '{escaped}' | sudo -S {raw}"
+            escaped_pass = password.replace("'", "'\\''")
+            # Base64-encode the command so <<< / heredocs inside it
+            # don't conflict with the password pipe to sudo -S.
+            b64 = base64.b64encode(raw.encode()).decode()
+            return (
+                f"echo '{escaped_pass}' | "
+                f"sudo -S bash -c \"eval \\\"$(echo {b64} | base64 -d)\\\"\""
+            )
         return f"sudo {raw}"
 
     def _apply_sort(self) -> None:
@@ -152,14 +161,14 @@ class ExecuteScreen(Screen):
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "cmd-input":
             return
-        command = event.value.strip()
-        if not command:
+        raw = event.value.strip()
+        if not raw:
             return
-        self._run_command(command)
+        command = self._build_command(raw)  # main thread — safe widget access
+        self._run_command(raw, command)
 
     @work(thread=True)
-    def _run_command(self, raw: str) -> None:
-        command = self._build_command(raw)
+    def _run_command(self, raw: str, command: str) -> None:
         self.app.call_from_thread(self._set_running, raw)
         try:
             resp = self._api.execute_command(self._selected, command)
