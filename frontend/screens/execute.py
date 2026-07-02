@@ -115,12 +115,14 @@ class ExecuteScreen(Screen):
         password = self.query_one("#sudo-pass", Input).value
         if password:
             escaped_pass = password.replace("'", "'\\''")
-            # Base64-encode the command so <<< / heredocs inside it
-            # don't conflict with the password pipe to sudo -S.
+            # Write command to a temp script file so <<< / $'...' / heredocs
+            # in the user command don't conflict with the password pipe to sudo -S.
             b64 = base64.b64encode(raw.encode()).decode()
             return (
-                f"echo '{escaped_pass}' | "
-                f"sudo -S bash -c \"eval \\\"$(echo {b64} | base64 -d)\\\"\""
+                f"_T=$(mktemp) && "
+                f"echo '{b64}' | base64 -d > \"$_T\" && "
+                f"echo '{escaped_pass}' | sudo -S bash \"$_T\"; "
+                f"_R=$?; rm -f \"$_T\"; exit $_R"
             )
         return f"sudo {raw}"
 
