@@ -1,6 +1,7 @@
 from textual.app import ComposeResult
+from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Header, Input, Label
+from textual.widgets import Checkbox, DataTable, Footer, Header, Input, Label
 from textual.binding import Binding
 from textual import work
 
@@ -46,8 +47,22 @@ class ExecuteScreen(Screen):
         padding: 0 1;
         color: $text-muted;
     }
-    Input {
-        margin: 0 1;
+    #cmd-row {
+        height: 3;
+        padding: 0 1;
+        align: left middle;
+    }
+    #cmd-input {
+        width: 1fr;
+    }
+    #sudo-check {
+        width: auto;
+        margin-left: 2;
+    }
+    #sudo-pass {
+        width: 20;
+        margin-left: 1;
+        display: none;
     }
     #results-label {
         height: 1;
@@ -75,14 +90,30 @@ class ExecuteScreen(Screen):
             id="selected-pis",
         )
         yield Label("Command:", id="cmd-label")
-        yield Input(placeholder="e.g. uptime", id="cmd-input")
+        with Horizontal(id="cmd-row"):
+            yield Input(placeholder="e.g. uptime", id="cmd-input")
+            yield Checkbox("Sudo", id="sudo-check")
+            yield Input(placeholder="sudo password", id="sudo-pass", password=True)
         yield Label("Results: (v or Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
     def on_mount(self) -> None:
         self._redraw_table()
-        self.query_one(Input).focus()
+        self.query_one("#cmd-input", Input).focus()
+
+    def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
+        if event.checkbox.id == "sudo-check":
+            self.query_one("#sudo-pass", Input).display = event.value
+
+    def _build_command(self, raw: str) -> str:
+        if not self.query_one("#sudo-check", Checkbox).value:
+            return raw
+        password = self.query_one("#sudo-pass", Input).value
+        if password:
+            escaped = password.replace("'", "'\\''")
+            return f"echo '{escaped}' | sudo -S {raw}"
+        return f"sudo {raw}"
 
     def _apply_sort(self) -> None:
         if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
@@ -119,14 +150,17 @@ class ExecuteScreen(Screen):
         self._apply_sort()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id != "cmd-input":
+            return
         command = event.value.strip()
         if not command:
             return
         self._run_command(command)
 
     @work(thread=True)
-    def _run_command(self, command: str) -> None:
-        self.app.call_from_thread(self._set_running, command)
+    def _run_command(self, raw: str) -> None:
+        command = self._build_command(raw)
+        self.app.call_from_thread(self._set_running, raw)
         try:
             resp = self._api.execute_command(self._selected, command)
             action_id = resp["action_id"]
@@ -136,12 +170,13 @@ class ExecuteScreen(Screen):
             self.app.call_from_thread(self._on_error, str(e))
 
     def _set_running(self, command: str) -> None:
+        sudo_note = " [yellow][sudo][/yellow]" if self.query_one("#sudo-check", Checkbox).value else ""
         self.query_one("#results-label", Label).update(
-            f"[yellow]Executing:[/yellow] {command}"
+            f"[yellow]Executing:[/yellow]{sudo_note} {command}"
         )
         self._results = []
         self._redraw_table()
-        self.query_one(Input).disabled = True
+        self.query_one("#cmd-input", Input).disabled = True
 
     def _on_results(self, result: dict) -> None:
         self._results = result.get("results", [])
@@ -154,17 +189,17 @@ class ExecuteScreen(Screen):
             f"[{color}]{status.upper()}[/{color}] — {success}/{total} succeeded  "
             f"(Enter on row for full output)"
         )
-        self.query_one(Input).disabled = False
-        self.query_one(Input).clear()
-        self.query_one(Input).focus()
+        self.query_one("#cmd-input", Input).disabled = False
+        self.query_one("#cmd-input", Input).clear()
+        self.query_one("#cmd-input", Input).focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_detail()
 
     def _on_error(self, msg: str) -> None:
         self.query_one("#results-label", Label).update(f"[red]Error: {msg}[/red]")
-        self.query_one(Input).disabled = False
-        self.query_one(Input).focus()
+        self.query_one("#cmd-input", Input).disabled = False
+        self.query_one("#cmd-input", Input).focus()
 
     def action_detail(self) -> None:
         table = self.query_one(DataTable)
