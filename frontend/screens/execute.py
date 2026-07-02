@@ -1,4 +1,5 @@
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal
@@ -172,33 +173,53 @@ class ExecuteScreen(Screen):
     @work(thread=True)
     def _run_command(self, raw: str, command: str) -> None:
         self.app.call_from_thread(self._set_running, raw)
-        try:
-            resp = self._api.execute_command(self._selected, command)
-            action_id = resp["action_id"]
-            result = self._api.get_command_result(action_id)
-            self.app.call_from_thread(self._on_results, result)
-        except ApiError as e:
-            self.app.call_from_thread(self._on_error, str(e))
+        total = len(self._selected)
+        done = 0
+        ok_count = 0
 
-    def _set_running(self, command: str) -> None:
+        def _exec_one(pos: str) -> tuple[str, dict | None]:
+            try:
+                resp = self._api.execute_command([pos], command)
+                return pos, self._api.get_command_result(resp["action_id"])
+            except ApiError:
+                return pos, None
+
+        with ThreadPoolExecutor(max_workers=min(10, total)) as ex:
+            futures = {ex.submit(_exec_one, pos): pos for pos in self._selected}
+            for future in as_completed(futures):
+                pos, result = future.result()
+                done += 1
+                if result:
+                    for r in result.get("results", []):
+                        self._results.append(r)
+                    if result.get("status") == "success":
+                        ok_count += 1
+                self.app.call_from_thread(self._update_exec_bar, done, total, pos)
+                self.app.call_from_thread(self._apply_sort)
+
+        self.app.call_from_thread(self._on_exec_done, ok_count, total)
+
+    def _set_running(self, raw: str) -> None:
         sudo_note = " [yellow][sudo][/yellow]" if self.query_one("#sudo-check", Checkbox).value else ""
         self.query_one("#results-label", Label).update(
-            f"[yellow]Executing:[/yellow]{sudo_note} {command}"
+            f"[yellow]Executing:{sudo_note}[/yellow] {raw}"
         )
         self._results = []
         self._redraw_table()
         self.query_one("#cmd-input", Input).disabled = True
 
-    def _on_results(self, result: dict) -> None:
-        self._results = result.get("results", [])
-        self._apply_sort()
-        success = sum(1 for r in self._results if r.get("exit_code") == 0)
-        total = len(self._results)
-        status = result.get("status", "")
-        color = "green" if status == "success" else ("red" if status == "fail" else "yellow")
+    def _update_exec_bar(self, done: int, total: int, last: str) -> None:
+        pct = done / total if total > 0 else 0
+        filled = int(30 * pct)
+        bar = "█" * filled + "░" * (30 - filled)
         self.query_one("#results-label", Label).update(
-            f"[{color}]{status.upper()}[/{color}] — {success}/{total} succeeded  "
-            f"(Enter on row for full output)"
+            f"[yellow][{bar}] {done}/{total}  ✓ {last}[/yellow]"
+        )
+
+    def _on_exec_done(self, ok: int, total: int) -> None:
+        color = "green" if ok == total else ("red" if ok == 0 else "yellow")
+        self.query_one("#results-label", Label).update(
+            f"[{color}][{'█' * 30}] {ok}/{total} OK[/{color}]  (Enter on row for full output)"
         )
         self.query_one("#cmd-input", Input).disabled = False
         self.query_one("#cmd-input", Input).clear()
