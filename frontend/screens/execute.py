@@ -67,6 +67,10 @@ class ExecuteScreen(Screen):
         margin-left: 1;
         display: none;
     }
+    #detach-check {
+        width: auto;
+        margin-left: 2;
+    }
     #results-label {
         height: 1;
         padding: 0 1;
@@ -97,6 +101,7 @@ class ExecuteScreen(Screen):
             yield Input(placeholder="e.g. uptime", id="cmd-input")
             yield Checkbox("Sudo", id="sudo-check")
             yield Input(placeholder="sudo password", id="sudo-pass", password=True)
+            yield Checkbox("Detach", id="detach-check")
         yield Label("Results: (v or Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
@@ -111,8 +116,18 @@ class ExecuteScreen(Screen):
 
     def _build_command(self, raw: str) -> str:
         """Must be called from the main thread (accesses widgets)."""
+        # Detach: background the command so SSH returns before it finishes.
+        # Needed for reboot/shutdown/long-running commands.
+        if self.query_one("#detach-check", Checkbox).value:
+            b64_inner = base64.b64encode(raw.encode()).decode()
+            raw = (
+                f"nohup bash -c \"$(echo {b64_inner} | base64 -d)\" "
+                f"&>/dev/null & disown; sleep 0.5"
+            )
+
         if not self.query_one("#sudo-check", Checkbox).value:
             return raw
+
         password = self.query_one("#sudo-pass", Input).value
         if password:
             escaped_pass = password.replace("'", "'\\''")
@@ -201,8 +216,9 @@ class ExecuteScreen(Screen):
 
     def _set_running(self, raw: str) -> None:
         sudo_note = " [yellow][sudo][/yellow]" if self.query_one("#sudo-check", Checkbox).value else ""
+        detach_note = " [dim][detach][/dim]" if self.query_one("#detach-check", Checkbox).value else ""
         self.query_one("#results-label", Label).update(
-            f"[yellow]Executing:{sudo_note}[/yellow] {raw}"
+            f"[yellow]Executing:{sudo_note}{detach_note}[/yellow] {raw}"
         )
         self._results = []
         self._redraw_table()
