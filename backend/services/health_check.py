@@ -1,4 +1,6 @@
 import json
+import socket
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
@@ -58,13 +60,20 @@ def _parse_temp(raw: str) -> float | None:
         return None
 
 
+def _ping(ip: str) -> bool:
+    try:
+        r = subprocess.run(
+            ["ping", "-c", "1", "-W", "2", ip],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=3,
+        )
+        return r.returncode == 0
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+
 def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckData:
-    import socket
-
-    key = load_private_key(settings.private_key_path)
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
     def _error(msg: str) -> HealthCheckData:
         return HealthCheckData(
             result=PiHealthResult(
@@ -75,6 +84,13 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
             ),
             hostname=None, mac=None, pi_version=None, serial=None,
         )
+
+    if not _ping(ip):
+        return _error("unreachable (no ping response)")
+
+    key = load_private_key(settings.private_key_path)
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     try:
         client.connect(
