@@ -185,7 +185,7 @@ class HomeScreen(Screen):
                 f"{cpu_15m:.1f}" if cpu_15m is not None else "—",
                 f"{mem_pct:.1f}" if mem_pct is not None else "—",
                 f"{temp:.1f}"    if temp    is not None else "—",
-                fmt_datetime(pi.get("pi_time")),
+                pi.get("pi_time") or "—",
                 fmt_uptime(pi.get("uptime_s")),
                 fmt_tags(pi.get("tags", [])),
                 fmt_datetime(pi.get("last_seen")),

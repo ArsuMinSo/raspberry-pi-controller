@@ -21,8 +21,7 @@ _FAKE_OUTPUTS = {
     "hostname": "kiosk01",
     "ip link show | awk '/link\\/ether/{print $2; exit}'": "b8:27:eb:aa:bb:cc",
     "cat /proc/cpuinfo": "Model : Raspberry Pi 4 Model B\nSerial : deadbeef",
-    "date -u +%Y-%m-%dT%H:%M:%S": "2026-07-14T10:30:00",
-    "cat /proc/uptime": "543210.12 400000.00",
+    "uptime": "14:32:01 up 3 days, 22:15,  1 user,  load average: 0.10, 0.20, 0.30\n",
 }
 
 
@@ -33,10 +32,29 @@ def _fake_exec_command(cmd, timeout=None):
     return None, stdout_fh, MagicMock()
 
 
-def test_parse_uptime():
-    assert _parse_uptime("123456.78 98765.43\n") == 123456
-    assert _parse_uptime("") is None
-    assert _parse_uptime("garbage") is None
+def test_parse_uptime_days_and_hhmm():
+    pi_time, uptime_s = _parse_uptime(
+        "14:32:01 up 3 days, 22:15,  1 user,  load average: 0.10, 0.20, 0.30"
+    )
+    assert pi_time == "14:32:01"
+    assert uptime_s == 3 * 86400 + 22 * 3600 + 15 * 60
+
+
+def test_parse_uptime_minutes_only():
+    pi_time, uptime_s = _parse_uptime("09:01:00 up 21 min,  1 user,  load average: 0.00, 0.00, 0.00")
+    assert pi_time == "09:01:00"
+    assert uptime_s == 21 * 60
+
+
+def test_parse_uptime_short_hhmm_no_days():
+    pi_time, uptime_s = _parse_uptime("08:00:00 up  1:22,  2 users,  load average: 0.00, 0.00, 0.00")
+    assert pi_time == "08:00:00"
+    assert uptime_s == 1 * 3600 + 22 * 60
+
+
+def test_parse_uptime_empty():
+    assert _parse_uptime("") == (None, None)
+    assert _parse_uptime("garbage") == (None, None)
 
 
 @patch("backend.services.health_check.load_private_key", return_value=None)
@@ -50,8 +68,8 @@ def test_check_health_collects_pi_time_and_uptime(mock_client_cls, mock_ping, mo
     data = check_health("10.10.20.5", "01-001", SETTINGS)
 
     assert data.result.error is None
-    assert data.result.pi_time == "2026-07-14T10:30:00Z"
-    assert data.result.uptime_s == 543210
+    assert data.result.pi_time == "14:32:01"
+    assert data.result.uptime_s == 3 * 86400 + 22 * 3600 + 15 * 60
     assert data.result.cpu_1m is not None
     assert data.result.temp_c == 45.0
 

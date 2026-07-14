@@ -1,4 +1,5 @@
 import json
+import re
 import socket
 import subprocess
 import time
@@ -60,11 +61,45 @@ def _parse_temp(raw: str) -> float | None:
         return None
 
 
-def _parse_uptime(raw: str) -> int | None:
-    try:
-        return int(float(raw.strip().split()[0]))
-    except (ValueError, IndexError, AttributeError):
-        return None
+_UPTIME_TIME_RE = re.compile(r"^\s*(\d{1,2}:\d{2}:\d{2})")
+_UPTIME_DUR_RE = re.compile(r"up\s+(.*?),\s*(?:\d+\s+users?|load average)")
+_UPTIME_DAYS_RE = re.compile(r"(\d+)\s+day")
+_UPTIME_HHMM_RE = re.compile(r"(\d+):(\d+)$")
+_UPTIME_MIN_RE = re.compile(r"(\d+)\s+min")
+
+
+def _parse_uptime(raw: str) -> tuple[str | None, int | None]:
+    """Parse `uptime` command output, e.g.
+    '14:32:01 up 3 days, 22:15,  1 user,  load average: 0.10, 0.20, 0.30'
+    into (current time-of-day 'HH:MM:SS', uptime in seconds).
+    """
+    raw = (raw or "").strip()
+    if not raw:
+        return None, None
+
+    m_time = _UPTIME_TIME_RE.match(raw)
+    pi_time = m_time.group(1) if m_time else None
+
+    uptime_s = None
+    m_dur = _UPTIME_DUR_RE.search(raw)
+    if m_dur:
+        dur = m_dur.group(1)
+        days = 0
+        hours = 0
+        minutes = 0
+        m_days = _UPTIME_DAYS_RE.search(dur)
+        if m_days:
+            days = int(m_days.group(1))
+        m_hhmm = _UPTIME_HHMM_RE.search(dur)
+        if m_hhmm:
+            hours, minutes = int(m_hhmm.group(1)), int(m_hhmm.group(2))
+        else:
+            m_min = _UPTIME_MIN_RE.search(dur)
+            if m_min:
+                minutes = int(m_min.group(1))
+        uptime_s = days * 86400 + hours * 3600 + minutes * 60
+
+    return pi_time, uptime_s
 
 
 def _ping(ip: str) -> bool:
@@ -124,14 +159,12 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
         hostname_raw = run("hostname").strip() or None
         mac_raw      = run("ip link show | awk '/link\\/ether/{print $2; exit}'").strip().lower()
         cpuinfo      = run("cat /proc/cpuinfo")
-        time_raw     = run("date -u +%Y-%m-%dT%H:%M:%S").strip()
-        uptime_raw   = run("cat /proc/uptime")
+        uptime_raw   = run("uptime")
 
         cpu_1m, cpu_5m, cpu_15m = _parse_loadavg_pct(loadavg_raw, ncores_raw)
         mem_percent = _parse_mem_pct(mem_pct_raw)
         temp_c      = _parse_temp(temp_raw)
-        pi_time     = (time_raw + "Z") if time_raw else None
-        uptime_s    = _parse_uptime(uptime_raw)
+        pi_time, uptime_s = _parse_uptime(uptime_raw)
 
         model_line  = next((l for l in cpuinfo.splitlines() if l.lower().startswith("model")), "")
         serial_line = next((l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), "")

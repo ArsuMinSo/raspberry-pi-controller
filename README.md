@@ -212,7 +212,7 @@ Commands run in parallel up to `parallel_limit` concurrent SSH sessions. Results
 
 ### Health Check
 
-Collects CPU load %, RAM%, temperature, the Pi's current UTC time, and uptime via SSH. Also updates each Pi's hostname, MAC, Pi version, and serial in the database from live values. Pi Time and Uptime are also shown as columns on the Home grid once a health check has run.
+Collects CPU load %, RAM%, temperature, and the Pi's clock/uptime (both parsed from a single `uptime` SSH call) via SSH. Also updates each Pi's hostname, MAC, Pi version, and serial in the database from live values. Pi Time and Uptime are also shown as columns on the Home grid once a health check has run.
 
 **Open:** Select Pis on Home → press `h`.
 

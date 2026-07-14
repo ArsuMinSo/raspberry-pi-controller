@@ -102,7 +102,7 @@ class HealthScreen(Screen):
                 f"{cpu_15m:.1f}" if cpu_15m is not None else "—",
                 f"{mem_pct:.1f}" if mem_pct is not None else "—",
                 f"{temp:.1f}"    if temp    is not None else "—",
-                fmt_datetime(r.get("pi_time")),
+                r.get("pi_time") or "—",
                 fmt_uptime(r.get("uptime_s")),
                 r.get("error") or "",
                 key=r.get("position"),
