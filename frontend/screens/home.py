@@ -7,7 +7,7 @@ from textual.binding import Binding
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
-from frontend.utils.formatters import fmt_datetime, fmt_tags, status_markup
+from frontend.utils.formatters import fmt_datetime, fmt_tags, fmt_uptime, status_markup
 from frontend.screens.confirm import ConfirmScreen
 from frontend.screens.deploy_key import DeployKeyScreen
 from frontend.screens.manage_pi import ManagePiScreen
@@ -27,6 +27,8 @@ _COLUMNS = [
     ("CPU 15m%", 10),
     ("RAM%",      7),
     ("Temp °C",   9),
+    ("Pi Time",  16),
+    ("Uptime",   10),
     ("Tags",     24),
     ("Last Seen", 22),
 ]
@@ -44,6 +46,8 @@ _SORT_KEYS = [
     lambda p: p.get("cpu_15m") or 0.0,
     lambda p: p.get("mem_percent") or 0.0,
     lambda p: p.get("temp_c") or 0.0,
+    lambda p: p.get("pi_time") or "",
+    lambda p: p.get("uptime_s") or 0,
     lambda p: ",".join(sorted(p.get("tags") or [])),
     lambda p: str(p.get("last_seen") or ""),
 ]
@@ -145,6 +149,8 @@ class HomeScreen(Screen):
                 pi["cpu_15m"]     = h.get("cpu_15m")
                 pi["mem_percent"] = h.get("mem_percent")
                 pi["temp_c"]      = h.get("temp_c")
+                pi["pi_time"]     = h.get("pi_time")
+                pi["uptime_s"]    = h.get("uptime_s")
                 pi["status"]      = "unreachable" if h.get("error") else "reachable"
 
     def _apply_sort(self) -> None:
@@ -179,6 +185,8 @@ class HomeScreen(Screen):
                 f"{cpu_15m:.1f}" if cpu_15m is not None else "—",
                 f"{mem_pct:.1f}" if mem_pct is not None else "—",
                 f"{temp:.1f}"    if temp    is not None else "—",
+                fmt_datetime(pi.get("pi_time")),
+                fmt_uptime(pi.get("uptime_s")),
                 fmt_tags(pi.get("tags", [])),
                 fmt_datetime(pi.get("last_seen")),
                 key=pos,

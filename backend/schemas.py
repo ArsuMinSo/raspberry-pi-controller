@@ -83,6 +83,8 @@ class PiHealthResult(BaseModel):
     cpu_15m: float | None
     mem_percent: float | None
     temp_c: float | None
+    pi_time: str | None = None
+    uptime_s: int | None = None
     error: str | None
 
 

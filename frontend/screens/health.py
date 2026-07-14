@@ -5,6 +5,7 @@ from textual.binding import Binding
 from textual import work
 
 from frontend.api_client import ApiClient, ApiError
+from frontend.utils.formatters import fmt_datetime, fmt_uptime
 
 
 _COLUMNS = [
@@ -14,6 +15,8 @@ _COLUMNS = [
     ("CPU 15m%",  10),
     ("RAM%",       7),
     ("Temp °C",    9),
+    ("Pi Time",   16),
+    ("Uptime",    10),
     ("Error",     30),
 ]
 
@@ -24,6 +27,8 @@ _SORT_KEYS = [
     lambda r: r.get("cpu_15m")     or 0.0,
     lambda r: r.get("mem_percent") or 0.0,
     lambda r: r.get("temp_c")      or 0.0,
+    lambda r: r.get("pi_time")     or "",
+    lambda r: r.get("uptime_s")    or 0,
     lambda r: (r.get("error") or "").lower(),
 ]
 
@@ -97,6 +102,8 @@ class HealthScreen(Screen):
                 f"{cpu_15m:.1f}" if cpu_15m is not None else "—",
                 f"{mem_pct:.1f}" if mem_pct is not None else "—",
                 f"{temp:.1f}"    if temp    is not None else "—",
+                fmt_datetime(r.get("pi_time")),
+                fmt_uptime(r.get("uptime_s")),
                 r.get("error") or "",
                 key=r.get("position"),
             )

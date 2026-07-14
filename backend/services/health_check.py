@@ -60,6 +60,13 @@ def _parse_temp(raw: str) -> float | None:
         return None
 
 
+def _parse_uptime(raw: str) -> int | None:
+    try:
+        return int(float(raw.strip().split()[0]))
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
 def _ping(ip: str) -> bool:
     try:
         r = subprocess.run(
@@ -80,6 +87,7 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
                 position=position,
                 cpu_1m=None, cpu_5m=None, cpu_15m=None,
                 mem_percent=None, temp_c=None,
+                pi_time=None, uptime_s=None,
                 error=msg,
             ),
             hostname=None, mac=None, pi_version=None, serial=None,
@@ -116,10 +124,14 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
         hostname_raw = run("hostname").strip() or None
         mac_raw      = run("ip link show | awk '/link\\/ether/{print $2; exit}'").strip().lower()
         cpuinfo      = run("cat /proc/cpuinfo")
+        time_raw     = run("date -u +%Y-%m-%dT%H:%M:%S").strip()
+        uptime_raw   = run("cat /proc/uptime")
 
         cpu_1m, cpu_5m, cpu_15m = _parse_loadavg_pct(loadavg_raw, ncores_raw)
         mem_percent = _parse_mem_pct(mem_pct_raw)
         temp_c      = _parse_temp(temp_raw)
+        pi_time     = (time_raw + "Z") if time_raw else None
+        uptime_s    = _parse_uptime(uptime_raw)
 
         model_line  = next((l for l in cpuinfo.splitlines() if l.lower().startswith("model")), "")
         serial_line = next((l for l in cpuinfo.splitlines() if l.lower().startswith("serial")), "")
@@ -132,6 +144,7 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
                 position=position,
                 cpu_1m=cpu_1m, cpu_5m=cpu_5m, cpu_15m=cpu_15m,
                 mem_percent=mem_percent, temp_c=temp_c,
+                pi_time=pi_time, uptime_s=uptime_s,
                 error=None,
             ),
             hostname=hostname_raw, mac=mac, pi_version=pi_version, serial=serial,
@@ -164,6 +177,7 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
                 position=pi.position,
                 cpu_1m=None, cpu_5m=None, cpu_15m=None,
                 mem_percent=None, temp_c=None,
+                pi_time=None, uptime_s=None,
                 error="no IP recorded",
             ))
             continue

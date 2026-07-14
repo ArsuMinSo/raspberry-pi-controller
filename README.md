@@ -129,7 +129,7 @@ Press `q` to quit. Ctrl+C is intentionally ignored to prevent accidental exit.
 
 ### Home — Inventory Grid
 
-The main screen. Lists all Pis with position, hostname, IP, MAC, status, Pi version, tags, and last-seen time.
+The main screen. Lists all Pis with position, hostname, IP, MAC, status, Pi version, CPU/RAM/temp, Pi time, uptime, tags, and last-seen time. Pi time and uptime are populated by a health check (`h`) and blank until one has run.
 
 | Key | Action |
 |-----|--------|
@@ -212,7 +212,7 @@ Commands run in parallel up to `parallel_limit` concurrent SSH sessions. Results
 
 ### Health Check
 
-Collects CPU%, RAM, and disk usage from Pis via SSH. Also updates each Pi's hostname, MAC, Pi version, and serial in the database from live values.
+Collects CPU load %, RAM%, temperature, the Pi's current UTC time, and uptime via SSH. Also updates each Pi's hostname, MAC, Pi version, and serial in the database from live values. Pi Time and Uptime are also shown as columns on the Home grid once a health check has run.
 
 **Open:** Select Pis on Home → press `h`.
 
