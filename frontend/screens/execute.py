@@ -71,6 +71,16 @@ class ExecuteScreen(Screen):
         width: auto;
         margin-left: 2;
     }
+    #parallel-label {
+        width: auto;
+        margin-left: 2;
+        padding: 1 0 0 0;
+        color: $text-muted;
+    }
+    #parallel-input {
+        width: 6;
+        margin-left: 1;
+    }
     #results-label {
         height: 1;
         padding: 0 1;
@@ -102,6 +112,8 @@ class ExecuteScreen(Screen):
             yield Checkbox("Sudo", id="sudo-check")
             yield Input(placeholder="sudo password", id="sudo-pass", password=True)
             yield Checkbox("Detach", id="detach-check")
+            yield Label("Parallel:", id="parallel-label")
+            yield Input(value="10", type="integer", id="parallel-input")
         yield Label("Results: (v or Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
@@ -122,7 +134,7 @@ class ExecuteScreen(Screen):
             b64_inner = base64.b64encode(raw.encode()).decode()
             raw = (
                 f"nohup bash -c \"$(echo {b64_inner} | base64 -d)\" "
-                f"&>/dev/null & disown; sleep 0.5"
+                f"</dev/null &>/dev/null & disown; sleep 0.5"
             )
 
         if not self.query_one("#sudo-check", Checkbox).value:
@@ -141,6 +153,15 @@ class ExecuteScreen(Screen):
                 f"_R=$?; rm -f \"$_T\"; exit $_R"
             )
         return f"sudo {raw}"
+
+    def _parallel_limit(self) -> int:
+        """Must be called from the main thread (accesses widgets)."""
+        raw = self.query_one("#parallel-input", Input).value.strip()
+        try:
+            n = int(raw)
+        except ValueError:
+            n = 10
+        return max(1, min(n, 100))
 
     def _apply_sort(self) -> None:
         if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
@@ -183,10 +204,11 @@ class ExecuteScreen(Screen):
         if not raw:
             return
         command = self._build_command(raw)  # main thread — safe widget access
-        self._run_command(raw, command)
+        parallel = self._parallel_limit()   # main thread — safe widget access
+        self._run_command(raw, command, parallel)
 
     @work(thread=True)
-    def _run_command(self, raw: str, command: str) -> None:
+    def _run_command(self, raw: str, command: str, parallel: int) -> None:
         self.app.call_from_thread(self._set_running, raw)
         total = len(self._selected)
         done = 0
@@ -199,7 +221,7 @@ class ExecuteScreen(Screen):
             except ApiError:
                 return pos, None
 
-        with ThreadPoolExecutor(max_workers=min(10, total)) as ex:
+        with ThreadPoolExecutor(max_workers=max(1, min(parallel, total))) as ex:
             futures = {ex.submit(_exec_one, pos): pos for pos in self._selected}
             for future in as_completed(futures):
                 pos, result = future.result()
@@ -223,6 +245,7 @@ class ExecuteScreen(Screen):
         self._results = []
         self._redraw_table()
         self.query_one("#cmd-input", Input).disabled = True
+        self.query_one("#parallel-input", Input).disabled = True
 
     def _update_exec_bar(self, done: int, total: int, last: str) -> None:
         pct = done / total if total > 0 else 0
@@ -239,6 +262,7 @@ class ExecuteScreen(Screen):
         )
         self.query_one("#cmd-input", Input).disabled = False
         self.query_one("#cmd-input", Input).clear()
+        self.query_one("#parallel-input", Input).disabled = False
         self.query_one("#cmd-input", Input).focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -247,6 +271,7 @@ class ExecuteScreen(Screen):
     def _on_error(self, msg: str) -> None:
         self.query_one("#results-label", Label).update(f"[red]Error: {msg}[/red]")
         self.query_one("#cmd-input", Input).disabled = False
+        self.query_one("#parallel-input", Input).disabled = False
         self.query_one("#cmd-input", Input).focus()
 
     def action_detail(self) -> None:

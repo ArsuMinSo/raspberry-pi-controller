@@ -201,12 +201,18 @@ Runs a shell command on selected Pis in parallel via SSH.
 
 Type a command and press **Enter**. Results appear in a table showing exit code, stdout preview, and stderr preview per Pi.
 
+| Field | Description |
+|-------|--------------|
+| Sudo | Runs the command as root. Enter a password to have it piped to `sudo -S` non-interactively; leave blank to run bare `sudo <command>` (only works if the Pi user has passwordless sudo). |
+| Detach | Backgrounds the command (`nohup … & disown`) so the SSH call returns immediately instead of waiting for it to finish. Needed for `reboot`, `shutdown`, or anything long-running. |
+| Parallel | Max concurrent SSH sessions for this run (default 10, capped at 100). Independent of the backend's `ssh.parallel_limit` — this controls how many Pis the TUI dispatches to at once for this command. |
+
 | Key | Action |
 |-----|--------|
 | `v` / `Enter` | View full stdout/stderr for row under cursor |
 | `Esc` | Back |
 
-Commands run in parallel up to `parallel_limit` concurrent SSH sessions. Results are shown once all Pis respond. Failed Pis show the error reason (auth failure, timeout, etc.).
+Results are shown once all Pis respond. Failed Pis show the error reason (auth failure, timeout, etc.).
 
 ---
 
