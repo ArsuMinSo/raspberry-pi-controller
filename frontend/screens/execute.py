@@ -24,8 +24,8 @@ _COLUMNS = [
 _SORT_KEYS = [
     lambda r: (r.get("position") or "").lower(),
     lambda r: r.get("exit_code") if r.get("exit_code") is not None else -1,
-    None,
-    None,
+    lambda r: (r.get("stdout") or "").lower(),
+    lambda r: (r.get("stderr") or "").lower(),
     lambda r: (r.get("error") or "").lower(),
 ]
 
