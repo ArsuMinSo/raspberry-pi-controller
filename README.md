@@ -243,11 +243,14 @@ Enter the SSH password for the target Pi(s) and press **Deploy Key**. Results sh
 
 Append-only audit log of every action — commands, health checks, discoveries, key deployments. Nothing is ever deleted.
 
-**Open:** Press `l` from Home.
+**Open:** Press `l` from Home. If Pi(s) are selected on Home, Logs opens pre-filtered to those Pi(s).
 
 | Key | Action |
 |-----|--------|
 | `v` / `Enter` | View full stdout/stderr for selected row |
+| `f` | Toggle the selected-Pi(s) filter on/off |
+| `m` | Load more entries (fetch limit +300, capped at 1000) |
+| `r` | Refresh |
 | `Esc` | Back |
 
 ---

@@ -50,7 +50,7 @@ class PiController(App):
             if screen == "execute" and home is not None:
                 super().push_screen(ExecuteScreen(self._api, home.selected))
             elif screen == "logs":
-                super().push_screen(LogsScreen(self._api))
+                super().push_screen(LogsScreen(self._api, home.selected if home else set()))
             elif screen == "discovery":
                 super().push_screen(DiscoveryScreen(self._api))
         else:

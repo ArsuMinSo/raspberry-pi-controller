@@ -30,10 +30,16 @@ _SORT_KEYS = [
 ]
 
 
+_LIMIT_STEP = 300
+_LIMIT_MAX = 1000
+
+
 class LogsScreen(Screen):
     BINDINGS = [
         Binding("v", "detail", "View detail"),
         Binding("r", "refresh", "Refresh"),
+        Binding("f", "toggle_filter", "Toggle filter"),
+        Binding("m", "load_more", "Load more"),
         Binding("escape", "back", "Back"),
     ]
 
@@ -51,9 +57,13 @@ class LogsScreen(Screen):
     }
     """
 
-    def __init__(self, api: ApiClient):
+    def __init__(self, api: ApiClient, selected: set[str] | None = None):
         super().__init__()
         self._api = api
+        self._selected = selected or set()
+        self._filter_active = bool(self._selected)
+        self._limit = _LIMIT_STEP
+        self._all_entries: list[dict] = []
         self._entries: list[dict] = []
         self._sort_col: int | None = None
         self._sort_asc: bool = True
@@ -67,6 +77,16 @@ class LogsScreen(Screen):
     def on_mount(self) -> None:
         self._redraw_table()
         self.load_logs()
+
+    def _apply_filter(self) -> None:
+        if self._filter_active and self._selected:
+            self._entries = [
+                e for e in self._all_entries
+                if set(e.get("pis_selected") or []) & self._selected
+            ]
+        else:
+            self._entries = list(self._all_entries)
+        self._apply_sort()
 
     def _apply_sort(self) -> None:
         if self._sort_col is not None:
@@ -105,17 +125,23 @@ class LogsScreen(Screen):
     @work(thread=True)
     def load_logs(self) -> None:
         try:
-            entries = self._api.get_logs(limit=200)
+            entries = self._api.get_logs(limit=self._limit)
         except ApiError as e:
             self.app.call_from_thread(self._on_error, str(e))
             return
         self.app.call_from_thread(self._on_loaded, entries)
 
     def _on_loaded(self, entries: list[dict]) -> None:
-        self._entries = entries
-        self._apply_sort()
+        self._all_entries = entries
+        self._apply_filter()
+        filter_note = ""
+        if self._selected:
+            state = "on" if self._filter_active else "off"
+            filter_note = f"  [dim]filter {state} ({len(self._selected)} pi) — f to toggle[/dim]"
+        more_note = "" if self._limit >= _LIMIT_MAX else "  [dim]m for more[/dim]"
         self.query_one("#subtitle", Label).update(
-            f"{len(entries)} log entries  (v or Enter on row for detail)"
+            f"{len(self._entries)}/{len(self._all_entries)} log entries "
+            f"(fetched {len(entries)}, limit {self._limit}){filter_note}{more_note}"
         )
 
     def _on_error(self, msg: str) -> None:
@@ -145,6 +171,26 @@ class LogsScreen(Screen):
 
     def action_refresh(self) -> None:
         self.query_one("#subtitle", Label).update("Refreshing…")
+        self.load_logs()
+
+    def action_toggle_filter(self) -> None:
+        if not self._selected:
+            return
+        self._filter_active = not self._filter_active
+        self._apply_filter()
+        state = "on" if self._filter_active else "off"
+        filter_note = f"  [dim]filter {state} ({len(self._selected)} pi) — f to toggle[/dim]"
+        more_note = "" if self._limit >= _LIMIT_MAX else "  [dim]m for more[/dim]"
+        self.query_one("#subtitle", Label).update(
+            f"{len(self._entries)}/{len(self._all_entries)} log entries "
+            f"(limit {self._limit}){filter_note}{more_note}"
+        )
+
+    def action_load_more(self) -> None:
+        if self._limit >= _LIMIT_MAX:
+            return
+        self._limit = min(self._limit + _LIMIT_STEP, _LIMIT_MAX)
+        self.query_one("#subtitle", Label).update("Loading more…")
         self.load_logs()
 
     def action_back(self) -> None:
