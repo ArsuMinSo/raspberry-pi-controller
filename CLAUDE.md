@@ -309,6 +309,10 @@ pi-controller/
 
 ---
 
+## Working Agreement
+
+- **Before every commit:** check README.md + wiki pages (Installation, Configuration, TUI Guide, API Reference, Database Schema, Deployment, Development) for the feature/change being committed. Update any page that's stale or missing the new behavior. Push wiki edits separately (`raspberry-pi-controller.wiki.git` clone) — not part of the main repo commit.
+
 ## References
 
 - Functional Requirements: See conversation history
