@@ -17,7 +17,7 @@ class SettingsScreen(ModalScreen):
         align: center middle;
     }
     #dialog {
-        width: 72;
+        width: 82;
         height: auto;
         border: thick $primary;
         padding: 1 2;
@@ -95,7 +95,13 @@ class SettingsScreen(ModalScreen):
             yield Input(placeholder="/home/pi_controller/.ssh/id_rsa", id="key-path")
             with Static(classes="row"):
                 yield Input(placeholder="Username (e.g. pi)", id="username")
-                yield Input(placeholder="Timeout s (e.g. 30)", id="timeout")
+                yield Input(placeholder="Timeout s (e.g. 30)", id="timeout", type="integer")
+            yield Label("Retry count / retry delay (seconds):", classes="field-label")
+            with Static(classes="row"):
+                yield Input(placeholder="Retries (e.g. 3)", id="retry-count", type="integer")
+                yield Input(placeholder="Retry delay s (e.g. 1)", id="retry-delay", type="integer")
+            yield Label("Max parallel SSH sessions:", classes="field-label")
+            yield Input(placeholder="e.g. 10", id="parallel-limit", type="integer")
             with Static(id="buttons-save"):
                 yield Button("Save SSH Settings", variant="primary", id="save")
 
@@ -127,6 +133,9 @@ class SettingsScreen(ModalScreen):
         self.query_one("#key-path", Input).value = ssh.get("private_key_path") or ""
         self.query_one("#username", Input).value = ssh.get("username") or ""
         self.query_one("#timeout", Input).value = str(ssh.get("timeout_s") or "")
+        self.query_one("#retry-count", Input).value = str(ssh.get("retry_count") or "")
+        self.query_one("#retry-delay", Input).value = str(ssh.get("retry_delay_s") or "")
+        self.query_one("#parallel-limit", Input).value = str(ssh.get("parallel_limit") or "")
 
     def _set_result(self, markup: str) -> None:
         self.query_one("#test-result", Static).update(markup)
@@ -147,20 +156,39 @@ class SettingsScreen(ModalScreen):
     def _do_save(self) -> None:
         key_path = self.query_one("#key-path", Input).value.strip() or None
         username = self.query_one("#username", Input).value.strip() or None
-        timeout_raw = self.query_one("#timeout", Input).value.strip()
-        timeout_s: int | None = None
-        if timeout_raw:
+
+        def _int_field(widget_id: str, label: str) -> tuple[int | None, bool]:
+            raw = self.query_one(widget_id, Input).value.strip()
+            if not raw:
+                return None, True
             try:
-                timeout_s = int(timeout_raw)
+                return int(raw), True
             except ValueError:
-                self.notify("Timeout must be a number", severity="warning")
-                return
-        self._save_settings(key_path, username, timeout_s)
+                self.notify(f"{label} must be a number", severity="warning")
+                return None, False
+
+        timeout_s, ok1 = _int_field("#timeout", "Timeout")
+        retry_count, ok2 = _int_field("#retry-count", "Retry count")
+        retry_delay_s, ok3 = _int_field("#retry-delay", "Retry delay")
+        parallel_limit, ok4 = _int_field("#parallel-limit", "Parallel")
+        if not (ok1 and ok2 and ok3 and ok4):
+            return
+
+        self._save_settings(key_path, username, timeout_s, retry_count, retry_delay_s, parallel_limit)
 
     @work(thread=True)
-    def _save_settings(self, key_path, username, timeout_s) -> None:
+    def _save_settings(
+        self, key_path, username, timeout_s, retry_count, retry_delay_s, parallel_limit
+    ) -> None:
         try:
-            self._api.update_ssh_settings(key_path=key_path, username=username, timeout_s=timeout_s)
+            self._api.update_ssh_settings(
+                key_path=key_path,
+                username=username,
+                timeout_s=timeout_s,
+                retry_count=retry_count,
+                retry_delay_s=retry_delay_s,
+                parallel_limit=parallel_limit,
+            )
             self.app.call_from_thread(self.notify, "SSH settings saved")
             self.app.call_from_thread(self._load_settings)
         except ApiError as e:

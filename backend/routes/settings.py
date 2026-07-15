@@ -22,6 +22,9 @@ class SettingsPatch(BaseModel):
     ssh_key_path: str | None = None
     username: str | None = None
     timeout_s: int | None = None
+    retry_count: int | None = None
+    retry_delay_s: int | None = None
+    parallel_limit: int | None = None
     subnet: str | None = None
     probe_ssh: bool | None = None
     probe_timeout_s: int | None = None
@@ -39,6 +42,9 @@ def _ssh_view(ssh) -> dict:
         "private_key_path": ssh.private_key_path,
         "username": ssh.username,
         "timeout_s": ssh.timeout_s,
+        "retry_count": ssh.retry_count,
+        "retry_delay_s": ssh.retry_delay_s,
+        "parallel_limit": ssh.parallel_limit,
     }
 
 
@@ -67,6 +73,9 @@ def patch_settings(body: SettingsPatch):
         key_path=body.ssh_key_path,
         username=body.username,
         timeout_s=body.timeout_s,
+        retry_count=body.retry_count,
+        retry_delay_s=body.retry_delay_s,
+        parallel_limit=body.parallel_limit,
     )
     apply_network_override(
         subnet=body.subnet,

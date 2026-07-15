@@ -132,6 +132,9 @@ def apply_ssh_override(
     key_path: str | None = None,
     username: str | None = None,
     timeout_s: int | None = None,
+    retry_count: int | None = None,
+    retry_delay_s: int | None = None,
+    parallel_limit: int | None = None,
 ) -> None:
     if key_path is not None:
         _ssh_overrides["private_key_path"] = key_path
@@ -139,6 +142,12 @@ def apply_ssh_override(
         _ssh_overrides["username"] = username
     if timeout_s is not None:
         _ssh_overrides["timeout_s"] = timeout_s
+    if retry_count is not None:
+        _ssh_overrides["retry_count"] = retry_count
+    if retry_delay_s is not None:
+        _ssh_overrides["retry_delay_s"] = retry_delay_s
+    if parallel_limit is not None:
+        _ssh_overrides["parallel_limit"] = parallel_limit
 
 
 def effective_ssh_settings() -> SSHSettings:

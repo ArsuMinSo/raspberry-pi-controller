@@ -140,6 +140,9 @@ class ApiClient:
         key_path: str | None = None,
         username: str | None = None,
         timeout_s: int | None = None,
+        retry_count: int | None = None,
+        retry_delay_s: int | None = None,
+        parallel_limit: int | None = None,
     ) -> dict:
         body = {}
         if key_path is not None:
@@ -148,6 +151,12 @@ class ApiClient:
             body["username"] = username
         if timeout_s is not None:
             body["timeout_s"] = timeout_s
+        if retry_count is not None:
+            body["retry_count"] = retry_count
+        if retry_delay_s is not None:
+            body["retry_delay_s"] = retry_delay_s
+        if parallel_limit is not None:
+            body["parallel_limit"] = parallel_limit
         return self._patch("/settings", body)
 
     def update_network_settings(

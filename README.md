@@ -205,7 +205,8 @@ Type a command and press **Enter**. Results appear in a table showing exit code,
 |-------|--------------|
 | Sudo | Runs the command as root. Enter a password to have it piped to `sudo -S` non-interactively; leave blank to run bare `sudo <command>` (only works if the Pi user has passwordless sudo). |
 | Detach | Backgrounds the command (`nohup … & disown`) so the SSH call returns immediately instead of waiting for it to finish. Needed for `reboot`, `shutdown`, or anything long-running. |
-| Parallel | Max concurrent SSH sessions for this run (default 10, capped at 100). Independent of the backend's `ssh.parallel_limit` — this controls how many Pis the TUI dispatches to at once for this command. |
+
+Max concurrent SSH sessions is read from **Settings** (`s` on Home → Parallel) — same `ssh.parallel_limit` used by health checks and discovery.
 
 | Key | Action |
 |-----|--------|
@@ -272,6 +273,9 @@ Live-edit SSH and network config without restarting the backend. Changes are sav
 | SSH key path | Path to private key on the controller host |
 | SSH username | Default user for command/health SSH sessions |
 | SSH timeout | Per-connection timeout in seconds |
+| Retry count | SSH retry attempts on failure |
+| Retry delay | Seconds between retries |
+| Parallel | Max concurrent SSH sessions — applies to health checks, discovery, and Execute (`ssh.parallel_limit`) |
 
 Use **Test connection** to verify SSH access to a specific IP before saving.
 

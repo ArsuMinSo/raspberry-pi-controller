@@ -71,16 +71,6 @@ class ExecuteScreen(Screen):
         width: auto;
         margin-left: 2;
     }
-    #parallel-label {
-        width: auto;
-        margin-left: 2;
-        padding: 1 0 0 0;
-        color: $text-muted;
-    }
-    #parallel-input {
-        width: 6;
-        margin-left: 1;
-    }
     #results-label {
         height: 1;
         padding: 0 1;
@@ -99,6 +89,7 @@ class ExecuteScreen(Screen):
         self._results: list[dict] = []
         self._sort_col: int | None = None
         self._sort_asc: bool = True
+        self._parallel_limit = 10  # overwritten from Settings once loaded
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -112,8 +103,6 @@ class ExecuteScreen(Screen):
             yield Checkbox("Sudo", id="sudo-check")
             yield Input(placeholder="sudo password", id="sudo-pass", password=True)
             yield Checkbox("Detach", id="detach-check")
-            yield Label("Parallel:", id="parallel-label")
-            yield Input(value="10", type="integer", id="parallel-input")
         yield Label("Results: (v or Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
@@ -121,6 +110,15 @@ class ExecuteScreen(Screen):
     def on_mount(self) -> None:
         self._redraw_table()
         self.query_one("#cmd-input", Input).focus()
+        self._load_parallel_limit()
+
+    @work(thread=True)
+    def _load_parallel_limit(self) -> None:
+        try:
+            n = int(self._api.get_settings().get("ssh", {}).get("parallel_limit") or 10)
+        except (ApiError, ValueError, TypeError):
+            return
+        self._parallel_limit = max(1, n)
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "sudo-check":
@@ -153,15 +151,6 @@ class ExecuteScreen(Screen):
                 f"_R=$?; rm -f \"$_T\"; exit $_R"
             )
         return f"sudo {raw}"
-
-    def _parallel_limit(self) -> int:
-        """Must be called from the main thread (accesses widgets)."""
-        raw = self.query_one("#parallel-input", Input).value.strip()
-        try:
-            n = int(raw)
-        except ValueError:
-            n = 10
-        return max(1, min(n, 100))
 
     def _apply_sort(self) -> None:
         if self._sort_col is not None and _SORT_KEYS[self._sort_col] is not None:
@@ -204,11 +193,10 @@ class ExecuteScreen(Screen):
         if not raw:
             return
         command = self._build_command(raw)  # main thread — safe widget access
-        parallel = self._parallel_limit()   # main thread — safe widget access
-        self._run_command(raw, command, parallel)
+        self._run_command(raw, command)
 
     @work(thread=True)
-    def _run_command(self, raw: str, command: str, parallel: int) -> None:
+    def _run_command(self, raw: str, command: str) -> None:
         self.app.call_from_thread(self._set_running, raw)
         total = len(self._selected)
         done = 0
@@ -221,7 +209,7 @@ class ExecuteScreen(Screen):
             except ApiError:
                 return pos, None
 
-        with ThreadPoolExecutor(max_workers=max(1, min(parallel, total))) as ex:
+        with ThreadPoolExecutor(max_workers=max(1, min(self._parallel_limit, total))) as ex:
             futures = {ex.submit(_exec_one, pos): pos for pos in self._selected}
             for future in as_completed(futures):
                 pos, result = future.result()
@@ -245,7 +233,6 @@ class ExecuteScreen(Screen):
         self._results = []
         self._redraw_table()
         self.query_one("#cmd-input", Input).disabled = True
-        self.query_one("#parallel-input", Input).disabled = True
 
     def _update_exec_bar(self, done: int, total: int, last: str) -> None:
         pct = done / total if total > 0 else 0
@@ -262,7 +249,6 @@ class ExecuteScreen(Screen):
         )
         self.query_one("#cmd-input", Input).disabled = False
         self.query_one("#cmd-input", Input).clear()
-        self.query_one("#parallel-input", Input).disabled = False
         self.query_one("#cmd-input", Input).focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
@@ -271,7 +257,6 @@ class ExecuteScreen(Screen):
     def _on_error(self, msg: str) -> None:
         self.query_one("#results-label", Label).update(f"[red]Error: {msg}[/red]")
         self.query_one("#cmd-input", Input).disabled = False
-        self.query_one("#parallel-input", Input).disabled = False
         self.query_one("#cmd-input", Input).focus()
 
     def action_detail(self) -> None:
