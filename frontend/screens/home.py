@@ -107,6 +107,7 @@ class HomeScreen(Screen):
         self.selected: set[str] = set()
         self._sort_col: int | None = None
         self._sort_asc: bool = True
+        self._task_last_runs: dict[int, str | None] = {}
 
     def compose(self) -> ComposeResult:
         yield Header()
@@ -118,6 +119,7 @@ class HomeScreen(Screen):
     def on_mount(self) -> None:
         self._redraw_table()
         self.load_pis()
+        self.set_interval(10, self._poll_tasks)
 
     def on_screen_resume(self) -> None:
         self.load_pis()
@@ -142,6 +144,21 @@ class HomeScreen(Screen):
 
     def _on_load_error(self, msg: str) -> None:
         self.query_one("#subtitle", Label).update(f"[red]Error: {msg}[/red]")
+
+    @work(thread=True)
+    def _poll_tasks(self) -> None:
+        try:
+            tasks = self._api.list_tasks()
+        except ApiError:
+            return
+        current = {t["id"]: t.get("last_run") for t in tasks}
+        changed = any(
+            current.get(tid) != last_run
+            for tid, last_run in self._task_last_runs.items()
+        )
+        self._task_last_runs = current
+        if changed:
+            self.app.call_from_thread(self.load_pis)
 
     def _merge_health(self) -> None:
         for pi in self._pis:
