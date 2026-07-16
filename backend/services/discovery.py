@@ -3,11 +3,11 @@ import json
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 
 import paramiko
 from sqlalchemy import cast, Text
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 
 from backend.config import NetworkSettings, SSHSettings
 from backend.utils.helpers import extract_pi_version, is_valid_mac, load_private_key
@@ -189,7 +189,7 @@ def scan_subnet(
         if existing:
             existing.current_ip = ip  # update IP if it changed
             existing.status = "reachable"
-            existing.last_seen = func.now()
+            existing.last_seen = datetime.now(timezone.utc)
             if hostname:
                 existing.hostname = hostname
             if pi_version:

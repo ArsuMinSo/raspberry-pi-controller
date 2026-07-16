@@ -29,6 +29,11 @@ def _pi_to_summary(pi: Pi) -> PiSummary:
         status=pi.status,
         last_seen=pi.last_seen,
         tags=pi.tags or [],
+        cpu_1m=pi.cpu_1m,
+        cpu_5m=pi.cpu_5m,
+        cpu_15m=pi.cpu_15m,
+        mem_percent=pi.mem_percent,
+        temp_c=pi.temp_c,
     )
 
 

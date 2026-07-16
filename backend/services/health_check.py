@@ -7,7 +7,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 
 import paramiko
-from sqlalchemy.sql import func
+from datetime import datetime, timezone
 
 from backend.config import SSHSettings
 from backend.utils.helpers import MAC_PLACEHOLDER, extract_pi_version, is_valid_mac, load_private_key
@@ -220,7 +220,7 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
 
         if d.result.error is None:
             pi.status = "reachable"
-            pi.last_seen = func.now()
+            pi.last_seen = datetime.now(timezone.utc)
             if d.hostname:
                 pi.hostname = d.hostname
             if d.mac and d.mac != MAC_PLACEHOLDER:
