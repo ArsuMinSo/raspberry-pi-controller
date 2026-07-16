@@ -229,6 +229,11 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
                 pi.pi_version = d.pi_version
             if d.serial:
                 pi.serial = d.serial
+            pi.cpu_1m      = d.result.cpu_1m
+            pi.cpu_5m      = d.result.cpu_5m
+            pi.cpu_15m     = d.result.cpu_15m
+            pi.mem_percent = d.result.mem_percent
+            pi.temp_c      = d.result.temp_c
         else:
             pi.status = "unreachable"
 

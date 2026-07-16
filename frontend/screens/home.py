@@ -135,7 +135,7 @@ class HomeScreen(Screen):
 
     def _on_pis_loaded(self, pis: list[dict]) -> None:
         self._pis = pis
-        self._merge_health()
+        self._merge_health()  # overlay live health-run data if present
         self._apply_sort()
         reachable = sum(1 for p in pis if p.get("status") == "reachable")
         self.query_one("#subtitle", Label).update(

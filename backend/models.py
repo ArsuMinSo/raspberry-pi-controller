@@ -1,4 +1,4 @@
-from sqlalchemy import Boolean, DateTime, Integer, SmallInteger, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, INET
 from sqlalchemy.orm import mapped_column, MappedColumn
 from sqlalchemy.sql import func
@@ -19,6 +19,11 @@ class Pi(Base):
     status: MappedColumn[str] = mapped_column(String(20), nullable=False, default="unreachable")
     last_seen = mapped_column(DateTime)
     tags = mapped_column(ARRAY(Text), nullable=False, default=list)
+    cpu_1m = mapped_column(Float)
+    cpu_5m = mapped_column(Float)
+    cpu_15m = mapped_column(Float)
+    mem_percent = mapped_column(Float)
+    temp_c = mapped_column(Float)
     created_at = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 

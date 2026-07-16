@@ -23,6 +23,11 @@ class PiSummary(BaseModel):
     status: Literal["reachable", "unreachable"]
     last_seen: datetime | None
     tags: list[str]
+    cpu_1m: float | None = None
+    cpu_5m: float | None = None
+    cpu_15m: float | None = None
+    mem_percent: float | None = None
+    temp_c: float | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
