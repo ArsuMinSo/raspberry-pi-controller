@@ -200,6 +200,44 @@ class LogEntry(BaseModel):
 
 # ─── Discovery ────────────────────────────────────────────────────────────────
 
+# ─── Scheduled Tasks ──────────────────────────────────────────────────────────
+
+class ScheduledTaskCreate(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    cron: str = Field(..., min_length=1, max_length=100)
+    task_type: Literal["command", "health", "discovery"]
+    command: str | None = None
+    pis: list[str] = []
+    enabled: bool = True
+
+
+class ScheduledTaskUpdate(BaseModel):
+    name: str | None = None
+    cron: str | None = None
+    task_type: Literal["command", "health", "discovery"] | None = None
+    command: str | None = None
+    pis: list[str] | None = None
+    enabled: bool | None = None
+
+
+class ScheduledTaskOut(BaseModel):
+    id: int
+    name: str
+    cron: str
+    task_type: str
+    command: str | None
+    pis: list[str]
+    enabled: bool
+    last_run: datetime | None
+    last_status: str | None
+    last_action_id: int | None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ─── Discovery ────────────────────────────────────────────────────────────────
+
 class DiscoveredPi(BaseModel):
     ip: str
     mac: str | None

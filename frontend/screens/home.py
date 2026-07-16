@@ -77,6 +77,7 @@ class HomeScreen(Screen):
         Binding("D", "discovery", "Discover"),
         Binding("k", "deploy_key", "Deploy Key"),
         Binding("s", "settings", "Settings"),
+        Binding("t", "tasks", "Tasks"),
     ]
 
     DEFAULT_CSS = """
@@ -409,6 +410,9 @@ class HomeScreen(Screen):
 
     def action_settings(self) -> None:
         self.app.push_screen(SettingsScreen(self._api))
+
+    def action_tasks(self) -> None:
+        self.app.push_screen("tasks")
 
     @work(thread=True)
     def _do_delete_pis(self, positions: list[str]) -> None:

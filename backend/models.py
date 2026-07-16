@@ -1,4 +1,4 @@
-from sqlalchemy import DateTime, Integer, SmallInteger, String, Text
+from sqlalchemy import Boolean, DateTime, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, INET
 from sqlalchemy.orm import mapped_column, MappedColumn
 from sqlalchemy.sql import func
@@ -38,3 +38,19 @@ class ActionLog(Base):
     status: MappedColumn[str] = mapped_column(String(20), nullable=False)
     retry_count: MappedColumn[int] = mapped_column(SmallInteger, nullable=False, default=0)
     duration_ms = mapped_column(Integer)
+
+
+class ScheduledTask(Base):
+    __tablename__ = "scheduled_tasks"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    name: MappedColumn[str] = mapped_column(String(255), nullable=False)
+    cron: MappedColumn[str] = mapped_column(String(100), nullable=False)
+    task_type: MappedColumn[str] = mapped_column(String(20), nullable=False)  # command/health/discovery
+    command = mapped_column(Text)
+    pis = mapped_column(ARRAY(Text), nullable=False, default=list)
+    enabled: MappedColumn[bool] = mapped_column(Boolean, nullable=False, default=True)
+    last_run = mapped_column(DateTime)
+    last_status = mapped_column(String(20))
+    last_action_id = mapped_column(Integer)
+    created_at = mapped_column(DateTime, nullable=False, server_default=func.now())

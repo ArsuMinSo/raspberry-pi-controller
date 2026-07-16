@@ -15,6 +15,7 @@ from frontend.screens.discovery import DiscoveryScreen
 from frontend.screens.execute import ExecuteScreen
 from frontend.screens.home import HomeScreen
 from frontend.screens.logs import LogsScreen
+from frontend.screens.scheduled_tasks import ScheduledTasksScreen
 
 
 class PiController(App):
@@ -53,6 +54,8 @@ class PiController(App):
                 super().push_screen(LogsScreen(self._api, home.selected if home else set()))
             elif screen == "discovery":
                 super().push_screen(DiscoveryScreen(self._api))
+            elif screen == "tasks":
+                super().push_screen(ScheduledTasksScreen(self._api))
         else:
             super().push_screen(screen, *args, **kwargs)
 

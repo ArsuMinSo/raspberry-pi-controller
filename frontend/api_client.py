@@ -56,6 +56,18 @@ class ApiClient:
         except requests.RequestException as e:
             raise ApiError(str(e))
 
+    def _delete(self, path: str) -> None:
+        try:
+            self._session.delete(f"{self._base}{path}", timeout=30).raise_for_status()
+        except requests.HTTPError as e:
+            try:
+                detail = e.response.json().get("detail", str(e))
+            except Exception:
+                detail = str(e)
+            raise ApiError(detail)
+        except requests.RequestException as e:
+            raise ApiError(str(e))
+
     def system_health(self) -> dict:
         return self._get("/health")
 
@@ -191,3 +203,17 @@ class ApiClient:
 
     def test_ssh_connection(self, ip: str) -> dict:
         return self._post("/settings/test", {"ip": ip})
+
+    # ── Scheduled tasks ───────────────────────────────────────────────────────
+
+    def list_tasks(self) -> list[dict]:
+        return self._get("/tasks")
+
+    def create_task(self, name: str, cron: str, task_type: str, command: str | None = None, pis: list[str] | None = None, enabled: bool = True) -> dict:
+        return self._post("/tasks", {"name": name, "cron": cron, "task_type": task_type, "command": command, "pis": pis or [], "enabled": enabled})
+
+    def update_task(self, task_id: int, **kwargs) -> dict:
+        return self._patch(f"/tasks/{task_id}", {k: v for k, v in kwargs.items() if v is not None or k == "enabled"})
+
+    def delete_task(self, task_id: int) -> None:
+        self._delete(f"/tasks/{task_id}")
