@@ -181,8 +181,13 @@ def scan_subnet(
         discovered.append(DiscoveredPi(ip=ip, mac=mac, hostname=hostname, pi_version=pi_version))
         discovered_ips.add(ip)
 
-        existing = db.query(Pi).filter(Pi.current_ip == ip).first()
+        existing = None
+        if mac and is_valid_mac(mac):
+            existing = db.query(Pi).filter(Pi.mac == mac).first()
+        if existing is None:
+            existing = db.query(Pi).filter(Pi.current_ip == ip).first()
         if existing:
+            existing.current_ip = ip  # update IP if it changed
             existing.status = "reachable"
             existing.last_seen = func.now()
             if hostname:
