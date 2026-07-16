@@ -91,8 +91,19 @@ class ApiClient:
             params["tags"] = tags
         return self._get("/pi/list", params)
 
-    def execute_command(self, positions: list[str], command: str) -> dict:
-        return self._post("/command/execute", {"pis": positions, "command": command})
+    def execute_command(
+        self,
+        positions: list[str],
+        command: str,
+        ssh_username: str | None = None,
+        ssh_password: str | None = None,
+    ) -> dict:
+        body: dict = {"pis": positions, "command": command}
+        if ssh_username:
+            body["ssh_username"] = ssh_username
+        if ssh_password:
+            body["ssh_password"] = ssh_password
+        return self._post("/command/execute", body)
 
     def get_command_result(self, action_id: int) -> dict:
         return self._get(f"/command/{action_id}")

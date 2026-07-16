@@ -19,7 +19,13 @@ from backend.services.ssh_executor import execute_many
 router = APIRouter()
 
 
-def _run_command(pis: list[Pi], command: str, db: Session) -> int:
+def _run_command(
+    pis: list[Pi],
+    command: str,
+    db: Session,
+    ssh_username: str | None = None,
+    ssh_password: str | None = None,
+) -> int:
     positions = [p.position for p in pis]
     entry = al.create_action(db, positions, "execute", command=command, status="running")
     start = time.monotonic()
@@ -38,7 +44,7 @@ def _run_command(pis: list[Pi], command: str, db: Session) -> int:
         else:
             targets.append((str(pi.current_ip), pi.position))
 
-    ssh_results = execute_many(targets, command, effective_ssh_settings())
+    ssh_results = execute_many(targets, command, effective_ssh_settings(), ssh_username, ssh_password)
 
     all_results = skipped + [
         PiCommandResult(
@@ -78,7 +84,7 @@ def execute_command(body: CommandExecuteRequest, db: Session = Depends(get_db)):
     if missing:
         raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
 
-    action_id = _run_command(pis, body.command, db)
+    action_id = _run_command(pis, body.command, db, body.ssh_username, body.ssh_password)
     return ActionQueued(action_id=action_id)
 
 

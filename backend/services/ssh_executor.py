@@ -20,8 +20,16 @@ class SSHResult:
     retry_count: int
 
 
-def execute(ip: str, position: str, command: str, settings: SSHSettings) -> SSHResult:
-    key = load_private_key(settings.private_key_path)
+def execute(
+    ip: str,
+    position: str,
+    command: str,
+    settings: SSHSettings,
+    ssh_username: str | None = None,
+    ssh_password: str | None = None,
+) -> SSHResult:
+    username = ssh_username or settings.username
+    key = None if ssh_password else load_private_key(settings.private_key_path)
     attempts = 0
     start = time.monotonic()
 
@@ -29,14 +37,17 @@ def execute(ip: str, position: str, command: str, settings: SSHSettings) -> SSHR
         client = paramiko.SSHClient()
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         try:
-            client.connect(
-                ip,
-                username=settings.username,
-                pkey=key,
+            connect_kwargs: dict = dict(
+                username=username,
                 timeout=settings.timeout_s,
                 banner_timeout=settings.timeout_s,
                 auth_timeout=settings.timeout_s,
             )
+            if ssh_password:
+                connect_kwargs["password"] = ssh_password
+            else:
+                connect_kwargs["pkey"] = key
+            client.connect(ip, **connect_kwargs)
             _, stdout_fh, stderr_fh = client.exec_command(
                 command, timeout=settings.timeout_s
             )
@@ -86,6 +97,8 @@ def execute_many(
     targets: list[tuple[str, str]],
     command: str,
     settings: SSHSettings,
+    ssh_username: str | None = None,
+    ssh_password: str | None = None,
 ) -> list[SSHResult]:
     """targets: list of (ip, position). Parallel execution, order preserved."""
     if not targets:
@@ -94,7 +107,7 @@ def execute_many(
     result_map: dict[str, SSHResult] = {}
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {
-            ex.submit(execute, ip, pos, command, settings): pos
+            ex.submit(execute, ip, pos, command, settings, ssh_username, ssh_password): pos
             for ip, pos in targets
         }
         for future in as_completed(futures):

@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import Checkbox, DataTable, Footer, Header, Input, Label
+from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label, TextArea
 from textual.binding import Binding
 from textual import work
 
@@ -32,6 +32,7 @@ _SORT_KEYS = [
 
 class ExecuteScreen(Screen):
     BINDINGS = [
+        Binding("ctrl+enter", "execute_cmd", "Run"),
         Binding("v", "detail", "View detail"),
         Binding("escape", "back", "Back"),
     ]
@@ -50,13 +51,14 @@ class ExecuteScreen(Screen):
         padding: 0 1;
         color: $text-muted;
     }
+    #cmd-input {
+        height: 5;
+        margin: 0 1;
+    }
     #cmd-row {
         height: 3;
         padding: 0 1;
         align: left middle;
-    }
-    #cmd-input {
-        width: 1fr;
     }
     #sudo-check {
         width: auto;
@@ -70,6 +72,28 @@ class ExecuteScreen(Screen):
     #detach-check {
         width: auto;
         margin-left: 2;
+    }
+    #custom-ssh-check {
+        width: auto;
+        margin-left: 2;
+    }
+    #ssh-auth-row {
+        height: 3;
+        padding: 0 1;
+        align: left middle;
+        display: none;
+    }
+    #ssh-user {
+        width: 20;
+        margin-left: 1;
+    }
+    #ssh-pass-input {
+        width: 20;
+        margin-left: 1;
+    }
+    #ssh-load-config {
+        width: auto;
+        margin-left: 1;
     }
     #results-label {
         height: 1;
@@ -97,19 +121,26 @@ class ExecuteScreen(Screen):
             f"Selected ({len(self._selected)}): {', '.join(self._selected)}",
             id="selected-pis",
         )
-        yield Label("Command:", id="cmd-label")
+        yield Label("Command: (Ctrl+Enter to run)", id="cmd-label")
+        yield TextArea(id="cmd-input")
         with Horizontal(id="cmd-row"):
-            yield Input(placeholder="e.g. uptime", id="cmd-input")
             yield Checkbox("Sudo", id="sudo-check")
             yield Input(placeholder="sudo password", id="sudo-pass", password=True)
             yield Checkbox("Detach", id="detach-check")
+            yield Checkbox("Custom SSH", id="custom-ssh-check")
+        with Horizontal(id="ssh-auth-row"):
+            yield Label("User:")
+            yield Input(placeholder="username", id="ssh-user")
+            yield Label("Pass:")
+            yield Input(placeholder="password", id="ssh-pass-input", password=True)
+            yield Button("Load from config", id="ssh-load-config", variant="default")
         yield Label("Results: (v or Enter on row for full output)", id="results-label")
         yield DataTable(id="results-table", cursor_type="row", zebra_stripes=True)
         yield Footer()
 
     def on_mount(self) -> None:
         self._redraw_table()
-        self.query_one("#cmd-input", Input).focus()
+        self.query_one("#cmd-input", TextArea).focus()
         self._load_parallel_limit()
 
     @work(thread=True)
@@ -123,6 +154,34 @@ class ExecuteScreen(Screen):
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         if event.checkbox.id == "sudo-check":
             self.query_one("#sudo-pass", Input).display = event.value
+        elif event.checkbox.id == "custom-ssh-check":
+            self.query_one("#ssh-auth-row", Horizontal).display = event.value
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "ssh-load-config":
+            self._load_ssh_config()
+
+    @work(thread=True)
+    def _load_ssh_config(self) -> None:
+        try:
+            settings = self._api.get_settings()
+            username = settings.get("ssh", {}).get("username", "")
+        except ApiError:
+            self.app.call_from_thread(self.notify, "Failed to load config", severity="error")
+            return
+        self.app.call_from_thread(self._fill_ssh_user, username)
+
+    def _fill_ssh_user(self, username: str) -> None:
+        inp = self.query_one("#ssh-user", Input)
+        inp.value = username
+        inp.focus()
+
+    def _get_ssh_auth(self) -> tuple[str | None, str | None]:
+        if not self.query_one("#custom-ssh-check", Checkbox).value:
+            return None, None
+        username = self.query_one("#ssh-user", Input).value.strip() or None
+        password = self.query_one("#ssh-pass-input", Input).value or None
+        return username, password
 
     def _build_command(self, raw: str) -> str:
         """Must be called from the main thread (accesses widgets)."""
@@ -186,17 +245,16 @@ class ExecuteScreen(Screen):
             self._sort_asc = True
         self._apply_sort()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "cmd-input":
-            return
-        raw = event.value.strip()
+    def action_execute_cmd(self) -> None:
+        raw = self.query_one("#cmd-input", TextArea).text.strip()
         if not raw:
             return
-        command = self._build_command(raw)  # main thread — safe widget access
-        self._run_command(raw, command)
+        command = self._build_command(raw)
+        ssh_username, ssh_password = self._get_ssh_auth()
+        self._run_command(raw, command, ssh_username, ssh_password)
 
     @work(thread=True)
-    def _run_command(self, raw: str, command: str) -> None:
+    def _run_command(self, raw: str, command: str, ssh_username: str | None, ssh_password: str | None) -> None:
         self.app.call_from_thread(self._set_running, raw)
         total = len(self._selected)
         done = 0
@@ -204,7 +262,7 @@ class ExecuteScreen(Screen):
 
         def _exec_one(pos: str) -> tuple[str, dict | None]:
             try:
-                resp = self._api.execute_command([pos], command)
+                resp = self._api.execute_command([pos], command, ssh_username=ssh_username, ssh_password=ssh_password)
                 return pos, self._api.get_command_result(resp["action_id"])
             except ApiError:
                 return pos, None
@@ -232,7 +290,7 @@ class ExecuteScreen(Screen):
         )
         self._results = []
         self._redraw_table()
-        self.query_one("#cmd-input", Input).disabled = True
+        self.query_one("#cmd-input", TextArea).read_only = True
 
     def _update_exec_bar(self, done: int, total: int, last: str) -> None:
         pct = done / total if total > 0 else 0
@@ -247,17 +305,19 @@ class ExecuteScreen(Screen):
         self.query_one("#results-label", Label).update(
             f"[{color}][{'█' * 30}] {ok}/{total} OK[/{color}]  (Enter on row for full output)"
         )
-        self.query_one("#cmd-input", Input).disabled = False
-        self.query_one("#cmd-input", Input).clear()
-        self.query_one("#cmd-input", Input).focus()
+        ta = self.query_one("#cmd-input", TextArea)
+        ta.read_only = False
+        ta.clear()
+        ta.focus()
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_detail()
 
     def _on_error(self, msg: str) -> None:
         self.query_one("#results-label", Label).update(f"[red]Error: {msg}[/red]")
-        self.query_one("#cmd-input", Input).disabled = False
-        self.query_one("#cmd-input", Input).focus()
+        ta = self.query_one("#cmd-input", TextArea)
+        ta.read_only = False
+        ta.focus()
 
     def action_detail(self) -> None:
         table = self.query_one(DataTable)

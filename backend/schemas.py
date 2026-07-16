@@ -140,6 +140,8 @@ class DeployKeyResponse(BaseModel):
 class CommandExecuteRequest(BaseModel):
     pis: list[str] = Field(..., min_length=1)
     command: str
+    ssh_username: str | None = None
+    ssh_password: str | None = None
 
 
 class PiCommandResult(BaseModel):
