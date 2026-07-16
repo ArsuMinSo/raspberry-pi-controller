@@ -118,6 +118,9 @@ class HomeScreen(Screen):
         self._redraw_table()
         self.load_pis()
 
+    def on_screen_resume(self) -> None:
+        self.load_pis()
+
     @work(thread=True)
     def load_pis(self) -> None:
         try:
