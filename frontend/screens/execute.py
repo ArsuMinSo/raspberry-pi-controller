@@ -60,6 +60,10 @@ class ExecuteScreen(Screen):
         padding: 0 1;
         align: left middle;
     }
+    #run-btn {
+        width: auto;
+        margin-right: 2;
+    }
     #sudo-check {
         width: auto;
         margin-left: 2;
@@ -121,9 +125,10 @@ class ExecuteScreen(Screen):
             f"Selected ({len(self._selected)}): {', '.join(self._selected)}",
             id="selected-pis",
         )
-        yield Label("Command: (Ctrl+Enter to run)", id="cmd-label")
+        yield Label("Command:", id="cmd-label")
         yield TextArea(id="cmd-input")
         with Horizontal(id="cmd-row"):
+            yield Button("Run  [Ctrl+Enter]", variant="primary", id="run-btn")
             yield Checkbox("Sudo", id="sudo-check")
             yield Input(placeholder="sudo password", id="sudo-pass", password=True)
             yield Checkbox("Detach", id="detach-check")
@@ -158,7 +163,9 @@ class ExecuteScreen(Screen):
             self.query_one("#ssh-auth-row", Horizontal).display = event.value
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "ssh-load-config":
+        if event.button.id == "run-btn":
+            self.action_execute_cmd()
+        elif event.button.id == "ssh-load-config":
             self._load_ssh_config()
 
     @work(thread=True)
@@ -291,6 +298,7 @@ class ExecuteScreen(Screen):
         self._results = []
         self._redraw_table()
         self.query_one("#cmd-input", TextArea).read_only = True
+        self.query_one("#run-btn", Button).disabled = True
 
     def _update_exec_bar(self, done: int, total: int, last: str) -> None:
         pct = done / total if total > 0 else 0
@@ -309,6 +317,7 @@ class ExecuteScreen(Screen):
         ta.read_only = False
         ta.clear()
         ta.focus()
+        self.query_one("#run-btn", Button).disabled = False
 
     def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
         self.action_detail()
@@ -318,6 +327,7 @@ class ExecuteScreen(Screen):
         ta = self.query_one("#cmd-input", TextArea)
         ta.read_only = False
         ta.focus()
+        self.query_one("#run-btn", Button).disabled = False
 
     def action_detail(self) -> None:
         table = self.query_one(DataTable)
