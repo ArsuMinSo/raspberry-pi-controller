@@ -1,8 +1,8 @@
 import logging
+from datetime import datetime, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.orm import Session
-from sqlalchemy.sql import func
 
 from backend.database import SessionLocal
 from backend.models import ScheduledTask
@@ -79,7 +79,7 @@ def _run_task(task_id: int) -> None:
             log.error("Scheduled task %s (%s) failed: %s", task_id, task.name, e)
             status = "fail"
 
-        task.last_run = func.now()
+        task.last_run = datetime.now(timezone.utc)
         task.last_status = status
         if action_id is not None:
             task.last_action_id = action_id
