@@ -62,10 +62,10 @@ class ManagePiScreen(ModalScreen):
         with Vertical(id="dialog"):
             yield Label(title, id="title")
 
-            yield Label("Position (number) *", classes="field-label")
+            yield Label("Position (number or XX-XXX) *", classes="field-label")
             yield Input(
                 value=pi.get("position", ""),
-                placeholder="1",
+                placeholder="42 or 01-003",
                 id="input-position",
             )
 
@@ -134,8 +134,8 @@ class ManagePiScreen(ModalScreen):
         import re
         error = self.query_one("#error", Label)
 
-        if not re.match(r"^\d{1,10}$", position):
-            error.update("Position must be a number (e.g. 1, 42, 250)")
+        if not re.match(r"^(\d{2}-\d{3}|\d{1,10})$", position):
+            error.update("Position must be a number (e.g. 42) or XX-XXX (e.g. 01-003)")
             return
         if not mac:
             error.update("MAC address is required")
