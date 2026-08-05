@@ -14,7 +14,6 @@ class ActionQueued(BaseModel):
 # ─── Pi / Inventory ───────────────────────────────────────────────────────────
 
 class PiSummary(BaseModel):
-    id: int
     mac: str
     hostname: str | None
     position: str
@@ -49,15 +48,22 @@ class PiListFilters(BaseModel):
 
 class PiCreateRequest(BaseModel):
     position: str = Field(..., pattern=r"^\d{2}-\d{3}$")
-    mac: str = Field("00:00:00:00:00:00", pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
+    mac: str = Field(..., pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
     hostname: str | None = None
     ip: str | None = None
     pi_version: int | None = Field(None, ge=2, le=5)
     tags: list[str] = []
     status: Literal["reachable", "unreachable"] = "unreachable"
 
+    @model_validator(mode="after")
+    def mac_not_placeholder(self) -> "PiCreateRequest":
+        if self.mac.lower() == "00:00:00:00:00:00":
+            raise ValueError("MAC address must be a real device MAC, not the placeholder")
+        return self
+
 
 class PiUpdateRequest(BaseModel):
+    position: str | None = Field(None, pattern=r"^\d{2}-\d{3}$")
     mac: str | None = Field(None, pattern=r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
     hostname: str | None = None
     ip: str | None = None

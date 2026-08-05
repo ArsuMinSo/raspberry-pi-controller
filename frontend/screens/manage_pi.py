@@ -67,13 +67,12 @@ class ManagePiScreen(ModalScreen):
                 value=pi.get("position", ""),
                 placeholder="01-001",
                 id="input-position",
-                disabled=self._editing,
             )
 
-            yield Label("MAC address (optional)", classes="field-label")
+            yield Label("MAC address *", classes="field-label")
             yield Input(
                 value=pi.get("mac", "") if pi.get("mac") not in (None, "00:00:00:00:00:00") else "",
-                placeholder="aa:bb:cc:dd:ee:ff (leave blank if unknown)",
+                placeholder="aa:bb:cc:dd:ee:ff",
                 id="input-mac",
             )
 
@@ -135,14 +134,18 @@ class ManagePiScreen(ModalScreen):
         import re
         error = self.query_one("#error", Label)
 
-        if not self._editing and not re.match(r"^\d{2}-\d{3}$", position):
+        if not re.match(r"^\d{2}-\d{3}$", position):
             error.update("Position must be XX-XXX (e.g. 01-001)")
             return
-        if mac and not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
+        if not mac:
+            error.update("MAC address is required")
+            return
+        if not re.match(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$", mac):
             error.update("Invalid MAC address (format: aa:bb:cc:dd:ee:ff)")
             return
-        if not mac:
-            mac = "00:00:00:00:00:00"
+        if mac.lower() == "00:00:00:00:00:00":
+            error.update("MAC must be a real device address, not all-zeros")
+            return
 
         pi_version = None
         if version_str:

@@ -9,8 +9,7 @@ from backend.database import Base
 class Pi(Base):
     __tablename__ = "raspberries"
 
-    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
-    mac: MappedColumn[str] = mapped_column(String(17), nullable=False)
+    mac: MappedColumn[str] = mapped_column(String(17), primary_key=True, nullable=False)
     serial: MappedColumn[str | None] = mapped_column(String(255))
     hostname: MappedColumn[str | None] = mapped_column(String(255))
     position: MappedColumn[str] = mapped_column(String(6), nullable=False, unique=True)

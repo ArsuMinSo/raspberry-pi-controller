@@ -13,14 +13,13 @@ from backend.schemas import (
     DeployKeyRequest, DeployKeyResponse, DeployKeyResult,
     PiCreateRequest, PiDetail, PiSummary, PiUpdateRequest,
 )
-from backend.utils.helpers import MAC_PLACEHOLDER, paginate, validate_position
+from backend.utils.helpers import paginate, validate_position
 
 router = APIRouter()
 
 
 def _pi_to_summary(pi: Pi) -> PiSummary:
     return PiSummary(
-        id=pi.id,
         mac=pi.mac,
         hostname=pi.hostname,
         position=pi.position,
@@ -39,7 +38,6 @@ def _pi_to_summary(pi: Pi) -> PiSummary:
 
 def _pi_to_detail(pi: Pi) -> PiDetail:
     return PiDetail(
-        id=pi.id,
         mac=pi.mac,
         hostname=pi.hostname,
         position=pi.position,
@@ -89,11 +87,14 @@ def get_pi_status(position: str, db: Session = Depends(get_db)):
 
 @router.post("", response_model=PiDetail, status_code=201)
 def create_pi(body: PiCreateRequest, db: Session = Depends(get_db)):
+    mac = body.mac.lower()
     if db.query(Pi).filter(Pi.position == body.position).first():
         raise HTTPException(status_code=409, detail=f"Position {body.position} already exists")
+    if db.query(Pi).filter(Pi.mac == mac).first():
+        raise HTTPException(status_code=409, detail=f"MAC {mac} already registered")
     pi = Pi(
         position=body.position,
-        mac=body.mac.lower(),
+        mac=mac,
         hostname=body.hostname,
         current_ip=body.ip,
         pi_version=body.pi_version,
@@ -115,8 +116,15 @@ def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db
     pi = db.query(Pi).filter(Pi.position == pos).first()
     if not pi:
         raise HTTPException(status_code=404, detail=f"Pi at position {position} not found")
+    if body.position is not None and body.position != pos:
+        if db.query(Pi).filter(Pi.position == body.position).first():
+            raise HTTPException(status_code=409, detail=f"Position {body.position} already exists")
+        pi.position = body.position
     if body.mac is not None:
-        pi.mac = body.mac.lower()
+        new_mac = body.mac.lower()
+        if new_mac != pi.mac and db.query(Pi).filter(Pi.mac == new_mac).first():
+            raise HTTPException(status_code=409, detail=f"MAC {new_mac} already registered")
+        pi.mac = new_mac
     if body.hostname is not None:
         pi.hostname = body.hostname
     if body.ip is not None:
@@ -148,17 +156,16 @@ def bulk_create_pis(body: BulkPiCreateRequest, db: Session = Depends(get_db)):
             skipped += 1
             continue
 
-        # MAC conflict (skip placeholder)
+        # MAC conflict
         mac = item.mac.lower()
-        if mac != MAC_PLACEHOLDER:
-            existing = db.query(Pi).filter(Pi.mac == mac).first()
-            if existing:
-                results.append(BulkPiCreateItemResult(
-                    position=item.position, created=False, skipped=True,
-                    reason=f"MAC {mac} already registered at {existing.position}",
-                ))
-                skipped += 1
-                continue
+        existing_mac = db.query(Pi).filter(Pi.mac == mac).first()
+        if existing_mac:
+            results.append(BulkPiCreateItemResult(
+                position=item.position, created=False, skipped=True,
+                reason=f"MAC {mac} already registered at {existing_mac.position}",
+            ))
+            skipped += 1
+            continue
 
         pi = Pi(
             position=item.position,

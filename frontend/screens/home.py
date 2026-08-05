@@ -403,10 +403,14 @@ class HomeScreen(Screen):
 
     @work(thread=True)
     def _do_update_pi(self, position: str, data: dict) -> None:
-        fields = {k: v for k, v in data.items() if k != "position"}
+        fields = {k: v for k, v in data.items() if v is not None and k != "position"}
+        new_pos = data.get("position")
+        if new_pos and new_pos != position:
+            fields["position"] = new_pos
         try:
             self._api.update_pi(position, **fields)
-            self.app.call_from_thread(self.notify, f"Updated {position}")
+            label = new_pos if new_pos and new_pos != position else position
+            self.app.call_from_thread(self.notify, f"Updated {label}")
             self.app.call_from_thread(self.load_pis)
         except ApiError as e:
             self.app.call_from_thread(self.notify, str(e), severity="error")
