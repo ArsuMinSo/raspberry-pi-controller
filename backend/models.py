@@ -12,7 +12,7 @@ class Pi(Base):
     mac: MappedColumn[str] = mapped_column(String(17), primary_key=True, nullable=False)
     serial: MappedColumn[str | None] = mapped_column(String(255))
     hostname: MappedColumn[str | None] = mapped_column(String(255))
-    position: MappedColumn[str] = mapped_column(String(6), nullable=False, unique=True)
+    position: MappedColumn[str] = mapped_column(String(20), nullable=False, unique=True)
     pi_version: MappedColumn[int | None] = mapped_column(SmallInteger)
     current_ip = mapped_column(INET)
     status: MappedColumn[str] = mapped_column(String(20), nullable=False, default="unreachable")

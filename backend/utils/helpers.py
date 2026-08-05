@@ -3,7 +3,7 @@ import re
 import paramiko
 
 _MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
-_POS_RE = re.compile(r"^\d{2}-\d{3}$")
+_POS_RE = re.compile(r"^\d{1,10}$")
 _PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
 
 MAC_PLACEHOLDER = "00:00:00:00:00:00"
@@ -28,7 +28,7 @@ def extract_pi_version(model_line: str) -> int | None:
 def validate_position(position: str) -> str:
     p = position.strip()
     if not _POS_RE.match(p):
-        raise ValueError(f"Invalid position format (expected XX-XXX): {position}")
+        raise ValueError(f"Invalid position (must be 1–10 digits): {position}")
     return p
 
 
