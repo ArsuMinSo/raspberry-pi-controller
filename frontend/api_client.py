@@ -83,8 +83,8 @@ class ApiClient:
     def bulk_create_pis(self, pis: list[dict]) -> dict:
         return self._post("/pi/bulk", {"pis": pis})
 
-    def update_pi(self, position: str, **fields) -> dict:
-        return self._patch(f"/pi/{position}", {k: v for k, v in fields.items() if v is not None})
+    def update_pi(self, path_position: str, **fields) -> dict:
+        return self._patch(f"/pi/{path_position}", {k: v for k, v in fields.items() if v is not None})
 
     def deploy_key(self, positions: list[str], password: str) -> dict:
         return self._post("/pi/deploy-key", {"pis": positions, "password": password})
