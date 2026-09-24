@@ -142,6 +142,10 @@ sudo /opt/pi-controller/scripts/manage.sh reset-password <name>
 
 Design: [`docs/design/web-service.md`](docs/design/web-service.md).
 
+**Try it in the browser:** open `http://<server>:8000/api/v1/docs` → `POST /auth/login` → *Try it out* → copy the
+`token` from the response → **Authorize** (top right) → paste the token → every endpoint now runs as you.
+Log out with `POST /auth/logout` when done.
+
 ### TUI (local break-glass)
 
 The TUI is the backup way in: it runs **on the controller itself, with sudo**, has admin rights, and needs no

@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerifyMismatchError
 from fastapi import Depends, HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
 from backend.database import get_db
@@ -175,14 +176,22 @@ def _tui_actor(request: Request) -> Actor | None:
     return Actor(username=f"local-tui ({unix_user})", role="admin", ip=client_ip(request))
 
 
-def current_actor(request: Request, db: Session = Depends(get_db)) -> Actor:
+# Declares the Bearer scheme in OpenAPI, so /api/v1/docs shows "Authorize" and sends the token.
+# auto_error=False: we raise our own 401 (and the TUI key path needs no token).
+bearer_scheme = HTTPBearer(auto_error=False, description="Token from POST /api/v1/auth/login")
+
+
+def current_actor(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    db: Session = Depends(get_db),
+) -> Actor:
     tui = _tui_actor(request)
     if tui:
         return tui
 
-    auth = request.headers.get("authorization", "")
-    scheme, _, token = auth.partition(" ")
-    if scheme.lower() != "bearer" or not token:
+    token = credentials.credentials if credentials else ""
+    if not token:
         raise HTTPException(status_code=401, detail="Login required", headers={"WWW-Authenticate": "Bearer"})
 
     now = utcnow()

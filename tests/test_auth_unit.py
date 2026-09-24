@@ -79,7 +79,7 @@ def _required_role(route: APIRoute) -> str | None:
     """Role enforced by the route's dependencies (None = public)."""
     def walk(dependant):
         for dep in dependant.dependencies:
-            if dep.call.__qualname__ == "require_role.<locals>.dependency":
+            if getattr(dep.call, "__qualname__", "") == "require_role.<locals>.dependency":
                 cells = dict(zip(dep.call.__code__.co_freevars, dep.call.__closure__))
                 yield cells["role"].cell_contents
             elif dep.call is auth.current_actor:
