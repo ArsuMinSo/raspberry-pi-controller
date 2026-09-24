@@ -51,7 +51,13 @@ CREATE DATABASE pi_controller OWNER pi_controller;
 GRANT ALL ON SCHEMA public TO pi_controller;
 ```
 
-Tables are created automatically on first backend start.
+Then apply the migrations in order (`scripts/setup_db.sh` does both steps):
+
+```bash
+for f in migrations/*.sql; do psql -v ON_ERROR_STOP=1 -U pi_controller -d pi_controller -f "$f"; done
+```
+
+Migrations are safe to re-run. `002_mac_pk.sql` makes MAC the primary key and aborts without changes if any Pi still has the all-zeros placeholder MAC or two Pis share a MAC — fix those rows first.
 
 ---
 
@@ -187,7 +193,7 @@ Visible when *SSH probe* is checked:
 #### Adding discovered Pis
 
 - **Single add** (`a` with no selection): Opens the Add Pi form pre-filled with IP, hostname, Pi version, and MAC. Position defaults to the next free `00-NNN` uncategorised slot.
-- **Bulk add** (`a` with rows selected): Assigns sequential `00-NNN` positions automatically. Skips Pis whose MAC is already registered in the database and reports skip reasons.
+- **Bulk add** (`a` with rows selected): Assigns sequential `00-NNN` positions automatically. Skips Pis whose MAC is already registered in the database and reports skip reasons. Pis with no MAC (e.g. scanned without SSH probe) are skipped with a warning — MAC is required.
 
 After a scan, already-registered Pis with matching IPs have their hostname, MAC, Pi version, and serial refreshed automatically. Pis that did not respond are marked `unreachable`.
 
@@ -283,16 +289,14 @@ Use **Test connection** to verify SSH access to a specific IP before saving.
 
 ## Position Format
 
-Every Pi has a **position** — a 6-character slot `XX-YYY`:
+Every Pi has a **position**, either:
 
-| Part | Meaning |
-|------|---------|
-| `XX` | Room / zone (01–99, or 00 for uncategorised) |
-| `YYY` | Unit number within that zone (001–999) |
+- a plain number, 1–10 digits (e.g. `42`), or
+- the legacy room-unit slot `XX-YYY` (e.g. `01-003` = room 1, unit 3; `00` = uncategorised)
 
-Example: `01-003` = room 1, unit 3.
+Positions are unique and renameable (edit the Pi). They identify Pis in the UI and API paths.
 
-Positions are unique. MACs are not (Pi models share prefixes, or a device may be re-imaged). The position is the primary identifier for all operations.
+The **MAC address** is the database primary key: it is required, must be unique, and cannot be the all-zeros placeholder. A health check updates a Pi's MAC from the live device unless another Pi already holds that MAC (logged as a warning and skipped).
 
 Newly discovered Pis that haven't been assigned a room yet get an auto-assigned `00-NNN` slot.
 
@@ -326,7 +330,7 @@ source .venv/bin/activate
 pytest tests/ -v
 ```
 
-Tests use an in-memory SQLite database and mocked SSH. No live Pis or running PostgreSQL required.
+SSH is mocked (no live Pis needed). DB and API tests need a PostgreSQL test database — `TEST_DATABASE_URL`, default `postgresql://pi_controller:test@localhost/pi_controller_test`. The fixture drops and recreates the tables from `migrations/*.sql`.
 
 ---
 

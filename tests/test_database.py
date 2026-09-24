@@ -28,14 +28,26 @@ def test_pi_position_unique(db):
     db.commit()
 
 
-def test_pi_mac_allows_duplicates(db):
+def test_pi_mac_unique(db):
     pi1 = Pi(mac="ff:ff:ff:ff:ff:ff", position="04-001", status="unreachable", tags=[])
-    pi2 = Pi(mac="ff:ff:ff:ff:ff:ff", position="04-002", status="unreachable", tags=[])
-    db.add_all([pi1, pi2])
+    db.add(pi1)
     db.commit()
-    count = db.query(Pi).filter(Pi.mac == "ff:ff:ff:ff:ff:ff").count()
-    assert count == 2
-    db.query(Pi).filter(Pi.position.in_(["04-001", "04-002"])).delete(synchronize_session=False)
+    db.expunge(pi1)  # let a second object with the same PK into the session
+    pi2 = Pi(mac="ff:ff:ff:ff:ff:ff", position="04-002", status="unreachable", tags=[])
+    db.add(pi2)
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    db.query(Pi).filter(Pi.mac == "ff:ff:ff:ff:ff:ff").delete(synchronize_session=False)
+    db.commit()
+
+
+def test_pi_long_numeric_position(db):
+    pi = Pi(mac="ee:ee:ee:ee:ee:01", position="1234567890", status="unreachable", tags=[])
+    db.add(pi)
+    db.commit()
+    assert db.query(Pi).filter(Pi.position == "1234567890").count() == 1
+    db.delete(pi)
     db.commit()
 
 

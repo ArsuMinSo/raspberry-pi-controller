@@ -59,16 +59,17 @@
 
 | Column | Type | Notes |
 |--------|------|-------|
-| id | SERIAL PRIMARY KEY | Auto, sole unique identifier |
-| mac | VARCHAR(17) | xx:xx:xx:xx:xx:xx — NOT unique |
+| mac | VARCHAR(17) PRIMARY KEY | xx:xx:xx:xx:xx:xx, lowercase, required, no all-zeros placeholder |
 | serial | VARCHAR(255) | RPi /proc/cpuinfo serial, informational |
 | hostname | VARCHAR(255) | Linux hostname on device |
-| position | VARCHAR(6) UNIQUE | Room-unit slot e.g. "01-003" |
+| position | VARCHAR(20) UNIQUE | Plain number (1–10 digits) e.g. "42", or legacy "01-003"; renameable |
 | pi_version | INT | 2/3/4/5 |
 | current_ip | INET | Last known IP |
 | status | VARCHAR(20) | reachable/unreachable |
 | last_seen | TIMESTAMP | Last SSH success |
 | tags | TEXT[] | Array of tags (e.g., ["kiosk", "floor1"]) |
+| cpu_1m / cpu_5m / cpu_15m | FLOAT | Load % from last health check |
+| mem_percent / temp_c | FLOAT | From last health check |
 | created_at | TIMESTAMP | Discovery time |
 | updated_at | TIMESTAMP | Last update |
 
@@ -267,7 +268,7 @@ pi-controller/
 **Health check 1x/day cron + manual callable**
 **Unreachable Pi: mark unreachable (expected if powered off)**
 **IP change (same MAC): update IP, mark reachable**
-**Pi identified by position (XX-XXX room-unit), not MAC — MAC not unique**
+**MAC is the primary key (unique, required); position (number or legacy XX-XXX) is the unique, renameable handle used in UI/API**
 
 ---
 

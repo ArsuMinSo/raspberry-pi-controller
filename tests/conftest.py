@@ -18,25 +18,32 @@ TEST_DB_URL = os.environ.get(
     "postgresql://pi_controller:test@localhost/pi_controller_test",
 )
 
-_MIGRATION = (
-    pathlib.Path(__file__).parent.parent / "migrations" / "001_init.sql"
-).read_text()
+_MIGRATIONS = sorted(
+    (pathlib.Path(__file__).parent.parent / "migrations").glob("*.sql")
+)
 
 
 @pytest.fixture(scope="session")
 def test_engine():
     engine = create_engine(TEST_DB_URL)
-    with engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS actions_log CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS raspberries CASCADE"))
-        for statement in _MIGRATION.split(";"):
-            stmt = statement.strip()
-            if stmt:
-                conn.execute(text(stmt))
+    _drop_tables(engine)
+    # Raw cursor: whole files (DO $$ blocks) in one go, no bind-param parsing of '%'
+    raw = engine.raw_connection()
+    try:
+        with raw.cursor() as cur:
+            for path in _MIGRATIONS:
+                cur.execute(path.read_text())
+        raw.commit()
+    finally:
+        raw.close()
     yield engine
+    _drop_tables(engine)
+
+
+def _drop_tables(engine):
     with engine.begin() as conn:
-        conn.execute(text("DROP TABLE IF EXISTS actions_log CASCADE"))
-        conn.execute(text("DROP TABLE IF EXISTS raspberries CASCADE"))
+        for table in ("scheduled_tasks", "actions_log", "raspberries"):
+            conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
 
 
 @pytest.fixture

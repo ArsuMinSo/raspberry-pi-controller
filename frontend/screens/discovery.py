@@ -441,24 +441,28 @@ class DiscoveryScreen(Screen):
             pis = []
 
         used_slots = _used_00_slots(pis)
-        existing_macs = {
-            p["mac"].lower()
-            for p in pis
-            if p.get("mac") and p["mac"] != "00:00:00:00:00:00"
-        }
+        existing_macs = {p["mac"].lower() for p in pis if p.get("mac")}
 
         items = []
+        no_mac: list[str] = []
         n = 1
         for d in self._discovered:
             if d.get("ip", "") not in self._selected:
                 continue
+            # MAC is the primary key — can't register a Pi without one
+            mac = (d.get("mac") or "").lower()
+            if not mac:
+                no_mac.append(d.get("ip", "?"))
+                continue
+            if mac in existing_macs:
+                continue
+            existing_macs.add(mac)
             while n in used_slots:
                 n += 1
             position = f"00-{n:03d}"
             used_slots.add(n)
             n += 1
 
-            mac = d.get("mac") or "00:00:00:00:00:00"
             items.append({
                 "position": position,
                 "mac": mac,
@@ -469,6 +473,13 @@ class DiscoveryScreen(Screen):
                 "status": "reachable" if d.get("hostname") or d.get("ip") else "unreachable",
             })
 
+        if no_mac:
+            self.app.call_from_thread(
+                self.notify,
+                f"Skipped {len(no_mac)} Pi(s) with unknown MAC (scan with SSH probe or add manually): "
+                + ", ".join(no_mac),
+                severity="warning",
+            )
         if not items:
             self.app.call_from_thread(self.notify, "Nothing to add", severity="warning")
             return

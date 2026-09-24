@@ -71,7 +71,7 @@ class ManagePiScreen(ModalScreen):
 
             yield Label("MAC address *", classes="field-label")
             yield Input(
-                value=pi.get("mac", "") if pi.get("mac") not in (None, "00:00:00:00:00:00") else "",
+                value=pi.get("mac") or "",
                 placeholder="aa:bb:cc:dd:ee:ff",
                 id="input-mac",
             )

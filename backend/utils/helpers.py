@@ -6,8 +6,6 @@ _MAC_RE = re.compile(r"^([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}$")
 _POS_RE = re.compile(r"^(\d{2}-\d{3}|\d{1,10})$")
 _PI_VERSION_RE = re.compile(r"raspberry pi (\d+)", re.IGNORECASE)
 
-MAC_PLACEHOLDER = "00:00:00:00:00:00"
-
 
 def normalise_mac(mac: str) -> str:
     m = mac.lower().strip()

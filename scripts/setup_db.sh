@@ -22,5 +22,8 @@ WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'pi_controller')
 GRANT ALL ON DATABASE pi_controller TO pi_controller;
 SQL
 
-psql -U pi_controller -d pi_controller -f "$(dirname "$0")/../migrations/001_init.sql"
+for migration in "$(dirname "$0")"/../migrations/*.sql; do
+    echo "Applying $(basename "$migration")"
+    psql -v ON_ERROR_STOP=1 -U pi_controller -d pi_controller -f "$migration"
+done
 echo "Database setup complete."

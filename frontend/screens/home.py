@@ -35,7 +35,7 @@ _COLUMNS = [
 
 _SORT_KEYS = [
     None,
-    lambda p: (p.get("position") or "").lower(),
+    lambda p: _position_sort_key(p.get("position")),
     lambda p: (p.get("hostname") or "").lower(),
     lambda p: _ip_sort_key(p.get("ip")),
     lambda p: (p.get("mac") or "").lower(),
@@ -51,6 +51,11 @@ _SORT_KEYS = [
     lambda p: ",".join(sorted(p.get("tags") or [])),
     lambda p: str(p.get("last_seen") or ""),
 ]
+
+
+def _position_sort_key(position: str | None) -> tuple:
+    # "9" < "10", legacy "01-003" → (1, 3)
+    return tuple(int(part) for part in (position or "").split("-") if part.isdigit())
 
 
 def _ip_sort_key(ip: str | None) -> tuple:

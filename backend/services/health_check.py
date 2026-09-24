@@ -1,4 +1,5 @@
 import json
+import logging
 import re
 import socket
 import subprocess
@@ -10,10 +11,12 @@ import paramiko
 from datetime import datetime, timezone
 
 from backend.config import SSHSettings
-from backend.utils.helpers import MAC_PLACEHOLDER, extract_pi_version, is_valid_mac, load_private_key
+from backend.utils.helpers import extract_pi_version, is_valid_mac, load_private_key
 from backend.models import Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -203,6 +206,8 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
             data_map[d.result.position] = d
 
     results: list[PiHealthResult] = []
+    # MAC is the PK: never reassign one that another Pi already holds (in DB or earlier this run)
+    claimed_macs = {pi.mac for pi in pis}
 
     for pi in pis:
         if pi.current_ip is None:
@@ -223,8 +228,14 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
             pi.last_seen = datetime.now(timezone.utc)
             if d.hostname:
                 pi.hostname = d.hostname
-            if d.mac and d.mac != MAC_PLACEHOLDER:
-                pi.mac = d.mac
+            if d.mac and d.mac != pi.mac:
+                if d.mac in claimed_macs or db.query(Pi).filter(Pi.mac == d.mac).first():
+                    log.warning("%s reports MAC %s, already registered to another Pi — keeping %s",
+                                pi.position, d.mac, pi.mac)
+                else:
+                    claimed_macs.discard(pi.mac)
+                    claimed_macs.add(d.mac)
+                    pi.mac = d.mac
             if d.pi_version is not None:
                 pi.pi_version = d.pi_version
             if d.serial:
