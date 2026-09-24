@@ -44,7 +44,7 @@ class SettingsScreen(ModalScreen):
         width: 1fr;
         margin-right: 1;
     }
-    .row Input:last-child {
+    .row Input:last-of-type {
         margin-right: 0;
     }
     Input {
