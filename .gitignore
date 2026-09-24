@@ -224,3 +224,4 @@ config.yaml.bak-*
 config.yaml
 web-releases/
 web-current
+.claude/worktrees/
