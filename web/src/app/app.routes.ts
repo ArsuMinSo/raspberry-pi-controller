@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, guestGuard } from './core/guards';
+import { authGuard, guestGuard, roleGuard } from './core/guards';
 
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: 'inventory' },
@@ -26,7 +26,7 @@ export const routes: Routes = [
   },
   {
     path: 'logs',
-    canActivate: [authGuard],
+    canActivate: [authGuard, roleGuard('operator')],  // activity log: operator+
     loadComponent: () => import('./pages/logs.page').then((m) => m.LogsPage),
   },
   {

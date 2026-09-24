@@ -9,7 +9,8 @@ from backend.models import AuditEvent
 from backend.schemas import AuditEventOut, LogEntry
 from backend.services import audit_log as al
 
-router = APIRouter(dependencies=[Depends(require_role("viewer"))])
+# Activity log is operator+ (viewers see inventory and results only)
+router = APIRouter(dependencies=[Depends(require_role("operator"))])
 
 
 @router.get("", response_model=list[LogEntry])

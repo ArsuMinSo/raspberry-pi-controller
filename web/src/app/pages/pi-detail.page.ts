@@ -49,6 +49,7 @@ import { LogEntry, PiDetail } from '../core/models';
           <div class="ion-text-center"><ion-spinner></ion-spinner></div>
         }
 
+        @if (canAct) {
         <h3>Recent actions</h3>
         @if (actions().length === 0) {
           <p class="muted">None yet.</p>
@@ -69,6 +70,7 @@ import { LogEntry, PiDetail } from '../core/models';
               </tbody>
             </table>
           </div>
+        }
         }
       </div>
     </ion-content>
@@ -100,7 +102,8 @@ export class PiDetailPage implements OnInit {
     try {
       const [pi, actions] = await Promise.all([
         firstValueFrom(this.api.pi(this.position())),
-        firstValueFrom(this.api.logs({ pi: this.position(), limit: 20 })),
+        // Activity log is operator+ — viewers don't see recent actions
+        this.canAct ? firstValueFrom(this.api.logs({ pi: this.position(), limit: 20 })) : Promise.resolve([]),
       ]);
       this.pi.set(pi);
       this.actions.set(actions);

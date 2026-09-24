@@ -34,7 +34,7 @@
 
 /* @import "@ionic/angular/css/palettes/dark.always.css"; */
 /* @import "@ionic/angular/css/palettes/dark.class.css"; */
-@import '@ionic/angular/css/palettes/dark.system.css';
+/* Always dark: Noctura graphite theme in theme/variables.scss (no system light/dark switch) */
 
 /* ── Pi Controller shared styles ───────────────────────────────────────────── */
 
@@ -52,7 +52,7 @@ table.data {
   td {
     text-align: left;
     padding: 6px 8px;
-    border-bottom: 1px solid var(--ion-color-step-150, #ddd);
+    border-bottom: 1px solid var(--ion-border-color, #565c66);
     white-space: nowrap;
   }
 

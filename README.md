@@ -127,7 +127,7 @@ Interactive API docs available at `http://localhost:8000/api/v1/docs`.
 
 ### Users & login
 
-The API requires a login (except `POST /api/v1/auth/login` and `GET /api/v1/health`). Roles: **viewer** (read),
+The API requires a login (except `POST /api/v1/auth/login` and `GET /api/v1/health`). Roles: **viewer** (inventory + results; no activity log),
 **operator** (+ health check, kill process, restart service, discovery scan), **admin** (everything, incl. running
 commands, inventory edits, settings, scheduled tasks, users). Sessions last 12 h. Every action is logged with the
 user's name — Pi operations in `actions_log`, everything else (logins, edits, settings, users) in `audit_events`.
@@ -152,7 +152,8 @@ Log out with `POST /auth/logout` when done.
 
 - **Inventory:** search, status filter, numeric position sort, CPU/RAM/temp; select Pis → *Health check*
   (operator+) → live progress per Pi.
-- **Pi detail**, **Activity log** (Pi actions + logins/changes), **Account** (change password — entered twice —,
+- **Menu** on the left: pinned open from 768 px wide; collapse with « (then ☰ opens it), pin again with 📌 — remembered per browser.
+- **Pi detail**, **Activity log** (operator+; Pi actions + logins/changes), **Account** (change password — entered twice —,
   sessions, logout). Accounts flagged *must change password* go to Account first.
 - Session lives in the browser tab (sessionStorage), 12 h max.
 
@@ -502,8 +503,8 @@ finishes (`done`/`total`), `finished: true` at the end. Jobs cut off by a backen
 | `GET` | `/health/{action_id}` | Get health check results | viewer |
 | `POST` | `/discovery/scan` | Scan subnet, probe Pis, update DB (background → `action_id`) | operator |
 | `GET` | `/discovery/scan/{action_id}` | Discovery result | viewer |
-| `GET` | `/logs` | Pi operations log (actions_log) | viewer |
-| `GET` | `/logs/events` | Logins, edits, settings, user changes (audit_events) | viewer |
+| `GET` | `/logs` | Pi operations log (actions_log) | operator |
+| `GET` | `/logs/events` | Logins, edits, settings, user changes (audit_events) | operator |
 | `GET` | `/tasks` | Scheduled tasks | operator |
 | `POST`/`PATCH`/`DELETE` | `/tasks[/{id}]` | Manage scheduled tasks | admin |
 | `GET` | `/settings` | Get current SSH + network config | admin |

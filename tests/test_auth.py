@@ -145,7 +145,8 @@ def test_change_own_password(anon_client, make_user, db):
 def test_viewer_can_read_but_not_act(anon_client, login_as, db):
     headers = login_as("viewer")
     assert anon_client.get(f"{API}/pi/list", headers=headers).status_code == 200
-    assert anon_client.get(f"{API}/logs", headers=headers).status_code == 200
+    assert anon_client.get(f"{API}/logs", headers=headers).status_code == 403  # activity log: operator+
+    assert anon_client.get(f"{API}/logs/events", headers=headers).status_code == 403
     res = anon_client.post(f"{API}/health/trigger", json={"all": True}, headers=headers)
     assert res.status_code == 403
     assert _events(db, "permission_denied", f"POST {API}/health/trigger")

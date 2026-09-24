@@ -1,2 +1,97 @@
-// For information on how to create your own theme, please refer to:
-// https://ionicframework.com/docs/theming/
+// Noctura graphite — dark blue-black base, warm cream text, muted graphite accent.
+// Kept deliberately quiet: status colours are desaturated (sage / sand / terracotta),
+// just distinct enough to tell reachable from unreachable at a glance.
+@use "sass:color";
+@use "sass:math";
+
+$bg: #14171b;          // background primary
+$bg-alt: #0e1013;      // background secondary (toolbars, menu, cards)
+$text: #ede3d0;        // text normal
+$text-muted: #d9cdb2;
+$text-faint: #9aa3ae;
+$accent: #565c66;      // accent + borders
+$accent-hover: #6e7480;
+
+$success: #8fa88a;     // sage
+$warning: #c8a96b;     // sand
+$danger: #c7826f;      // terracotta
+
+@function rgb-triplet($c) {
+  @return math.round(color.channel($c, "red", $space: rgb)), math.round(color.channel($c, "green", $space: rgb)),
+    math.round(color.channel($c, "blue", $space: rgb));
+}
+
+// Full Ionic colour set: base, -rgb, -contrast, -contrast-rgb, -shade, -tint
+@mixin ion-color($name, $base, $contrast) {
+  --ion-color-#{$name}: #{$base};
+  --ion-color-#{$name}-rgb: #{rgb-triplet($base)};
+  --ion-color-#{$name}-contrast: #{$contrast};
+  --ion-color-#{$name}-contrast-rgb: #{rgb-triplet($contrast)};
+  --ion-color-#{$name}-shade: #{color.mix(#000, $base, 12%)};
+  --ion-color-#{$name}-tint: #{color.mix(#fff, $base, 10%)};
+}
+
+:root {
+  color-scheme: dark;
+
+  --ion-background-color: #{$bg};
+  --ion-background-color-rgb: #{rgb-triplet($bg)};
+  --ion-text-color: #{$text};
+  --ion-text-color-rgb: #{rgb-triplet($text)};
+
+  // Steps blend background → text (Ionic uses them for borders, fills, placeholders)
+  @for $i from 1 through 19 {
+    $step: $i * 50;
+    $mix: color.mix($text, $bg, math.percentage(math.div($step, 1000)));
+    $mix-rev: color.mix($bg, $text, math.percentage(math.div($step, 1000)));
+    --ion-background-color-step-#{$step}: #{$mix};
+    --ion-text-color-step-#{$step}: #{$mix-rev};
+    --ion-color-step-#{$step}: #{$mix}; // older name, used by our global.scss
+  }
+
+  --ion-toolbar-background: #{$bg-alt};
+  --ion-toolbar-color: #{$text};
+  --ion-toolbar-border-color: #{$accent};
+  --ion-item-background: #{$bg};
+  --ion-item-border-color: #{color.mix($accent, $bg, 60%)};
+  --ion-card-background: #{$bg-alt};
+  --ion-border-color: #{$accent};
+  --ion-placeholder-color: #{$text-faint};
+  --ion-backdrop-color: #000;
+
+  @include ion-color(primary, $accent, $text);
+  @include ion-color(secondary, $accent-hover, $text);
+  @include ion-color(tertiary, $text-faint, $bg);
+  @include ion-color(success, $success, $bg);
+  @include ion-color(warning, $warning, $bg);
+  @include ion-color(danger, $danger, $bg);
+  @include ion-color(medium, $text-faint, $bg);
+  @include ion-color(light, $text-muted, $bg);
+  @include ion-color(dark, $bg-alt, $text);
+
+  // Primary buttons hover a step lighter, like the theme's accent-hover
+  --ion-color-primary-tint: #{$accent-hover};
+}
+
+ion-menu {
+  --background: #{$bg-alt};
+}
+
+ion-menu ion-content {
+  --background: #{$bg-alt};
+}
+
+ion-menu ion-list,
+ion-menu ion-item {
+  --ion-item-background: #{$bg-alt};
+  background: #{$bg-alt};
+}
+
+ion-menu ion-list-header,
+ion-menu ion-note {
+  color: #{$text-muted};
+}
+
+a {
+  color: #{$text-muted};
+}

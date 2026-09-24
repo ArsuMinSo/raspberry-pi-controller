@@ -92,7 +92,7 @@ or someone is locked out.
 | Capability | Endpoints | viewer | operator | admin |
 |------------|-----------|:------:|:--------:|:-----:|
 | View inventory, Pi status, health results, action results | `GET /pi/*`, `GET /health/*`, `GET /command/*`, `GET /process/*`, `GET /service/*`, `GET /discovery/scan/*` | ✓ | ✓ | ✓ |
-| View activity log | `GET /logs` | ✓ | ✓ | ✓ |
+| View activity log (changed 2026-09-24: operator+) | `GET /logs`, `GET /logs/events` | | ✓ | ✓ |
 | Run health check | `POST /health/trigger` | | ✓ | ✓ |
 | Kill process / restart service | `POST /process/kill`, `POST /service/restart` | | ✓ | ✓ |
 | Discovery scan (updates IP/hostname of known Pis) | `POST /discovery/scan` | | ✓ | ✓ |
