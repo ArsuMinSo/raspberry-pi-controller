@@ -43,6 +43,28 @@
 - [ ] Production server runs Ubuntu 25.04 (end-of-life, no security updates) — upgrade to 26.04 LTS
       before the web service exposes a login page
 
+## Fleet API ideas (roles: viewer / operator / admin; long ones as background jobs)
+
+**First picks** — cheap on the job system, cover most kiosk incidents:
+- [ ] `POST /pi/reboot` (operator)
+- [ ] `POST /display/power {on|off}` (operator) — `vcgencmd display_power` / HDMI-CEC; night schedule via tasks
+- [ ] `GET /pi/{pos}/throttled` + `GET /pi/{pos}/disk` (viewer) — undervoltage/overheat, full SD card
+- [ ] `GET /fleet/summary` (viewer) — reachable/unreachable, hottest, low disk, stale last_seen (web dashboard)
+- [ ] `/commands/presets` — named commands: operator runs, admin manages (execute is admin-only)
+
+**Later:**
+- [ ] `POST /pi/shutdown` (admin); `POST /pi/wake` WoL (operator, Pi 4/5 mostly unsupported)
+- [ ] `GET /pi/{pos}/screenshot` (viewer) — what's on screen (`grim`/`scrot`)
+- [ ] `POST /kiosk/reload` (operator), `POST /kiosk/url` (admin)
+- [ ] `GET /service/status?name=` (viewer) — `systemctl is-active` across selection
+- [ ] `GET /pi/{pos}/journal?unit=&lines=`, `/processes`, `/network` (viewer)
+- [ ] `POST /pi/ping` (operator) — quick reachability
+- [ ] `GET /pi/stale?hours=`; `GET /pi/{pos}/history` (needs `health_samples` table)
+- [ ] Bulk `PATCH /pi/tags` (admin); CSV `GET /pi/export` / `POST /pi/import`
+- [ ] `POST /pi/time-sync` (operator) — see `scripts/ntp-sync.txt`
+- [ ] ⚠ `POST /pi/apt-upgrade`, `POST /pi/file` (admin) — conflict with locked "No deployments"; decide first
+- [ ] `/alerts/rules` (admin, v2) — temp > 75 °C, unreachable > 30 min, throttling
+
 ## Future
 
 - [ ] **Web service** — web page for everyone via nginx on port 80 (LAN, plain HTTP for now; name TBD, meanwhile http://10.10.20.115/); TUI stays as local break-glass tool;
