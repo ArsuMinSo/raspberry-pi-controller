@@ -146,6 +146,29 @@ Design: [`docs/design/web-service.md`](docs/design/web-service.md).
 `token` from the response → **Authorize** (top right) → paste the token → every endpoint now runs as you.
 Log out with `POST /auth/logout` when done.
 
+### Web page
+
+`http://<server>/` (nginx, port 80) — log in with your account. Ionic + Angular app in `web/`.
+
+- **Inventory:** search, status filter, numeric position sort, CPU/RAM/temp; select Pis → *Health check*
+  (operator+) → live progress per Pi.
+- **Pi detail**, **Activity log** (Pi actions + logins/changes), **Account** (change password — entered twice —,
+  sessions, logout). Accounts flagged *must change password* go to Account first.
+- Session lives in the browser tab (sessionStorage), 12 h max.
+
+**Develop:** `cd web && npm ci && npm start` → `http://localhost:4200`, `/api` proxied to the server
+(`web/proxy.conf.json`). Tests: `npm test`. Build: `npm run build` → `web/www`.
+
+**Release** (from a dev machine with `gh` logged in; working tree clean and pushed):
+
+```bash
+bash scripts/release_web.sh      # builds web/, publishes GitHub release web-<date>-<sha> (tar.gz + .sha256)
+```
+
+The server picks it up on the next `sudo ./scripts/deploy.sh`: it installs the newest `web-*` release whose commit
+is part of the deployed code (so the page is never newer than the API), verifies the checksum, switches
+`/opt/pi-controller/web-current` atomically and keeps the last 3. Offline / no release → keeps the current page.
+
 ### TUI (local break-glass)
 
 The TUI is the backup way in: it runs **on the controller itself, with sudo**, has admin rights, and needs no

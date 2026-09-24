@@ -77,10 +77,13 @@
         edit inventory, change settings, manage users
   - [x] User management — API `/api/v1/users` + `scripts/manage.sh` (web UI in phase 4)
   - [x] Phase 0: nginx in front (installed by deploy.sh), uvicorn on 127.0.0.1
-  - [ ] Enforce `must_change_password` (web page forces a change on first login)
+  - [x] Enforce `must_change_password` (web page forces Account first — phase 3)
   - [x] Decide UI stack → Ionic/Angular app in `web/`, served by nginx (API proxied to uvicorn on 127.0.0.1); released via GitHub releases
   - [x] Live progress — background jobs + `GET /api/v1/actions/{id}` polling, per-Pi `action_results` (phase 2)
-  - [ ] Feature parity with TUI: inventory, select, execute, monitor, logs, health, discovery, tasks, settings
+  - [x] Phase 3 web MVP: login, inventory, Pi detail, health + live progress, logs, account; release_web.sh + deploy download
+  - [ ] Phase 4 — feature parity with TUI: execute, kill, restart, discovery, tasks, settings, users
+  - [ ] Web: retry polling on transient network errors (action page stops on first error)
+  - [ ] First real web release (`scripts/release_web.sh`) + browser test against the server (CSP, login, progress)
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
         settings in DB/shared store instead of per-process cache — until then `--workers 1`
   - [ ] Later: HTTPS in nginx via Let's Encrypt for the chosen *.omnika.com name (DNS-01)
