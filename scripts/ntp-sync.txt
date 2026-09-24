@@ -1,0 +1,17 @@
+sudo tee /etc/systemd/timesyncd.conf << 'EOF'
+[Time]
+NTP=10.10.20.115
+FallbackNTP=
+
+
+sudo tee /etc/wpa_supplicant/wpa_supplicant.conf << 'EOF'
+ctrl_interface=DIR=/var/run/wpa_supplicant GROUP=netdev
+update_config=1
+country=CZ
+
+network={
+        ssid="OMNIKA-VYROBA"
+        psk="3925vyroba3925"
+        key_mgmt=WPA-PSK
+}
+EOF

@@ -1,0 +1,4 @@
+export DISPLAY=:0 && export XAUTHORITY=/run/user/1000/Xauthority && zenity --info --title="INFO" --text="Zavolejte prosím na IT (číslo 16, Michalík) \\n\\n\\n IPs: $(hostname -I | awk '{print $0}')\\nMAC: $(cat /sys/class/net/wlan0/address)" --timeout=10 --no-wrap
+
+
+export DISPLAY=:0 && export XAUTHORITY=/run/user/1000/Xauthority && zenity --info --title="INFO" --text="Za 3 minuty proběhne restart kiosků. Dokončete svou práci prosím." --timeout=40 --no-wrap
