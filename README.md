@@ -346,7 +346,7 @@ bash scripts/run_tests.sh          # all tests
 bash scripts/run_tests.sh -k mac   # extra args go to pytest
 ```
 
-Run it on a dev machine, not the production server. On first run it creates a local PostgreSQL role `pi_test` and database `pi_controller_test` (uses `sudo -u postgres`) and a `.venv` with dev dependencies. SSH is mocked, so no live Pis are needed.
+Run it on any machine with a local PostgreSQL server, including the production server: it only uses the separate `pi_test` role and `pi_controller_test` database, never `pi_controller`. On first run it creates the role `pi_test` and database `pi_controller_test` (uses `sudo -u postgres`) and a `.venv` with dev dependencies. SSH is mocked, so no live Pis are needed.
 
 The fixture drops and recreates tables from `migrations/*.sql`, so the script refuses any `TEST_DATABASE_URL` whose database isn't `pi_controller_test`. The tests also skip the task scheduler at app startup (`PI_CONTROLLER_DISABLE_SCHEDULER=1`, set in `tests/conftest.py`), and the script unsets `DB_PASSWORD`, so nothing in a test run can reach the real `pi_controller` database.
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Run the test suite against a throwaway PostgreSQL database.
-# Run on a dev machine (not the production server), from anywhere:
+# Safe on the production server too (separate test role + DB). From anywhere:
 #   bash scripts/run_tests.sh            # all tests
 #   bash scripts/run_tests.sh -k mac     # extra args go to pytest
 #
