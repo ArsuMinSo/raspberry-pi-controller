@@ -27,3 +27,12 @@ ssh:
   retry_delay_s: 1
   timeout_s: 30
   username: pi
+# Optional — shell commands for fleet actions (defaults shown). Display control depends on the
+# Pi OS: legacy firmware → vcgencmd display_power; Bookworm KMS/Wayland → e.g. wlr-randr / xset dpms.
+# reboot must return before the Pi goes down and needs passwordless sudo for the SSH user.
+pi_commands:
+  reboot: sudo -n systemd-run --on-active=3 systemctl reboot
+  display_on: vcgencmd display_power 1
+  display_off: vcgencmd display_power 0
+  throttled: vcgencmd get_throttled
+  disk: df -P /

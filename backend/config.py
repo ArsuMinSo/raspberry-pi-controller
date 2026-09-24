@@ -1,7 +1,7 @@
 import functools
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field, fields
 
 import yaml
 
@@ -66,11 +66,23 @@ class ServerSettings:
 
 
 @dataclass
+class PiCommands:
+    """Shell commands run on the Pis for fleet actions. Optional `pi_commands:` section in config.yaml;
+    display control differs by Pi OS (legacy firmware vs KMS/Wayland), so it is configurable."""
+    reboot: str = "sudo -n systemd-run --on-active=3 systemctl reboot"  # returns before the Pi goes down
+    display_on: str = "vcgencmd display_power 1"
+    display_off: str = "vcgencmd display_power 0"
+    throttled: str = "vcgencmd get_throttled"
+    disk: str = "df -P /"
+
+
+@dataclass
 class Settings:
     database: DatabaseSettings
     ssh: SSHSettings
     network: NetworkSettings
     server: ServerSettings
+    pi_commands: PiCommands = field(default_factory=PiCommands)
 
 
 def _load(path: str = CONFIG_PATH) -> Settings:
@@ -87,6 +99,11 @@ def _load(path: str = CONFIG_PATH) -> Settings:
     ssh = raw["ssh"]
     net = raw["network"]
     srv = raw["server"]
+    # Optional (older config.yaml files don't have it): unknown keys ignored, empty values → default
+    cmds_raw = raw.get("pi_commands") or {}
+    pi_commands = PiCommands(**{
+        f.name: str(cmds_raw[f.name]) for f in fields(PiCommands) if cmds_raw.get(f.name)
+    })
 
     return Settings(
         database=DatabaseSettings(
@@ -120,6 +137,7 @@ def _load(path: str = CONFIG_PATH) -> Settings:
             log_level=srv["log_level"],
             workers=int(srv["workers"]),
         ),
+        pi_commands=pi_commands,
     )
 
 

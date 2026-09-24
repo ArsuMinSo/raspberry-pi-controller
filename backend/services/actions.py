@@ -1,7 +1,8 @@
-"""SSH command actions (execute / kill / restart) as background jobs."""
+"""SSH command actions (execute / kill / restart / reboot / display / diagnostics) as background jobs."""
 import json
 import time
 from functools import partial
+from typing import Callable
 
 from sqlalchemy.orm import Session
 
@@ -27,8 +28,13 @@ def ssh_job(
     command: str,
     ssh_username: str | None = None,
     ssh_password: str | None = None,
+    parse: Callable[[str], tuple[dict | None, str | None]] | None = None,
 ) -> None:
-    """Run `command` on the action's Pis; one action_results row per Pi as it finishes."""
+    """Run `command` on the action's Pis; one action_results row per Pi as it finishes.
+
+    `parse(stdout) → (details, error)` turns a Pi's output into structured `details`; a parse error
+    counts as that Pi failing.
+    """
     start = time.monotonic()
     pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
 
@@ -42,15 +48,21 @@ def ssh_job(
         else:
             targets.append((str(pi.current_ip), pi.position))
 
+    parse_errors: dict[str, str | None] = {}
+
     def on_result(r: SSHResult) -> None:
+        details = None
+        if parse is not None and r.error is None:
+            details, parse_errors[r.position] = parse(r.stdout)
         al.add_result(db, entry.id, r.position, exit_code=r.exit_code, stdout=r.stdout, stderr=r.stderr,
-                      error=r.error, duration_ms=r.duration_ms)
+                      error=r.error or parse_errors.get(r.position), details=details,
+                      duration_ms=r.duration_ms)
 
     ssh_results = execute_many(targets, command, effective_ssh_settings(), ssh_username, ssh_password,
                                on_result=on_result)
     results += [
         PiCommandResult(position=r.position, exit_code=r.exit_code, stdout=r.stdout or None,
-                        stderr=r.stderr or None, error=r.error)
+                        stderr=r.stderr or None, error=r.error or parse_errors.get(r.position))
         for r in ssh_results
     ]
     al.update_action(
@@ -70,10 +82,11 @@ def start_ssh_action(
     ssh_username: str | None = None,
     ssh_password: str | None = None,
     wait: bool = False,
+    parse: Callable[[str], tuple[dict | None, str | None]] | None = None,
 ) -> int:
     """Create the queued action and run it — in the background, or right here if `wait` (scheduler)."""
     entry = al.create_action(db, positions, action, command=command, status="queued", actor=actor)
-    work = partial(ssh_job, command=command, ssh_username=ssh_username, ssh_password=ssh_password)
+    work = partial(ssh_job, command=command, ssh_username=ssh_username, ssh_password=ssh_password, parse=parse)
     if wait:
         jobs.run_action(entry.id, work)
     else:

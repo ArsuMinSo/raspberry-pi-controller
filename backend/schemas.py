@@ -378,3 +378,32 @@ class ActionProgress(BaseModel):
     error: str | None           # job-level failure (not per-Pi)
     started_at: datetime
     duration_ms: int | None
+
+
+# ─── Fleet actions (reboot / display / diagnostics) + summary ─────────────────
+
+class PiSelection(BaseModel):
+    pis: list[str] = Field(..., min_length=1)
+
+
+class DisplayPowerRequest(PiSelection):
+    state: Literal["on", "off"]
+
+
+class FleetPiValue(BaseModel):
+    position: str
+    hostname: str | None
+    value: float
+
+
+class FleetSummary(BaseModel):
+    total: int
+    reachable: int
+    unreachable: int
+    stale_hours: int
+    stale: list[str]            # positions not seen for stale_hours (seen at least once)
+    never_seen: list[str]       # positions with no successful contact yet
+    hottest: list[FleetPiValue]  # temp_c, top 5
+    busiest_cpu: list[FleetPiValue]  # cpu_1m, top 5
+    highest_mem: list[FleetPiValue]  # mem_percent, top 5
+    last_health_check_at: datetime | None
