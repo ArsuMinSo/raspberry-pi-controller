@@ -22,7 +22,7 @@ _BARE_HEX_RE = re.compile(r"^\s*([0-9a-fA-F]{1,8})\s*$")
 
 def build_command(throttled_cmd: str, disk_cmd: str) -> str:
     """One SSH round-trip: both checks, outputs split by a separator line."""
-    return f"{throttled_cmd} 2>&1; echo {SEPARATOR}; {disk_cmd} 2>&1"
+    return f"export LC_ALL=C; {throttled_cmd} 2>&1; echo {SEPARATOR}; {disk_cmd} 2>&1"
 
 
 def parse_throttled(text: str) -> dict:
@@ -74,11 +74,15 @@ def parse_output(stdout: str) -> tuple[dict, str | None]:
     return details, ("; ".join(errors) or None)
 
 
-SUDO_PASSWORD_ERROR = "reboot needs passwordless sudo for this command on the Pi (see docs)"
+REBOOT_NOT_PERMITTED = "reboot not permitted for this SSH user (polkit/sudo) — see docs"
+
+# English texts (commands run with LC_ALL=C); polkit/logind and sudo -n refusals
+_PERMISSION_MARKERS = ("Interactive authentication required", "Access denied", "a password is required")
 
 
 def reboot_error(stderr: str | None) -> str | None:
-    """Clear per-Pi error when `sudo -n` refused because a password would be needed."""
-    if stderr and "a password is required" in stderr:
-        return SUDO_PASSWORD_ERROR
-    return None
+    """Per-Pi error for a failed reboot: permission refusals → one clear message, anything else → stderr."""
+    text = (stderr or "").strip()
+    if any(marker in text for marker in _PERMISSION_MARKERS):
+        return REBOOT_NOT_PERMITTED
+    return text[:500] or None

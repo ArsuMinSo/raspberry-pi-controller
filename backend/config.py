@@ -68,7 +68,9 @@ class ServerSettings:
 @dataclass
 class PiCommands:
     """Shell commands run on the Pis for fleet actions. Optional `pi_commands:` section in config.yaml."""
-    reboot: str = "sudo -n systemd-run --on-active=3 systemctl reboot"  # returns before the Pi goes down
+    # No sudo: Raspberry Pi OS polkit lets logind reboot for the logged-in user. Detached → the SSH
+    # command returns at once (exit 0) and the Pi reboots ~3 s later. Otherwise configure your own.
+    reboot: str = "LC_ALL=C nohup sh -c 'sleep 3; systemctl reboot' >/dev/null 2>&1 &"
     # sysfs needs no `video` group (vcgencmd does); prints bare hex, vcgencmd prints throttled=0x…
     throttled: str = "cat /sys/devices/platform/soc/soc:firmware/get_throttled 2>/dev/null || vcgencmd get_throttled"
     disk: str = "df -P /"

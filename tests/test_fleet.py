@@ -50,12 +50,12 @@ def test_reboot_uses_configured_command(client, sample_pi):
     assert (progress["done"], progress["total"]) == (1, 1)
 
 
-def test_reboot_without_passwordless_sudo_has_clear_error(client, sample_pi):
-    failed = _ssh("01-001", exit_code=1, stderr="sudo: a password is required\n")
+def test_reboot_not_permitted_has_clear_error(client, sample_pi):
+    failed = _ssh("01-001", exit_code=1, stderr="Failed to reboot system via logind: Access denied\n")
     with patch("backend.services.actions.execute_many", _recording_execute_many([failed], [])):
         progress = _progress(client, client.post(f"{API}/pi/reboot", json={"pis": ["01-001"]}))
     assert progress["status"] == "fail"
-    assert progress["results"][0]["error"] == diagnostics.SUDO_PASSWORD_ERROR
+    assert progress["results"][0]["error"] == diagnostics.REBOOT_NOT_PERMITTED
 
 
 def test_unknown_position_422(client):

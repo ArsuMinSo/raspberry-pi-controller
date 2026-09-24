@@ -85,8 +85,11 @@ def test_parse_output_sysfs_format():
 
 
 @pytest.mark.parametrize("stderr, expected", [
-    ("sudo: a password is required\n", d.SUDO_PASSWORD_ERROR),
-    ("Failed to start transient timer unit", None),
+    ("sudo: a password is required\n", d.REBOOT_NOT_PERMITTED),
+    ("Failed to set wall message, ignoring: Interactive authentication required.\n"
+     "Failed to reboot system via logind: Interactive authentication required.\n", d.REBOOT_NOT_PERMITTED),
+    ("Failed to reboot system via logind: Access denied\n", d.REBOOT_NOT_PERMITTED),
+    ("sh: 1: systemctl: not found\n", "sh: 1: systemctl: not found"),  # unknown → keep stderr
     ("", None),
     (None, None),
 ])
@@ -96,7 +99,7 @@ def test_reboot_error(stderr, expected):
 
 def test_build_command_single_round_trip():
     cmd = d.build_command("vcgencmd get_throttled", "df -P /")
-    assert cmd == f"vcgencmd get_throttled 2>&1; echo {d.SEPARATOR}; df -P / 2>&1"
+    assert cmd == f"export LC_ALL=C; vcgencmd get_throttled 2>&1; echo {d.SEPARATOR}; df -P / 2>&1"
 
 
 # ─── config: pi_commands is optional ──────────────────────────────────────────
@@ -127,5 +130,7 @@ def test_throttled_default_prefers_sysfs():
     assert PiCommands().throttled.startswith("cat /sys/devices/platform/soc/soc:firmware/get_throttled")
 
 
-def test_reboot_default_returns_before_shutdown():
-    assert "systemd-run --on-active" in PiCommands().reboot and "sudo -n" in PiCommands().reboot
+def test_reboot_default_detached_no_sudo():
+    cmd = PiCommands().reboot
+    assert cmd == "LC_ALL=C nohup sh -c 'sleep 3; systemctl reboot' >/dev/null 2>&1 &"
+    assert "sudo" not in cmd

@@ -28,9 +28,10 @@ ssh:
   timeout_s: 30
   username: pi
 # Optional — shell commands for fleet actions (defaults shown).
-# reboot must return before the Pi goes down and needs passwordless sudo for this command for the SSH user.
+# reboot: no sudo — Raspberry Pi OS polkit allows logind reboot for the SSH user; detached, so the command
+#   returns at once and the Pi reboots ~3 s later. Where polkit doesn't allow it, set your own command.
 # throttled: sysfs file needs no special group; vcgencmd fallback needs the SSH user in the `video` group.
 pi_commands:
-  reboot: sudo -n systemd-run --on-active=3 systemctl reboot
+  reboot: "LC_ALL=C nohup sh -c 'sleep 3; systemctl reboot' >/dev/null 2>&1 &"
   throttled: cat /sys/devices/platform/soc/soc:firmware/get_throttled 2>/dev/null || vcgencmd get_throttled
   disk: df -P /
