@@ -1,3 +1,4 @@
+import os
 import time
 from contextlib import asynccontextmanager
 
@@ -15,13 +16,17 @@ _start_time = time.monotonic()
 async def lifespan(app: FastAPI):
     global _start_time
     _start_time = time.monotonic()
-    db = SessionLocal()
-    try:
-        sched.start(db)
-    finally:
-        db.close()
+    # Tests set this: the scheduler would connect to the real DB from config.yaml
+    run_scheduler = os.environ.get("PI_CONTROLLER_DISABLE_SCHEDULER") != "1"
+    if run_scheduler:
+        db = SessionLocal()
+        try:
+            sched.start(db)
+        finally:
+            db.close()
     yield
-    sched.stop()
+    if run_scheduler:
+        sched.stop()
 
 
 app = FastAPI(

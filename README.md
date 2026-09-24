@@ -342,11 +342,13 @@ ssh-copy-id -i ~/.ssh/id_rpi.pub pi@10.10.20.x
 ## Running Tests
 
 ```bash
-source .venv/bin/activate
-pytest tests/ -v
+bash scripts/run_tests.sh          # all tests
+bash scripts/run_tests.sh -k mac   # extra args go to pytest
 ```
 
-SSH is mocked (no live Pis needed). DB and API tests need a PostgreSQL test database — `TEST_DATABASE_URL`, default `postgresql://pi_controller:test@localhost/pi_controller_test`. The fixture drops and recreates the tables from `migrations/*.sql`.
+Run it on a dev machine, not the production server. On first run it creates a local PostgreSQL role `pi_test` and database `pi_controller_test` (uses `sudo -u postgres`) and a `.venv` with dev dependencies. SSH is mocked, so no live Pis are needed.
+
+The fixture drops and recreates tables from `migrations/*.sql`, so the script refuses any `TEST_DATABASE_URL` whose database isn't `pi_controller_test`. The tests also skip the task scheduler at app startup (`PI_CONTROLLER_DISABLE_SCHEDULER=1`, set in `tests/conftest.py`), and the script unsets `DB_PASSWORD`, so nothing in a test run can reach the real `pi_controller` database.
 
 ---
 

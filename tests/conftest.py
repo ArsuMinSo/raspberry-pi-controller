@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("DB_PASSWORD", "test")
+os.environ["PI_CONTROLLER_DISABLE_SCHEDULER"] = "1"  # don't touch the real DB on app startup
 
 from backend.database import Base, get_db
 from backend.main import app
