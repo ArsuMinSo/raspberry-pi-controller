@@ -30,6 +30,11 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/logs.page').then((m) => m.LogsPage),
   },
   {
+    path: 'users',
+    canActivate: [authGuard, roleGuard('admin')],
+    loadComponent: () => import('./pages/users.page').then((m) => m.UsersPage),
+  },
+  {
     path: 'account',
     canActivate: [authGuard],
     loadComponent: () => import('./pages/account.page').then((m) => m.AccountPage),

@@ -2,7 +2,7 @@ import { newPasswordProblem } from '../pages/account.page';
 import { matchesSearch } from '../pages/inventory.page';
 import { num, statusColor, uptime } from './format';
 import { PiSummary } from './models';
-import { hasRole } from './roles';
+import { hasRole, usernameProblem } from './roles';
 import { comparePositions, positionSortKey } from './sort';
 
 describe('position sort (same rule as the TUI)', () => {
@@ -76,5 +76,19 @@ describe('new password check (entered twice)', () => {
     expect(newPasswordProblem('short', 'short')).toContain('12');
     expect(newPasswordProblem('long-enough-pw', 'long-enough-px')).toContain('match');
     expect(newPasswordProblem('long-enough-pw', 'long-enough-pw')).toBeNull();
+  });
+});
+
+describe('username check (same rule as the server)', () => {
+  it('accepts valid names', () => {
+    for (const name of ['alice', 'jan.novak', 'op_1', 'a1']) {
+      expect(usernameProblem(name)).toBeNull();
+    }
+  });
+
+  it('rejects invalid or reserved names', () => {
+    for (const name of ['A', 'Alice', 'has space', '-lead', 'x'.repeat(33), 'local-tui', 'local-tui2']) {
+      expect(usernameProblem(name)).not.toBeNull();
+    }
   });
 });

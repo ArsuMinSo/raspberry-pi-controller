@@ -6,8 +6,8 @@ import {
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
 import {
-  chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, personCircleOutline, pinOutline, pulseOutline,
-  refreshOutline,
+  chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, peopleOutline, personCircleOutline, pinOutline,
+  pulseOutline, refreshOutline,
 } from 'ionicons/icons';
 
 import { AuthService } from './core/auth.service';
@@ -127,13 +127,14 @@ export class AppComponent {
   readonly menu: { title: string; url: string; icon: string; role?: Role }[] = [
     { title: 'Inventory', url: '/inventory', icon: 'grid-outline' },
     { title: 'Activity log', url: '/logs', icon: 'document-text-outline', role: 'operator' },
+    { title: 'Users', url: '/users', icon: 'people-outline', role: 'admin' },
     { title: 'Account', url: '/account', icon: 'person-circle-outline' },
   ];
 
   constructor() {
     addIcons({
-      chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, personCircleOutline, pinOutline,
-      pulseOutline, refreshOutline,
+      chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, peopleOutline, personCircleOutline,
+      pinOutline, pulseOutline, refreshOutline,
     });
   }
 

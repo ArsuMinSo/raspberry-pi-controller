@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  ActionProgress, ActionQueued, AuditEvent, LogEntry, Me, PiDetail, PiSummary, SessionInfo,
+  ActionProgress, ActionQueued, AuditEvent, LogEntry, Me, PiDetail, PiSummary, Role, SessionInfo, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -62,6 +62,31 @@ export class ApiService {
 
   action(id: number): Observable<ActionProgress> {
     return this.http.get<ActionProgress>(`${API}/actions/${id}`);
+  }
+
+  // ── Users (admin) ─────────────────────────────────────────────────────────
+  users(): Observable<User[]> {
+    return this.http.get<User[]>(`${API}/users`);
+  }
+
+  createUser(body: {
+    username: string; role: Role; password: string; password_confirm: string; must_change_password: boolean;
+  }): Observable<User> {
+    return this.http.post<User>(`${API}/users`, body);
+  }
+
+  updateUser(id: number, patch: { role?: Role; is_active?: boolean }): Observable<User> {
+    return this.http.patch<User>(`${API}/users/${id}`, patch);
+  }
+
+  resetPassword(id: number, password: string, confirm: string, mustChange: boolean): Observable<void> {
+    return this.http.post<void>(`${API}/users/${id}/password`, {
+      password, password_confirm: confirm, must_change_password: mustChange,
+    });
+  }
+
+  revokeUserSessions(id: number): Observable<void> {
+    return this.http.post<void>(`${API}/users/${id}/revoke-sessions`, {});
   }
 
   // ── Logs ──────────────────────────────────────────────────────────────────

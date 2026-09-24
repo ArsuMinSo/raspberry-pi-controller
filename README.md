@@ -153,6 +153,8 @@ Log out with `POST /auth/logout` when done.
 - **Inventory:** search, status filter, numeric position sort, CPU/RAM/temp; select Pis → *Health check*
   (operator+) → live progress per Pi.
 - **Menu** on the left: pinned open from 768 px wide; drag its right edge to resize (double-click resets); collapse with « (then ☰ opens it), pin again with 📌 — remembered per browser.
+- **Users** (admin): create (password twice, *must change at first login* on by default), change role, disable/enable,
+  reset password, end sessions. Never deleted — disabled instead; the last active admin is protected.
 - **Pi detail**, **Activity log** (operator+; Pi actions + logins/changes), **Account** (change password — entered twice —,
   sessions, logout). Accounts flagged *must change password* go to Account first.
 - Session lives in the browser tab (sessionStorage), 12 h max.

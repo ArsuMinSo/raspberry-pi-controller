@@ -9,3 +9,18 @@ export function hasRole(role: string | null | undefined, required: Role): boolea
   }
   return RANK[role as Role] >= RANK[required];
 }
+
+export const ROLES: Role[] = ['viewer', 'operator', 'admin'];
+
+const USERNAME_RE = /^[a-z0-9][a-z0-9._-]{1,31}$/;
+
+/** Same rule as the server (backend/auth.py check_username). */
+export function usernameProblem(username: string): string | null {
+  if (!USERNAME_RE.test(username)) {
+    return "Username: 2–32 characters, lowercase letters, digits, '.', '_' or '-'";
+  }
+  if (username.startsWith('local-tui')) {
+    return "Username 'local-tui…' is reserved";
+  }
+  return null;
+}
