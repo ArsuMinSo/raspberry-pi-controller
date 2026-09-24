@@ -13,7 +13,7 @@ permissions. The TUI stays as a local backup tool on the server.
 | Roles | `viewer` / `operator` / `admin` |
 | Clients | **Web page** — the main way in, for everyone. **TUI** — local-only backup on the server itself (break-glass). **Android app** — out of scope for now |
 | Web stack | TypeScript — **Ionic 9 + Angular 22 (standalone)**, same stack as `UTB/05_3WS/PM/02_projekt/counter-app`. Capacitor added later if/when the Android app is planned |
-| Network | **LAN only** (no Tailscale), **plain HTTP** for now. **nginx** in front (web page + API proxy); address `http://tv.omnika.com/` or `:8000` — see open question 2 (`:8080` on that host is another service) |
+| Network | **LAN only** (no Tailscale), **plain HTTP** for now. **nginx on port 80** in front (web page + API proxy); address `http://<name>/` — name open (question 1), meanwhile `http://10.10.20.115/`. `:8080` on this server is another service (untouched) |
 | Passwords | Setting / changing / resetting a password asks **2 times** (entry + confirmation). **Login asks once** |
 | Arbitrary commands | **Admin (web) and TUI only**, with or without `sudo` |
 | Session length | **12 h maximum** from login, no separate idle timeout (log in once per working day) |
@@ -31,10 +31,10 @@ permissions. The TUI stays as a local backup tool on the server.
 ## Architecture
 
 ```
-                               ┌─────────────────── Ubuntu server (tv.omnika.com) ───────────────────┐
- Browser (LAN) ── HTTP ──────► │ nginx (port 80 or 8000, see open question 2)                         │
+                               ┌─────────────────── Ubuntu server 10.10.20.115 ─────────────────────┐
+ Browser (LAN) ── HTTP ──────► │ nginx :80                                                            │
                                │   /          → /opt/pi-controller/web-current/ (static Ionic build)  │
-                               │   /api/v1/*  → uvicorn 127.0.0.1:8001 (1 worker, login required)     │
+                               │   /api/v1/*  → uvicorn 127.0.0.1:8000 (1 worker, login required)     │
                                │                   ▲                                                  │
                                │ TUI (sudo, on the server) ── direct, + break-glass key               │
                                └──────────────────────────────────────────────────────────────────────┘
@@ -42,8 +42,8 @@ permissions. The TUI stays as a local backup tool on the server.
 
 - **nginx** is the only entry point from the network. It serves the built web page (fast, from disk) and forwards
   `/api/` to uvicorn. Unknown paths fall back to `index.html`, so the web app's own routes work on reload.
-- **uvicorn binds to `127.0.0.1` only** — the API can't be reached from the LAN except through nginx.
-  (Port `8001` if nginx takes `8000`; stays `8000` if nginx uses port 80.)
+- **uvicorn binds to `127.0.0.1:8000` only** — the API can't be reached from the LAN except through nginx on port 80.
+- Port `8080` on this server belongs to another service; nginx leaves it alone (could be put behind nginx later).
 - **nginx also:** rate-limits `POST /api/v1/auth/login`, caps request body size, adds security headers
   (CSP, `X-Frame-Options`, …), keeps an access log, and **removes the TUI break-glass header** from every
   request it forwards.
@@ -51,11 +51,11 @@ permissions. The TUI stays as a local backup tool on the server.
   (from a template in the repo), `nginx -t` to validate, reload. Nothing to configure by hand.
 - **API moves under `/api/v1`** so it can't collide with web-page routes (e.g. `/logs`). The TUI is updated in the
   same release, so old root paths are simply removed — no aliases.
-- **Name:** `tv.omnika.com` must resolve to this server on the LAN (DNS entry or `hosts` line) — open question 1.
+- **Name:** open question 1. Until a name exists, `http://10.10.20.115/` works.
 - **Plain HTTP (for now):** passwords and session tokens cross the LAN unencrypted — anyone who can capture LAN
   traffic could read them. Acceptable on the isolated LAN to start; sessions end after 12 h, which limits damage.
   **Later:** nginx makes HTTPS a config change — `omnika.com` is a real domain, so a free Let's Encrypt
-  certificate for `tv.omnika.com` (DNS-01 challenge) gives HTTPS every browser trusts, with no device setup.
+  certificate for the chosen `*.omnika.com` name (DNS-01 challenge) gives HTTPS every browser trusts, with no device setup.
 
 ## Authentication
 
@@ -191,16 +191,22 @@ If the repo is ever made private, the server needs a read-only GitHub token for 
 | 3 · Web page MVP | `web/` Ionic app: login, inventory, Pi detail, health, logs, account; nginx serves it; `release_web.sh` + deploy download | Read-only + health in the browser |
 | 4 · Web page full | actions, discovery, tasks, settings, users | Everything the TUI can do |
 | 5 · Showroom & docs | demo mode with fake Pis (fake SSH executor), screenshots, user/admin guides | Presentable project |
-| later · HTTPS | Let's Encrypt certificate for `tv.omnika.com` (DNS-01) in nginx | Encrypted logins, no device setup |
+| later · HTTPS | Let's Encrypt certificate for the chosen `*.omnika.com` name (DNS-01) in nginx | Encrypted logins, no device setup |
 | later · Android | Capacitor app — **to be planned together** when needed | App on phones |
 
 Each phase ships on its own; tests (pytest for backend, vitest for web) grow with it.
 
 ## Open questions
 
-1. **`tv.omnika.com` → this server:** does the name already resolve to the controller on the LAN (internal DNS),
-   or does it still need a DNS record? Check from a LAN machine: `getent hosts tv.omnika.com` should print the
-   controller's LAN IP.
-2. **Port:** nginx on **port 80** → people type `http://tv.omnika.com/` (recommended, if 80 is free on that machine),
-   or on **8000** → `http://tv.omnika.com:8000/` (uvicorn then moves to 8001). Check what's listening:
-   `sudo ss -ltnp`.
+1. **Name for the web page.** Checked 2026-09-24: `tv.omnika.com` resolves only to `2a00:4b40:aaaa:2005::7` (a public
+   IPv6 host) — **not** this server (`10.10.20.115`). Options:
+   - internal DNS record (LAN DNS / router) for e.g. `picontroller.omnika.com` → `10.10.20.115` (recommended if the
+     LAN has its own DNS),
+   - public DNS A record for a new `omnika.com` name → `10.10.20.115` (works without internal DNS; publishes an
+     internal IP; easiest path to Let's Encrypt later),
+   - use `http://10.10.20.115/` for now.
+
+## Resolved
+
+- **Port** (checked 2026-09-24): 80 is free → nginx on 80; uvicorn stays on 8000, bound to 127.0.0.1;
+  8080 is another service on this server.
