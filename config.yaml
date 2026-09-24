@@ -17,7 +17,7 @@ server:
   host: 0.0.0.0
   log_level: DEBUG
   port: 8000
-  workers: 16
+  workers: 1
 ssh:
   parallel_limit: 50
   private_key_path: /home/user/.ssh/id_rpi

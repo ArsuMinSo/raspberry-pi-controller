@@ -102,7 +102,7 @@ server:
   host: 0.0.0.0
   port: 8000
   log_level: INFO
-  workers: 4
+  workers: 1
 ```
 
 All `network.*` and `ssh.*` settings can be changed live from the TUI Settings screen without restarting the backend.
@@ -115,10 +115,12 @@ All `network.*` and `ssh.*` settings can be changed live from the TUI Settings s
 
 ```bash
 source .venv/bin/activate
-DB_PASSWORD=changeme uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4
+DB_PASSWORD=changeme uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
 Interactive API docs available at `http://localhost:8000/docs`.
+
+**Run exactly one worker.** The task scheduler and runtime settings live inside the process: with more workers every scheduled task runs once per worker, and a Settings change only reaches one of them.
 
 ### TUI
 

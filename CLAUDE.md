@@ -190,7 +190,7 @@ server:
   host: 0.0.0.0
   port: 8000
   log_level: INFO
-  workers: 4
+  workers: 1  # must be 1 — scheduler + settings are per-process
 ```
 
 ---

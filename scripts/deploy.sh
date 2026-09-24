@@ -121,6 +121,8 @@ export DB_PASSWORD
 echo "Setting up database …"
 bash "$INSTALL_DIR/scripts/setup_db.sh"
 
+# Single worker: scheduler and runtime settings live in-process — more workers
+# would run every scheduled task N times and split settings between processes.
 # ── systemd service ───────────────────────────────────────────────────────────
 cat > "$SERVICE_FILE" <<EOF
 [Unit]
@@ -132,7 +134,7 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${VENV}/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 4
+ExecStart=${VENV}/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 

@@ -23,7 +23,7 @@
 - [ ] Deploy runs every migration via `setup_db.sh` — guard before `git pull` (or add a `schema_migrations`
       table) so a failing migration doesn't leave new code pulled next to an old schema; prompt to back up DB first
 - [ ] `.env` is `source`d by bash (setup_db.sh SQL quoting now safe; `source`/systemd parsing still open) and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
-- [ ] venv path mismatch: `deploy.sh` uses `.venv`, `systemd/pi-controller.service` uses `venv`
+- [x] venv path mismatch: `deploy.sh` uses `.venv`, `systemd/pi-controller.service` uses `venv`
 - [x] git as root on `/opt/pi-controller` owned by `pi_controller` → "dubious ownership"; add `safe.directory` or run git as service user
 - [ ] Consider untracking `config.yaml` (ship `config.example.yaml`) — tracked copy currently contains dev-machine values (key path, username)
 - [x] setup_db.sh: migrations failed with "Peer authentication failed" (socket as root) — now TCP + password
@@ -41,6 +41,8 @@
   - [ ] Decide: serve UI from FastAPI (static/templates) or a separate app
   - [ ] Live progress for health/command runs (polling vs WebSocket/SSE)
   - [ ] Feature parity with TUI: inventory, select, execute, monitor, logs, health, discovery, tasks, settings
+  - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
+        settings in DB/shared store instead of per-process cache — until then `--workers 1`
   - [ ] HTTPS + running beyond localhost (bind address, reverse proxy)
 - [ ] **Showroom / presentation** — project showcase: what it does, screenshots/demo of TUI + web UI,
       architecture overview; demo mode with fake Pis so it can be shown without real hardware

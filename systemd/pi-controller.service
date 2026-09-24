@@ -7,8 +7,9 @@ Type=simple
 User=pi_controller
 WorkingDirectory=/opt/pi-controller
 EnvironmentFile=/opt/pi-controller/.env
-ExecStart=/opt/pi-controller/venv/bin/uvicorn backend.main:app \
-    --host 0.0.0.0 --port 8000 --workers 4
+# Must stay 1 worker — scheduler + runtime settings are per-process
+ExecStart=/opt/pi-controller/.venv/bin/uvicorn backend.main:app \
+    --host 0.0.0.0 --port 8000 --workers 1
 Restart=on-failure
 RestartSec=5
 
