@@ -51,6 +51,8 @@ if [ -d "$INSTALL_DIR/.git" ]; then
         cp -p "$CONFIG_FILE" "$CONFIG_BACKUP"
         git -C "$INSTALL_DIR" checkout -- config.yaml  # let pull fast-forward
         echo "Backed up settings to $CONFIG_BACKUP"
+        # keep the newest 10 settings backups
+        ls -1 "$INSTALL_DIR"/config.yaml.bak-* | head -n -10 | xargs -r rm -f --
     fi
     if ! git -C "$INSTALL_DIR" pull --ff-only; then
         [ -n "$CONFIG_BACKUP" ] && cp -p "$CONFIG_BACKUP" "$CONFIG_FILE"

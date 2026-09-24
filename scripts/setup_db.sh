@@ -11,6 +11,7 @@ fi
 
 MIGRATIONS_DIR="$(cd "$(dirname "$0")/../migrations" && pwd)"
 BACKUP_DIR="${BACKUP_DIR:-/var/backups/pi-controller}"
+BACKUP_KEEP="${BACKUP_KEEP:-10}"  # newest dumps kept; older ones deleted
 
 # Role password is (re)set from DB_PASSWORD every run so it always matches .env.
 # Passed as a psql variable and quoted with %L — safe for any characters.
@@ -60,6 +61,8 @@ if [ "$has_data" = "t" ]; then
     echo "Backing up database to $dump …"
     sudo -u postgres pg_dump -Fc pi_controller > "$dump"
     chmod 600 "$dump"
+    # Timestamped names sort chronologically — delete all but the newest $BACKUP_KEEP
+    ls -1 "$BACKUP_DIR"/pi_controller-*.dump | head -n -"$BACKUP_KEEP" | xargs -r rm -f --
 fi
 
 for migration in "${pending[@]}"; do
