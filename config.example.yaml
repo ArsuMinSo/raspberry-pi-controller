@@ -1,0 +1,29 @@
+# Copy to config.yaml and adjust (deploy.sh does this on first install).
+# config.yaml is not tracked in git; the TUI Settings screen writes to it.
+database:
+  db_name: pi_controller
+  host: localhost
+  password: ${DB_PASSWORD}
+  pool_size: 10
+  port: 5432
+  user: pi_controller
+network:
+  probe_auth: key
+  probe_deploy_key: false
+  probe_ssh: true
+  probe_timeout_s: 5
+  probe_username: pi
+  scan_interval_s: 86400
+  subnet: 10.10.20.0/24
+server:
+  host: 0.0.0.0
+  log_level: INFO
+  port: 8000
+  workers: 1  # must be 1 — scheduler + runtime settings are per-process
+ssh:
+  parallel_limit: 10
+  private_key_path: /opt/pi-controller/.ssh/id_rsa
+  retry_count: 3
+  retry_delay_s: 1
+  timeout_s: 30
+  username: pi

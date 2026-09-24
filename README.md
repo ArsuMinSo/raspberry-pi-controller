@@ -71,6 +71,8 @@ cp .env.example .env
 # edit .env → DB_PASSWORD=changeme
 ```
 
+`config.yaml` is not tracked in git — create it from the template: `cp config.example.yaml config.yaml` (`deploy.sh` does this on first install). Set `PI_CONTROLLER_CONFIG` to use a different path.
+
 Edit `config.yaml` to match your environment:
 
 ```yaml
@@ -141,7 +143,7 @@ sudo bash scripts/deploy.sh
 Installs to `/opt/pi-controller` as a systemd service; re-run it to update. **Settings persist across updates:**
 
 - `.env` (`DB_PASSWORD`) is gitignored and never overwritten — it's only created on first install. The password is asked **3 times** and all entries must match; it may not contain a single quote (`'`).
-- `config.yaml` (edited by the Settings screen) is backed up to `config.yaml.bak-<timestamp>` (newest 10 kept) before `git pull`, then merged back: your existing values win, and any new options added by the update get their defaults.
+- `config.yaml` (edited by the Settings screen) is gitignored too. It is backed up to `config.yaml.bak-<timestamp>` (newest 10 kept) before `git pull`, then rebuilt from `config.example.yaml` + the backup: your existing values win, and any new options added by the update get their defaults. On first install it is copied from `config.example.yaml` — review the SSH key path, username and subnet.
 
 **Database updates:** only new migrations run, after a `pg_dump` backup to `/var/backups/pi-controller/` (newest 10 kept). If one fails, it is rolled back, the code in `/opt/pi-controller` is reset to the previous version, and the service is not restarted — it keeps running the old version on the unchanged database.
 
@@ -396,7 +398,7 @@ pi-controller/
 │   ├── test_api_routes.py
 │   ├── test_database.py
 │   └── test_ssh_executor.py
-├── config.yaml              Main configuration (edited by Settings screen)
+├── config.example.yaml      Config template (copy to config.yaml — gitignored, edited by Settings screen)
 ├── requirements.txt
 ├── requirements-dev.txt
 └── .env.example

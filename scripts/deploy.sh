@@ -37,10 +37,12 @@ if ! id "$SERVICE_USER" &>/dev/null; then
 fi
 
 # ── Code ──────────────────────────────────────────────────────────────────────
-# Settings survive updates: .env is gitignored (never touched), and config.yaml
-# (tracked, but rewritten by the Settings screen) is backed up here and merged
-# back over the new defaults after the pull.
+# Settings survive updates: .env and config.yaml are gitignored. config.yaml is
+# still backed up before the pull and rebuilt afterwards from
+# config.example.yaml (new defaults) + the backup (old values win). This also
+# covers the update that stopped tracking config.yaml, where the pull deletes it.
 CONFIG_FILE="$INSTALL_DIR/config.yaml"
+CONFIG_EXAMPLE="$INSTALL_DIR/config.example.yaml"
 CONFIG_BACKUP=""
 PREV_HEAD=""  # commit to roll back to if migrations fail
 if [ -d "$INSTALL_DIR/.git" ]; then
@@ -49,7 +51,10 @@ if [ -d "$INSTALL_DIR/.git" ]; then
     if [ -f "$CONFIG_FILE" ]; then
         CONFIG_BACKUP="$INSTALL_DIR/config.yaml.bak-$(date +%Y%m%d-%H%M%S)"
         cp -p "$CONFIG_FILE" "$CONFIG_BACKUP"
-        git -C "$INSTALL_DIR" checkout -- config.yaml  # let pull fast-forward
+        # Older installs track config.yaml — reset it so the pull can fast-forward
+        if git -C "$INSTALL_DIR" ls-files --error-unmatch config.yaml &>/dev/null; then
+            git -C "$INSTALL_DIR" checkout -- config.yaml
+        fi
         echo "Backed up settings to $CONFIG_BACKUP"
         # keep the newest 10 settings backups
         ls -1 "$INSTALL_DIR"/config.yaml.bak-* | head -n -10 | xargs -r rm -f --
@@ -78,11 +83,13 @@ echo "Dependencies installed."
 # ── Restore settings ──────────────────────────────────────────────────────────
 # New config.yaml supplies defaults for any new keys; every old value wins.
 if [ -n "$CONFIG_BACKUP" ]; then
-    "$VENV/bin/python" - "$CONFIG_FILE" "$CONFIG_BACKUP" <<'PY'
+    base="$CONFIG_EXAMPLE"
+    [ -f "$base" ] || base="$CONFIG_FILE"  # fallback: code without an example file
+    "$VENV/bin/python" - "$base" "$CONFIG_BACKUP" "$CONFIG_FILE" <<'PY'
 import sys
 import yaml
 
-new_path, old_path = sys.argv[1], sys.argv[2]
+base_path, old_path, out_path = sys.argv[1], sys.argv[2], sys.argv[3]
 
 def merge(new, old):
     if isinstance(new, dict) and isinstance(old, dict):
@@ -92,16 +99,19 @@ def merge(new, old):
         return out
     return old
 
-with open(new_path) as f:
+with open(base_path) as f:
     new = yaml.safe_load(f) or {}
 with open(old_path) as f:
     old = yaml.safe_load(f) or {}
-with open(new_path, "w") as f:
+with open(out_path, "w") as f:
     yaml.dump(merge(new, old), f, default_flow_style=False, allow_unicode=True)
 PY
-    chown "$SERVICE_USER:$SERVICE_USER" "$CONFIG_FILE"
     echo "Restored previous settings into $CONFIG_FILE"
+elif [ ! -f "$CONFIG_FILE" ]; then
+    cp "$CONFIG_EXAMPLE" "$CONFIG_FILE"
+    echo "Created $CONFIG_FILE from config.example.yaml — review SSH key path, username and subnet"
 fi
+chown "$SERVICE_USER:$SERVICE_USER" "$CONFIG_FILE"
 
 # ── .env file ─────────────────────────────────────────────────────────────────
 ENV_FILE="$INSTALL_DIR/.env"

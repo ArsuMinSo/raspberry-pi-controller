@@ -221,3 +221,4 @@ __marimo__/
 id_*
 .env
 config.yaml.bak-*
+config.yaml

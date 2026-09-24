@@ -7,6 +7,10 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
 os.environ.setdefault("DB_PASSWORD", "test")
+os.environ.setdefault(  # tests never depend on (or write) a local config.yaml
+    "PI_CONTROLLER_CONFIG",
+    str(pathlib.Path(__file__).parent.parent / "config.example.yaml"),
+)
 os.environ["PI_CONTROLLER_DISABLE_SCHEDULER"] = "1"  # don't touch the real DB on app startup
 
 from backend.database import Base, get_db

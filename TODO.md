@@ -25,7 +25,7 @@
 - [x] `.env` is `source`d by bash (now written single-quoted, `'` rejected; backend URL escapes password) and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
 - [x] venv path mismatch: `deploy.sh` uses `.venv`, `systemd/pi-controller.service` uses `venv`
 - [x] git as root on `/opt/pi-controller` owned by `pi_controller` → "dubious ownership"; add `safe.directory` or run git as service user
-- [ ] Consider untracking `config.yaml` (ship `config.example.yaml`) — tracked copy currently contains dev-machine values (key path, username)
+- [x] Untrack `config.yaml` (ship `config.example.yaml`) — tracked copy currently contains dev-machine values (key path, username)
 - [x] Password prompts ask 3 times, all must match (apply to every future password set/verify — web users too)
 - [x] setup_db.sh: migrations failed with "Peer authentication failed" (socket as root) — now TCP + password
 

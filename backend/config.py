@@ -7,6 +7,9 @@ import yaml
 
 _ENV_RE = re.compile(r"\$\{([^}]+)\}")
 
+# config.yaml is not tracked in git — created from config.example.yaml on install.
+CONFIG_PATH = os.environ.get("PI_CONTROLLER_CONFIG", "config.yaml")
+
 
 def _interpolate(value):
     if isinstance(value, str):
@@ -70,9 +73,14 @@ class Settings:
     server: ServerSettings
 
 
-def _load(path: str = "config.yaml") -> Settings:
-    with open(path) as f:
-        raw = yaml.safe_load(f)
+def _load(path: str = CONFIG_PATH) -> Settings:
+    try:
+        with open(path) as f:
+            raw = yaml.safe_load(f)
+    except FileNotFoundError:
+        raise RuntimeError(
+            f"{path} not found — create it with: cp config.example.yaml config.yaml"
+        ) from None
     raw = _interpolate(raw)
 
     db = raw["database"]
@@ -116,7 +124,7 @@ def _load(path: str = "config.yaml") -> Settings:
 
 
 @functools.lru_cache(maxsize=1)
-def get_settings(path: str = "config.yaml") -> Settings:
+def get_settings(path: str = CONFIG_PATH) -> Settings:
     return _load(path)
 
 
@@ -159,7 +167,7 @@ def effective_ssh_settings() -> SSHSettings:
     return dataclasses.replace(base, **_ssh_overrides)
 
 
-def persist_ssh_settings(path: str = "config.yaml") -> None:
+def persist_ssh_settings(path: str = CONFIG_PATH) -> None:
     """Write _ssh_overrides into config.yaml, then clear cache + overrides."""
     if not _ssh_overrides:
         return
@@ -206,7 +214,7 @@ def effective_network_settings() -> NetworkSettings:
     return dataclasses.replace(base, **_network_overrides)
 
 
-def persist_network_settings(path: str = "config.yaml") -> None:
+def persist_network_settings(path: str = CONFIG_PATH) -> None:
     """Write _network_overrides into config.yaml, then clear cache + overrides."""
     if not _network_overrides:
         return

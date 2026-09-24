@@ -159,6 +159,8 @@
 
 ## Config Schema (YAML)
 
+`config.yaml` is gitignored; template is `config.example.yaml` (path override: `PI_CONTROLLER_CONFIG`).
+
 ```yaml
 # config.yaml
 
