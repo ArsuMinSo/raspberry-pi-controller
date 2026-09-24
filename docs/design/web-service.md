@@ -13,7 +13,7 @@ permissions. The TUI stays as a local backup tool on the server.
 | Roles | `viewer` / `operator` / `admin` |
 | Clients | **Web page** — the main way in, for everyone. **TUI** — local-only backup on the server itself (break-glass). **Android app** — out of scope for now |
 | Web stack | TypeScript — **Ionic 9 + Angular 22 (standalone)**, same stack as `UTB/05_3WS/PM/02_projekt/counter-app`. Capacitor added later if/when the Android app is planned |
-| Network | **LAN only** (no Tailscale), **plain HTTP** for now at `http://tv.omnika.com:8000/` (`:8080` on that host is another service). No nginx — uvicorn serves web + API |
+| Network | **LAN only** (no Tailscale), **plain HTTP** for now. **nginx** in front (web page + API proxy); address `http://tv.omnika.com/` or `:8000` — see open question 2 (`:8080` on that host is another service) |
 | Passwords | Setting / changing / resetting a password asks **2 times** (entry + confirmation). **Login asks once** |
 | Arbitrary commands | **Admin (web) and TUI only**, with or without `sudo` |
 | Session length | **12 h maximum** from login, no separate idle timeout (log in once per working day) |
@@ -31,26 +31,31 @@ permissions. The TUI stays as a local backup tool on the server.
 ## Architecture
 
 ```
-                                 ┌──────────────── Ubuntu server (tv.omnika.com) ────────────────┐
- Browser (LAN) ── HTTP :8000 ──► │ uvicorn 0.0.0.0:8000 (1 worker)                                │
-                                 │   /api/v1/*  → FastAPI routes (login required)                 │
-                                 │   /*         → web-current/ (static Ionic build, SPA fallback) │
-                                 │        ▲                                                       │
-                                 │ TUI (sudo, on the server) → 127.0.0.1:8000 + break-glass key   │
-                                 └────────────────────────────────────────────────────────────────┘
+                               ┌─────────────────── Ubuntu server (tv.omnika.com) ───────────────────┐
+ Browser (LAN) ── HTTP ──────► │ nginx (port 80 or 8000, see open question 2)                         │
+                               │   /          → /opt/pi-controller/web-current/ (static Ionic build)  │
+                               │   /api/v1/*  → uvicorn 127.0.0.1:8001 (1 worker, login required)     │
+                               │                   ▲                                                  │
+                               │ TUI (sudo, on the server) ── direct, + break-glass key               │
+                               └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **One process, one port:** uvicorn serves the API under `/api/v1` and the built web page from
-  `/opt/pi-controller/web-current/` (FastAPI `StaticFiles`; unknown paths fall back to `index.html` for the
-  web app's own routes). No nginx, nothing extra to install on the server.
+- **nginx** is the only entry point from the network. It serves the built web page (fast, from disk) and forwards
+  `/api/` to uvicorn. Unknown paths fall back to `index.html`, so the web app's own routes work on reload.
+- **uvicorn binds to `127.0.0.1` only** — the API can't be reached from the LAN except through nginx.
+  (Port `8001` if nginx takes `8000`; stays `8000` if nginx uses port 80.)
+- **nginx also:** rate-limits `POST /api/v1/auth/login`, caps request body size, adds security headers
+  (CSP, `X-Frame-Options`, …), keeps an access log, and **removes the TUI break-glass header** from every
+  request it forwards.
+- **Installed and configured by `deploy.sh`:** `apt install nginx`, writes `/etc/nginx/sites-available/pi-controller`
+  (from a template in the repo), `nginx -t` to validate, reload. Nothing to configure by hand.
 - **API moves under `/api/v1`** so it can't collide with web-page routes (e.g. `/logs`). The TUI is updated in the
   same release, so old root paths are simply removed — no aliases.
-- **Name:** people open `http://tv.omnika.com:8000/`. `tv.omnika.com` must resolve to this server on the LAN
-  (DNS entry or `hosts` line) — see open question 1. Port `8080` on that host belongs to another service.
+- **Name:** `tv.omnika.com` must resolve to this server on the LAN (DNS entry or `hosts` line) — open question 1.
 - **Plain HTTP (for now):** passwords and session tokens cross the LAN unencrypted — anyone who can capture LAN
   traffic could read them. Acceptable on the isolated LAN to start; sessions end after 12 h, which limits damage.
-  **Later:** `omnika.com` is a real domain, so a free Let's Encrypt certificate for `tv.omnika.com` (DNS-01
-  challenge) would give HTTPS that every browser trusts, without installing anything on devices.
+  **Later:** nginx makes HTTPS a config change — `omnika.com` is a real domain, so a free Let's Encrypt
+  certificate for `tv.omnika.com` (DNS-01 challenge) gives HTTPS every browser trusts, with no device setup.
 
 ## Authentication
 
@@ -74,9 +79,10 @@ or someone is locked out.
 
 - No username/password. `deploy.sh` generates a random **break-glass key** in `/opt/pi-controller/.tui-key`
   (owner `pi_controller`, mode 600). The TUI reads it, so it is run with `sudo` on the server.
-- The TUI talks to `127.0.0.1:8000` and sends the key in a separate header. The backend accepts that header
-  **only on connections from 127.0.0.1** (there is no proxy in front, so the client address is trustworthy),
-  and grants `admin`.
+- The TUI talks to uvicorn directly on `127.0.0.1` (not through nginx) and sends the key in a separate header
+  (`X-PiC-Local-Key`). Two locks: nginx **strips that header** from everything it forwards, and the backend
+  accepts it only on connections from `127.0.0.1` that carry no `X-Forwarded-For` (which nginx always sets).
+  Grants `admin`.
 - Every TUI action is logged as `local-tui (<unix user>)` — the TUI sends the `sudo` caller (`$SUDO_USER`).
 - Works even if the users/sessions tables are empty or broken; can't be used from the network.
 - Rotating the key: re-run `deploy.sh` (or `backend.manage rotate-tui-key`).
@@ -160,7 +166,7 @@ Screens mirror the TUI:
    than the backend it talks to.
 2. Downloads with `curl` (public repo, no token), verifies the checksum, unpacks to
    `/opt/pi-controller/web-releases/<tag>/`.
-3. Switches the `web-current` symlink atomically (the backend never serves half-copied files); keeps the last 3 for rollback.
+3. Switches the `web-current` symlink atomically (nginx never serves half-copied files); keeps the last 3 for rollback.
 4. If GitHub is unreachable, keeps the current web page and finishes the deploy.
 
 If the repo is ever made private, the server needs a read-only GitHub token for step 2.
@@ -179,13 +185,13 @@ If the repo is ever made private, the server needs a read-only GitHub token for 
 
 | Phase | Scope | Outcome |
 |-------|-------|---------|
-| 0 · Server (optional, separate) | Ubuntu 25.04 → 26.04 LTS — done together: commands pasted into the server pane, DB backup first | Server gets security updates again |
+| 0 · Server | `deploy.sh` installs + configures nginx; uvicorn moves to 127.0.0.1. Separately, optional: Ubuntu 25.04 → 26.04 LTS, done together (commands pasted into the server pane, DB backup first) | Single entry point; API no longer open on the LAN |
 | 1 · Backend auth | migration 003, users/sessions/roles, `/api/v1`, audit events, `backend.manage`, TUI break-glass key | Every action attributed to a person; permissions enforced |
 | 2 · Background jobs | job executor, `action_results`, polling endpoint, TUI on new mechanism | Web-ready progress |
-| 3 · Web page MVP | `web/` Ionic app: login, inventory, Pi detail, health, logs, account; backend serves it; `release_web.sh` + deploy download | Read-only + health at `http://tv.omnika.com:8000/` |
+| 3 · Web page MVP | `web/` Ionic app: login, inventory, Pi detail, health, logs, account; nginx serves it; `release_web.sh` + deploy download | Read-only + health in the browser |
 | 4 · Web page full | actions, discovery, tasks, settings, users | Everything the TUI can do |
 | 5 · Showroom & docs | demo mode with fake Pis (fake SSH executor), screenshots, user/admin guides | Presentable project |
-| later · HTTPS | Let's Encrypt certificate for `tv.omnika.com` (DNS-01) | Encrypted logins, no device setup |
+| later · HTTPS | Let's Encrypt certificate for `tv.omnika.com` (DNS-01) in nginx | Encrypted logins, no device setup |
 | later · Android | Capacitor app — **to be planned together** when needed | App on phones |
 
 Each phase ships on its own; tests (pytest for backend, vitest for web) grow with it.
@@ -195,3 +201,6 @@ Each phase ships on its own; tests (pytest for backend, vitest for web) grow wit
 1. **`tv.omnika.com` → this server:** does the name already resolve to the controller on the LAN (internal DNS),
    or does it still need a DNS record? Check from a LAN machine: `getent hosts tv.omnika.com` should print the
    controller's LAN IP.
+2. **Port:** nginx on **port 80** → people type `http://tv.omnika.com/` (recommended, if 80 is free on that machine),
+   or on **8000** → `http://tv.omnika.com:8000/` (uvicorn then moves to 8001). Check what's listening:
+   `sudo ss -ltnp`.
