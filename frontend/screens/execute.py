@@ -305,13 +305,13 @@ class ExecuteScreen(Screen):
         filled = int(30 * pct)
         bar = "█" * filled + "░" * (30 - filled)
         self.query_one("#results-label", Label).update(
-            f"[yellow][{bar}] {done}/{total}  ✓ {last}[/yellow]"
+            f"[yellow]\\[{bar}] {done}/{total}  ✓ {last}[/yellow]"
         )
 
     def _on_exec_done(self, ok: int, total: int) -> None:
         color = "green" if ok == total else ("red" if ok == 0 else "yellow")
         self.query_one("#results-label", Label).update(
-            f"[{color}][{'█' * 30}] {ok}/{total} OK[/{color}]  (Enter on row for full output)"
+            f"[{color}]\\[{'█' * 30}] {ok}/{total} OK[/{color}]  (Enter on row for full output)"
         )
         ta = self.query_one("#cmd-input", TextArea)
         ta.read_only = False

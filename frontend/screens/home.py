@@ -325,7 +325,7 @@ class HomeScreen(Screen):
         filled = int(30 * pct)
         bar = "█" * filled + "░" * (30 - filled)
         self._set_health_status(
-            f"[yellow][{bar}] {done}/{total}  ✓ {last}[/yellow]"
+            f"[yellow]\\[{bar}] {done}/{total}  ✓ {last}[/yellow]"
         )
 
     def _merge_and_redraw(self) -> None:
@@ -335,7 +335,7 @@ class HomeScreen(Screen):
     def _on_health_done(self, ok: int, total: int) -> None:
         color = "green" if ok == total else ("red" if ok == 0 else "yellow")
         self._set_health_status(
-            f"[{color}][{'█' * 30}] {ok}/{total} OK[/{color}]"
+            f"[{color}]\\[{'█' * 30}] {ok}/{total} OK[/{color}]"
             "  [dim]CPU: load avg % (1/5/15 min)[/dim]"
         )
 
