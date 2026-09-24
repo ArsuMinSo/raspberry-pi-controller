@@ -91,7 +91,8 @@ def mark_interrupted(db: Session) -> int:
 
 
 def get_action(db: Session, action_id: int) -> ActionLog | None:
-    return db.get(ActionLog, action_id)
+    # Always re-read: a background job (own session) may have changed the row since this session loaded it
+    return db.get(ActionLog, action_id, populate_existing=True)
 
 
 def query_actions(
