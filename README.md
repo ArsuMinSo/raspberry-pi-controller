@@ -142,7 +142,7 @@ sudo /opt/pi-controller/scripts/manage.sh reset-password <name>
 
 Design: [`docs/design/web-service.md`](docs/design/web-service.md).
 
-**Try it in the browser:** open `http://<server>:8000/api/v1/docs` → `POST /auth/login` → *Try it out* → copy the
+**Try it in the browser:** open `http://<server>/api/v1/docs` → `POST /auth/login` → *Try it out* → copy the
 `token` from the response → **Authorize** (top right) → paste the token → every endpoint now runs as you.
 Log out with `POST /auth/logout` when done.
 
@@ -173,6 +173,12 @@ Installs to `/opt/pi-controller` as a systemd service; re-run it to update. **Se
 
 - `.env` (`DB_PASSWORD`) is gitignored and never overwritten — it's only created on first install. The password is asked **3 times** and all entries must match; it may not contain a single quote (`'`).
 - `config.yaml` (edited by the Settings screen) is gitignored too. It is backed up to `config.yaml.bak-<timestamp>` (newest 10 kept) before `git pull`, then rebuilt from `config.example.yaml` + the backup: your existing values win, and any new options added by the update get their defaults. On first install it is copied from `config.example.yaml` — review the SSH key path, username and subnet.
+
+**nginx:** `deploy.sh` installs nginx and serves everything on **port 80**: the web page at `/` (from
+`/opt/pi-controller/web-current`, a placeholder until the first web release) and the API at `/api/` (proxied to
+uvicorn, which listens on `127.0.0.1:8000` only). nginx rate-limits logins per IP, adds security headers, overwrites
+`X-Forwarded-For` (so the backend sees the real client IP) and strips the TUI key header. Config:
+`deploy/nginx/`. If `nginx -t` fails, the site is disabled and uvicorn stays reachable on `0.0.0.0:8000`.
 
 **Database updates:** only new migrations run, after a `pg_dump` backup to `/var/backups/pi-controller/` (newest 10 kept). If one fails, it is rolled back, the code in `/opt/pi-controller` is reset to the previous version, and the service is not restarted — it keeps running the old version on the unchanged database.
 

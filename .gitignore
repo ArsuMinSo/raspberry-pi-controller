@@ -222,3 +222,5 @@ id_*
 .env
 config.yaml.bak-*
 config.yaml
+web-releases/
+web-current

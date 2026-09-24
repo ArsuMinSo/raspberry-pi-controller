@@ -7,9 +7,10 @@ Type=simple
 User=pi_controller
 WorkingDirectory=/opt/pi-controller
 EnvironmentFile=/opt/pi-controller/.env
-# Must stay 1 worker — scheduler + runtime settings are per-process
+# Must stay 1 worker — scheduler + runtime settings are per-process.
+# Listens on 127.0.0.1 only; nginx (port 80) is the way in from the LAN.
 ExecStart=/opt/pi-controller/.venv/bin/uvicorn backend.main:app \
-    --host 0.0.0.0 --port 8000 --workers 1
+    --host 127.0.0.1 --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=5
 

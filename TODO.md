@@ -54,7 +54,7 @@
   - [x] **Permissions** — viewer / operator / admin on every endpoint (phase 1): who can view, run commands, kill/restart,
         edit inventory, change settings, manage users
   - [x] User management — API `/api/v1/users` + `scripts/manage.sh` (web UI in phase 4)
-  - [ ] Phase 0: nginx in front (installed by deploy.sh), uvicorn on 127.0.0.1
+  - [x] Phase 0: nginx in front (installed by deploy.sh), uvicorn on 127.0.0.1
   - [ ] Enforce `must_change_password` (web page forces a change on first login)
   - [x] Decide UI stack → Ionic/Angular app in `web/`, served by nginx (API proxied to uvicorn on 127.0.0.1); released via GitHub releases
   - [ ] Live progress for health/command runs (polling vs WebSocket/SSE)

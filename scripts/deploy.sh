@@ -175,6 +175,42 @@ manage ensure-tui-key   # break-glass key for the local TUI (/opt/pi-controller/
 echo "Web users:"
 manage list-users | sed 's/^/  /'
 
+# ── Web root + nginx ──────────────────────────────────────────────────────────
+# nginx serves web-current/ (a web release, or a placeholder until the first one)
+# and proxies /api/ to uvicorn, which then listens on 127.0.0.1 only.
+WEB_CURRENT="$INSTALL_DIR/web-current"
+WEB_RELEASES="$INSTALL_DIR/web-releases"
+if [ ! -e "$WEB_CURRENT" ]; then
+    mkdir -p "$WEB_RELEASES/placeholder"
+    cp "$INSTALL_DIR/deploy/web-placeholder/index.html" "$WEB_RELEASES/placeholder/"
+    ln -sfn "$WEB_RELEASES/placeholder" "$WEB_CURRENT"
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$WEB_RELEASES"
+    chown -h "$SERVICE_USER:$SERVICE_USER" "$WEB_CURRENT"
+fi
+
+UVICORN_HOST="0.0.0.0"  # fallback if nginx can't be set up
+if ! command -v nginx &>/dev/null; then
+    echo "Installing nginx …"
+    apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq nginx
+fi
+if command -v nginx &>/dev/null; then
+    install -m 644 "$INSTALL_DIR/deploy/nginx/pi-controller-proxy.conf" /etc/nginx/snippets/pi-controller-proxy.conf
+    install -m 644 "$INSTALL_DIR/deploy/nginx/pi-controller.conf" /etc/nginx/sites-available/pi-controller
+    ln -sfn /etc/nginx/sites-available/pi-controller /etc/nginx/sites-enabled/pi-controller
+    rm -f /etc/nginx/sites-enabled/default  # its "Welcome to nginx" page also claims port 80
+    if nginx -t 2>&1; then
+        systemctl enable --quiet nginx
+        systemctl reload nginx 2>/dev/null || systemctl restart nginx
+        UVICORN_HOST="127.0.0.1"
+        echo "nginx serving the web page on port 80."
+    else
+        rm -f /etc/nginx/sites-enabled/pi-controller
+        echo "!!! nginx config test failed — site disabled; API stays on 0.0.0.0:8000 directly."
+    fi
+else
+    echo "!!! nginx not available — API stays on 0.0.0.0:8000 directly."
+fi
+
 # Single worker: scheduler and runtime settings live in-process — more workers
 # would run every scheduled task N times and split settings between processes.
 # ── systemd service ───────────────────────────────────────────────────────────
@@ -188,7 +224,7 @@ Type=simple
 User=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}
 EnvironmentFile=${ENV_FILE}
-ExecStart=${VENV}/bin/uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
+ExecStart=${VENV}/bin/uvicorn backend.main:app --host ${UVICORN_HOST} --port 8000 --workers 1 --proxy-headers --forwarded-allow-ips 127.0.0.1
 Restart=on-failure
 RestartSec=5
 
@@ -204,5 +240,7 @@ echo ""
 echo "=== Done ==="
 systemctl status pi-controller --no-pager
 echo ""
+LAN_IP="$(hostname -I | awk '{print $1}')"
+echo "Web page:   http://$LAN_IP/   (API docs: http://$LAN_IP/api/v1/docs)"
 echo "Users:      sudo $INSTALL_DIR/scripts/manage.sh create-user <name> --role admin   (password asked twice)"
 echo "Local TUI:  sudo $INSTALL_DIR/scripts/tui.sh"
