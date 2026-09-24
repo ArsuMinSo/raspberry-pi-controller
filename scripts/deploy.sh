@@ -30,9 +30,24 @@ if ! id "$SERVICE_USER" &>/dev/null; then
 fi
 
 # ── Code ──────────────────────────────────────────────────────────────────────
+# Settings survive updates: .env is gitignored (never touched), and config.yaml
+# (tracked, but rewritten by the Settings screen) is backed up here and merged
+# back over the new defaults after the pull.
+CONFIG_FILE="$INSTALL_DIR/config.yaml"
+CONFIG_BACKUP=""
 if [ -d "$INSTALL_DIR/.git" ]; then
     echo "Updating existing install at $INSTALL_DIR …"
-    git -C "$INSTALL_DIR" pull --ff-only
+    if [ -f "$CONFIG_FILE" ]; then
+        CONFIG_BACKUP="$INSTALL_DIR/config.yaml.bak-$(date +%Y%m%d-%H%M%S)"
+        cp -p "$CONFIG_FILE" "$CONFIG_BACKUP"
+        git -C "$INSTALL_DIR" checkout -- config.yaml  # let pull fast-forward
+        echo "Backed up settings to $CONFIG_BACKUP"
+    fi
+    if ! git -C "$INSTALL_DIR" pull --ff-only; then
+        [ -n "$CONFIG_BACKUP" ] && cp -p "$CONFIG_BACKUP" "$CONFIG_FILE"
+        echo "git pull failed — settings left unchanged"
+        exit 1
+    fi
 else
     echo "Cloning to $INSTALL_DIR …"
     git clone "$REPO_URL" "$INSTALL_DIR"
@@ -48,6 +63,34 @@ fi
 "$VENV/bin/pip" install --quiet --upgrade pip
 "$VENV/bin/pip" install --quiet -r "$INSTALL_DIR/requirements.txt"
 echo "Dependencies installed."
+
+# ── Restore settings ──────────────────────────────────────────────────────────
+# New config.yaml supplies defaults for any new keys; every old value wins.
+if [ -n "$CONFIG_BACKUP" ]; then
+    "$VENV/bin/python" - "$CONFIG_FILE" "$CONFIG_BACKUP" <<'PY'
+import sys
+import yaml
+
+new_path, old_path = sys.argv[1], sys.argv[2]
+
+def merge(new, old):
+    if isinstance(new, dict) and isinstance(old, dict):
+        out = dict(new)
+        for k, v in old.items():
+            out[k] = merge(new[k], v) if k in new else v
+        return out
+    return old
+
+with open(new_path) as f:
+    new = yaml.safe_load(f) or {}
+with open(old_path) as f:
+    old = yaml.safe_load(f) or {}
+with open(new_path, "w") as f:
+    yaml.dump(merge(new, old), f, default_flow_style=False, allow_unicode=True)
+PY
+    chown "$SERVICE_USER:$SERVICE_USER" "$CONFIG_FILE"
+    echo "Restored previous settings into $CONFIG_FILE"
+fi
 
 # ── .env file ─────────────────────────────────────────────────────────────────
 ENV_FILE="$INSTALL_DIR/.env"

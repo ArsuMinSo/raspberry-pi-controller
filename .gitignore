@@ -220,3 +220,4 @@ __marimo__/
 # ids
 id_*
 .env
+config.yaml.bak-*

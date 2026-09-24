@@ -14,8 +14,18 @@
 - [ ] Normalise positions (`"7"` vs `"007"` vs `"00-007"`) — decide rule
 - [x] Home grid: numeric-aware sort for positions (`"9"` before `"10"`)
 - [x] Docs: CLAUDE.md, README
-- [ ] Docs: wiki (Database Schema, API Reference, TUI Guide, Installation, Development)
+- [x] Docs: wiki (Database Schema, API Reference, TUI Guide, Installation, Development)
 - [ ] Apply `002_mac_pk.sql` to the live DB and run DB/API tests against `pi_controller_test`
+
+## Deploy (`scripts/deploy.sh`)
+
+- [ ] `curl … | sudo bash` first install: `read` for DB_PASSWORD consumes the script from stdin — use `read … < /dev/tty`
+- [ ] Deploy runs every migration via `setup_db.sh` — guard before `git pull` (or add a `schema_migrations`
+      table) so a failing migration doesn't leave new code pulled next to an old schema; prompt to back up DB first
+- [ ] `.env` is `source`d by bash and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
+- [ ] venv path mismatch: `deploy.sh` uses `.venv`, `systemd/pi-controller.service` uses `venv`
+- [ ] git as root on `/opt/pi-controller` owned by `pi_controller` → "dubious ownership"; add `safe.directory` or run git as service user
+- [ ] Consider untracking `config.yaml` (ship `config.example.yaml`) — tracked copy currently contains dev-machine values (key path, username)
 
 ## Future
 

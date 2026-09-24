@@ -129,6 +129,17 @@ python -m frontend.main
 
 Press `q` to quit. Ctrl+C is intentionally ignored to prevent accidental exit.
 
+### Server deploy / update
+
+```bash
+sudo bash scripts/deploy.sh
+```
+
+Installs to `/opt/pi-controller` as a systemd service; re-run it to update. **Settings persist across updates:**
+
+- `.env` (`DB_PASSWORD`) is gitignored and never overwritten — it's only created on first install.
+- `config.yaml` (edited by the Settings screen) is backed up to `config.yaml.bak-<timestamp>` before `git pull`, then merged back: your existing values win, and any new options added by the update get their defaults.
+
 ---
 
 ## TUI Tutorial
@@ -270,7 +281,7 @@ Append-only audit log of every action — commands, health checks, discoveries, 
 
 ### Settings
 
-Live-edit SSH and network config without restarting the backend. Changes are saved to `config.yaml` and take effect immediately.
+Live-edit SSH and network config without restarting the backend. Changes are saved to `config.yaml` and take effect immediately. They are kept when the server is updated with `deploy.sh`.
 
 **Open:** Press `s` from Home.
 
