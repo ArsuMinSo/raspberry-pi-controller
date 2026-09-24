@@ -16,8 +16,11 @@ PYTHON="python3"
 echo "=== Pi Controller Deploy ==="
 
 # Runs as root on a repo owned by $SERVICE_USER — tell git that's fine
-# (otherwise: "detected dubious ownership")
-git() { command git -c safe.directory="$INSTALL_DIR" "$@"; }
+# (otherwise: "detected dubious ownership"). Root's global config, because
+# older git (e.g. Ubuntu 22.04) ignores safe.directory passed via -c.
+if ! git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$INSTALL_DIR"; then
+    git config --global --add safe.directory "$INSTALL_DIR"
+fi
 
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 for cmd in git python3 pip3 psql; do
