@@ -67,12 +67,10 @@ class ServerSettings:
 
 @dataclass
 class PiCommands:
-    """Shell commands run on the Pis for fleet actions. Optional `pi_commands:` section in config.yaml;
-    display control differs by Pi OS (legacy firmware vs KMS/Wayland), so it is configurable."""
+    """Shell commands run on the Pis for fleet actions. Optional `pi_commands:` section in config.yaml."""
     reboot: str = "sudo -n systemd-run --on-active=3 systemctl reboot"  # returns before the Pi goes down
-    display_on: str = "vcgencmd display_power 1"
-    display_off: str = "vcgencmd display_power 0"
-    throttled: str = "vcgencmd get_throttled"
+    # sysfs needs no `video` group (vcgencmd does); prints bare hex, vcgencmd prints throttled=0x…
+    throttled: str = "cat /sys/devices/platform/soc/soc:firmware/get_throttled 2>/dev/null || vcgencmd get_throttled"
     disk: str = "df -P /"
 
 

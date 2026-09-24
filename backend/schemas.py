@@ -380,14 +380,10 @@ class ActionProgress(BaseModel):
     duration_ms: int | None
 
 
-# ─── Fleet actions (reboot / display / diagnostics) + summary ─────────────────
+# ─── Fleet actions (reboot / diagnostics) + summary ─────────────────
 
 class PiSelection(BaseModel):
     pis: list[str] = Field(..., min_length=1)
-
-
-class DisplayPowerRequest(PiSelection):
-    state: Literal["on", "off"]
 
 
 class FleetPiValue(BaseModel):

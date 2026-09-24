@@ -1,4 +1,4 @@
-"""Parse Pi diagnostics output (no I/O): `vcgencmd get_throttled` flags and `df -P /` usage."""
+"""Parse Pi command output (no I/O): throttling flags, `df -P /` usage, reboot/sudo errors."""
 import re
 
 SEPARATOR = "__PIC_DIAG_SEP__"
@@ -15,7 +15,9 @@ _THROTTLED_BITS = {
     "soft_temp_limit_ever": 19,
 }
 
-_THROTTLED_RE = re.compile(r"throttled=(0x[0-9a-fA-F]+)")
+# vcgencmd: "throttled=0x50005"; sysfs /sys/devices/platform/soc/soc:firmware/get_throttled: bare hex "50005"
+_THROTTLED_RE = re.compile(r"throttled=0x([0-9a-fA-F]+)")
+_BARE_HEX_RE = re.compile(r"^\s*([0-9a-fA-F]{1,8})\s*$")
 
 
 def build_command(throttled_cmd: str, disk_cmd: str) -> str:
@@ -24,13 +26,19 @@ def build_command(throttled_cmd: str, disk_cmd: str) -> str:
 
 
 def parse_throttled(text: str) -> dict:
-    """`throttled=0x50005` → {"raw": "0x50005", "ok": False, "under_voltage_now": True, …}. ValueError if absent."""
-    m = _THROTTLED_RE.search(text or "")
+    """`throttled=0x50005` (vcgencmd) or `50005` (sysfs) → {"raw": "0x50005", "ok": False, …}.
+
+    ValueError if neither format is present.
+    """
+    text = text or ""
+    m = _THROTTLED_RE.search(text) or _BARE_HEX_RE.match(text)
     if not m:
-        raise ValueError(f"unexpected get_throttled output: {(text or '').strip()[:80]!r}")
+        raise ValueError(
+            f"can't read throttling state (got {text.strip()[:80]!r}) — the Pi user may need the `video` group"
+        )
     value = int(m.group(1), 16)
     flags = {name: bool(value >> bit & 1) for name, bit in _THROTTLED_BITS.items()}
-    return {"raw": m.group(1).lower(), "ok": value == 0, **flags}
+    return {"raw": hex(value), "ok": value == 0, **flags}
 
 
 def parse_df(text: str) -> dict:
@@ -64,3 +72,13 @@ def parse_output(stdout: str) -> tuple[dict, str | None]:
     except ValueError as e:
         errors.append(f"disk: {e}")
     return details, ("; ".join(errors) or None)
+
+
+SUDO_PASSWORD_ERROR = "reboot needs passwordless sudo for this command on the Pi (see docs)"
+
+
+def reboot_error(stderr: str | None) -> str | None:
+    """Clear per-Pi error when `sudo -n` refused because a password would be needed."""
+    if stderr and "a password is required" in stderr:
+        return SUDO_PASSWORD_ERROR
+    return None

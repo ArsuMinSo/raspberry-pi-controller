@@ -1,4 +1,4 @@
-"""SSH command actions (execute / kill / restart / reboot / display / diagnostics) as background jobs."""
+"""SSH command actions (execute / kill / restart / reboot / diagnostics) as background jobs."""
 import json
 import time
 from functools import partial
@@ -29,11 +29,12 @@ def ssh_job(
     ssh_username: str | None = None,
     ssh_password: str | None = None,
     parse: Callable[[str], tuple[dict | None, str | None]] | None = None,
+    explain: Callable[[str | None], str | None] | None = None,
 ) -> None:
     """Run `command` on the action's Pis; one action_results row per Pi as it finishes.
 
     `parse(stdout) → (details, error)` turns a Pi's output into structured `details`; a parse error
-    counts as that Pi failing.
+    counts as that Pi failing. `explain(stderr) → error | None` replaces a raw failure with a clear message.
     """
     start = time.monotonic()
     pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
@@ -54,6 +55,8 @@ def ssh_job(
         details = None
         if parse is not None and r.error is None:
             details, parse_errors[r.position] = parse(r.stdout)
+        if explain is not None and r.error is None and r.exit_code not in (0, None):
+            parse_errors[r.position] = explain(r.stderr) or parse_errors.get(r.position)
         al.add_result(db, entry.id, r.position, exit_code=r.exit_code, stdout=r.stdout, stderr=r.stderr,
                       error=r.error or parse_errors.get(r.position), details=details,
                       duration_ms=r.duration_ms)
@@ -83,10 +86,12 @@ def start_ssh_action(
     ssh_password: str | None = None,
     wait: bool = False,
     parse: Callable[[str], tuple[dict | None, str | None]] | None = None,
+    explain: Callable[[str | None], str | None] | None = None,
 ) -> int:
     """Create the queued action and run it — in the background, or right here if `wait` (scheduler)."""
     entry = al.create_action(db, positions, action, command=command, status="queued", actor=actor)
-    work = partial(ssh_job, command=command, ssh_username=ssh_username, ssh_password=ssh_password, parse=parse)
+    work = partial(ssh_job, command=command, ssh_username=ssh_username, ssh_password=ssh_password,
+                   parse=parse, explain=explain)
     if wait:
         jobs.run_action(entry.id, work)
     else:

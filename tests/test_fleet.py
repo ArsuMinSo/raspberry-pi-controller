@@ -1,4 +1,4 @@
-"""Fleet actions (reboot / display / diagnostics) + fleet summary (needs the PostgreSQL test DB)."""
+"""Fleet actions (reboot / diagnostics) + fleet summary (needs the PostgreSQL test DB)."""
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -17,8 +17,8 @@ DF_OK = """Filesystem     1024-blocks    Used Available Capacity Mounted on
 """
 
 
-def _ssh(position: str, stdout: str = "", exit_code: int = 0) -> SSHResult:
-    return SSHResult(position=position, exit_code=exit_code, stdout=stdout, stderr="", error=None,
+def _ssh(position: str, stdout: str = "", exit_code: int = 0, stderr: str = "") -> SSHResult:
+    return SSHResult(position=position, exit_code=exit_code, stdout=stdout, stderr=stderr, error=None,
                      duration_ms=5, retry_count=0)
 
 
@@ -39,7 +39,7 @@ def _progress(client, res):
     return client.get(f"{API}/actions/{res.json()['action_id']}").json()
 
 
-# ─── Reboot / display ─────────────────────────────────────────────────────────
+# ─── Reboot ───────────────────────────────────────────────────────────────────
 
 def test_reboot_uses_configured_command(client, sample_pi):
     calls: list = []
@@ -50,17 +50,12 @@ def test_reboot_uses_configured_command(client, sample_pi):
     assert (progress["done"], progress["total"]) == (1, 1)
 
 
-@pytest.mark.parametrize("state, expected", [("on", PiCommands().display_on), ("off", PiCommands().display_off)])
-def test_display_power(client, sample_pi, state, expected):
-    calls: list = []
-    with patch("backend.services.actions.execute_many", _recording_execute_many([_ssh("01-001")], calls)):
-        progress = _progress(client, client.post(f"{API}/display/power", json={"pis": ["01-001"], "state": state}))
-    assert calls == [expected]
-    assert progress["action"] == "display" and progress["status"] == "success"
-
-
-def test_display_bad_state_422(client, sample_pi):
-    assert client.post(f"{API}/display/power", json={"pis": ["01-001"], "state": "dim"}).status_code == 422
+def test_reboot_without_passwordless_sudo_has_clear_error(client, sample_pi):
+    failed = _ssh("01-001", exit_code=1, stderr="sudo: a password is required\n")
+    with patch("backend.services.actions.execute_many", _recording_execute_many([failed], [])):
+        progress = _progress(client, client.post(f"{API}/pi/reboot", json={"pis": ["01-001"]}))
+    assert progress["status"] == "fail"
+    assert progress["results"][0]["error"] == diagnostics.SUDO_PASSWORD_ERROR
 
 
 def test_unknown_position_422(client):
@@ -96,7 +91,6 @@ def test_diagnostics_unparseable_is_per_pi_error(client, sample_pi):
 
 @pytest.mark.parametrize("path, body", [
     ("/pi/reboot", {"pis": ["01-001"]}),
-    ("/display/power", {"pis": ["01-001"], "state": "off"}),
     ("/diagnostics", {"pis": ["01-001"]}),
 ])
 def test_viewer_cannot_run_fleet_actions(anon_client, login_as, path, body):

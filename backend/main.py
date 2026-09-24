@@ -52,7 +52,7 @@ app.include_router(auth.router,      prefix=f"{API}/auth",      tags=["auth"])
 app.include_router(users.router,     prefix=f"{API}/users",     tags=["users"])
 app.include_router(pi.router,        prefix=f"{API}/pi",        tags=["inventory"])
 app.include_router(actions.router,   prefix=f"{API}/actions",   tags=["actions"])
-app.include_router(fleet.router,     prefix=API,                tags=["fleet"])  # /pi/reboot, /display/power, /diagnostics, /fleet/summary
+app.include_router(fleet.router,     prefix=API,                tags=["fleet"])  # /pi/reboot, /diagnostics, /fleet/summary
 app.include_router(health.router,    prefix=f"{API}/health",    tags=["health"])
 app.include_router(command.router,   prefix=f"{API}/command",   tags=["command"])
 app.include_router(process.router,   prefix=f"{API}/process",   tags=["process"])

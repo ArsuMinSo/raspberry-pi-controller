@@ -34,7 +34,6 @@ EXPECTED_ROLES = {
     ("GET", "/health/{action_id}"): "viewer",
     ("GET", "/actions/{action_id}"): "viewer",
     ("POST", "/pi/reboot"): "operator",
-    ("POST", "/display/power"): "operator",
     ("POST", "/diagnostics"): "operator",
     ("GET", "/fleet/summary"): "viewer",
     ("POST", "/command/execute"): "admin",

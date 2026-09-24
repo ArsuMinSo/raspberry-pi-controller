@@ -29,9 +29,23 @@ def test_throttled_soft_temp_limit():
     assert not r["under_voltage_now"] and not r["under_voltage_ever"]
 
 
-@pytest.mark.parametrize("text", ["", "bash: vcgencmd: command not found", "throttled=zz", None])
+@pytest.mark.parametrize("text, raw, uv_now, uv_ever, soft_now", [
+    ("0\n", "0x0", False, False, False),        # sysfs, clean
+    ("50005", "0x50005", True, True, False),
+    ("80008\n", "0x80008", False, False, True),
+])
+def test_throttled_sysfs_bare_hex(text, raw, uv_now, uv_ever, soft_now):
+    r = d.parse_throttled(text)
+    assert r["raw"] == raw and r["ok"] is (raw == "0x0")
+    assert (r["under_voltage_now"], r["under_voltage_ever"], r["soft_temp_limit_now"]) == (uv_now, uv_ever, soft_now)
+
+
+@pytest.mark.parametrize("text", [
+    "", "bash: vcgencmd: command not found", "throttled=zz", None,
+    "VCHI initialization failed\nCan't open device file: /dev/vcio",
+])
 def test_throttled_garbage(text):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="video"):
         d.parse_throttled(text)
 
 
@@ -65,6 +79,21 @@ def test_parse_output_empty():
     assert details == {} and "throttled:" in error and "disk:" in error
 
 
+def test_parse_output_sysfs_format():
+    details, error = d.parse_output("50005\n" + d.SEPARATOR + "\n" + DF_OK)
+    assert error is None and details["throttled"]["under_voltage_now"]
+
+
+@pytest.mark.parametrize("stderr, expected", [
+    ("sudo: a password is required\n", d.SUDO_PASSWORD_ERROR),
+    ("Failed to start transient timer unit", None),
+    ("", None),
+    (None, None),
+])
+def test_reboot_error(stderr, expected):
+    assert d.reboot_error(stderr) == expected
+
+
 def test_build_command_single_round_trip():
     cmd = d.build_command("vcgencmd get_throttled", "df -P /")
     assert cmd == f"vcgencmd get_throttled 2>&1; echo {d.SEPARATOR}; df -P / 2>&1"
@@ -87,11 +116,15 @@ def test_config_without_pi_commands_uses_defaults(tmp_path):
 
 def test_config_partial_pi_commands(tmp_path):
     path = tmp_path / "config.yaml"
-    path.write_text(_BASE + "pi_commands:\n  display_off: xset dpms force off\n  display_on: ''\n  bogus: x\n")
-    cmds = _load(str(path)).pi_commands
-    assert cmds.display_off == "xset dpms force off"
-    assert cmds.display_on == PiCommands().display_on  # empty → default
+    path.write_text(_BASE + "pi_commands:\n  disk: df -P /data\n  throttled: ''\n  display_on: x\n")
+    cmds = _load(str(path)).pi_commands  # old/unknown keys (display_on) ignored
+    assert cmds.disk == "df -P /data"
+    assert cmds.throttled == PiCommands().throttled  # empty → default
     assert cmds.reboot == PiCommands().reboot
+
+
+def test_throttled_default_prefers_sysfs():
+    assert PiCommands().throttled.startswith("cat /sys/devices/platform/soc/soc:firmware/get_throttled")
 
 
 def test_reboot_default_returns_before_shutdown():

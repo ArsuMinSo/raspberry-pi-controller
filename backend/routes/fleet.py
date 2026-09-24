@@ -1,4 +1,4 @@
-"""Fleet actions (reboot, display power, diagnostics) and the fleet summary."""
+"""Fleet actions (reboot, diagnostics) and the fleet summary."""
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -9,7 +9,7 @@ from backend.auth import Actor, require_role
 from backend.config import get_settings
 from backend.database import get_db
 from backend.models import ActionLog, Pi
-from backend.schemas import ActionQueued, DisplayPowerRequest, FleetPiValue, FleetSummary, PiSelection
+from backend.schemas import ActionQueued, FleetPiValue, FleetSummary, PiSelection
 from backend.services import diagnostics
 from backend.services.actions import start_ssh_action
 
@@ -31,17 +31,8 @@ def _known_positions(db: Session, positions: list[str]) -> list[str]:
 def reboot(body: PiSelection, actor: Actor = Depends(require_role("operator")), db: Session = Depends(get_db)):
     """Schedules a reboot a few seconds out, so the SSH command returns before the Pi goes down."""
     positions = _known_positions(db, body.pis)
-    action_id = start_ssh_action(db, "reboot", positions, get_settings().pi_commands.reboot, actor)
-    return ActionQueued(action_id=action_id)
-
-
-@router.post("/display/power", response_model=ActionQueued)
-def display_power(body: DisplayPowerRequest, actor: Actor = Depends(require_role("operator")),
-                  db: Session = Depends(get_db)):
-    positions = _known_positions(db, body.pis)
-    cmds = get_settings().pi_commands
-    command = cmds.display_on if body.state == "on" else cmds.display_off
-    action_id = start_ssh_action(db, "display", positions, command, actor)
+    action_id = start_ssh_action(db, "reboot", positions, get_settings().pi_commands.reboot, actor,
+                                 explain=diagnostics.reboot_error)
     return ActionQueued(action_id=action_id)
 
 
