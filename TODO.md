@@ -31,9 +31,9 @@
 
 ## Repo hygiene
 
-- [ ] `test_logs_filter_by_position` cleanup deletes an `actions_log` row — the append-only DB rule blocks it
+- [x] `test_logs_filter_by_position` cleanup deletes an `actions_log` row — the append-only DB rule blocks it
       (SAWarning "expected to delete 1 row(s); 0 were matched"); drop the delete from the test
-- [ ] Silence pytest-asyncio deprecation: set `asyncio_default_fixture_loop_scope = "function"` (pytest config)
+- [x] Silence pytest-asyncio deprecation: set `asyncio_default_fixture_loop_scope = "function"` (pytest config)
 - [ ] Line endings are mixed (most `.py` CRLF, some LF, `.gitignore` mixed). Add `.gitattributes`
       (`* text=auto eol=lf`, `*.sh eol=lf`) and renormalise in one dedicated commit — `.sh` must be LF to run
 

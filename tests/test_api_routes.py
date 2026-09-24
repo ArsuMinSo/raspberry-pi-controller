@@ -165,9 +165,7 @@ def test_logs_filter_by_position(client, db):
     assert res.status_code == 200
     data = res.json()
     assert any("07-001" in e["pis_selected"] for e in data)
-
-    db.delete(entry)
-    db.commit()
+    # No cleanup: actions_log is append-only (DB rule turns DELETE into a no-op)
 
 
 # ─── System health ────────────────────────────────────────────────────────────
