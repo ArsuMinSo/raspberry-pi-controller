@@ -45,15 +45,16 @@
 
 ## Future
 
-- [ ] **Web service** — operate the controller from a browser, alongside the TUI.
-      Backend is already a REST API, so the UI is mainly a new client, but it needs:
+- [ ] **Web service** — operate the controller from a browser + Android app, alongside the TUI.
+      **Design: [docs/design/web-service.md](docs/design/web-service.md)** — ~5 users, viewer/operator/admin,
+      Ionic + Angular + Capacitor (TypeScript). Open questions listed at the end of the design. It needs:
   - [ ] **User login** — accounts, password hashing, sessions/tokens (replaces "no auth, localhost trust")
   - [ ] **Per-user activity log** — every action attributed to the logged-in user
         (`actions_log.user` exists but is always "admin"); include logins, edits, deletes, settings changes
   - [ ] **Permissions** — roles (e.g. viewer / operator / admin): who can view, run commands, kill/restart,
         edit inventory, change settings, manage users
   - [ ] User management (create/disable users, reset passwords)
-  - [ ] Decide: serve UI from FastAPI (static/templates) or a separate app
+  - [x] Decide UI stack → Ionic/Angular/Capacitor app in `web/`, served by nginx
   - [ ] Live progress for health/command runs (polling vs WebSocket/SSE)
   - [ ] Feature parity with TUI: inventory, select, execute, monitor, logs, health, discovery, tasks, settings
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
