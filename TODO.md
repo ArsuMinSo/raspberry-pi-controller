@@ -15,7 +15,7 @@
 - [x] Home grid: numeric-aware sort for positions (`"9"` before `"10"`)
 - [x] Docs: CLAUDE.md, README
 - [x] Docs: wiki (Database Schema, API Reference, TUI Guide, Installation, Development)
-- [ ] Apply `002_mac_pk.sql` to the live DB and run DB/API tests against `pi_controller_test`
+- [x] Apply `002_mac_pk.sql` to the live DB and run DB/API tests against `pi_controller_test` (37 passed on prod server, 2026-09-24)
 
 ## Deploy (`scripts/deploy.sh`)
 
@@ -31,6 +31,9 @@
 
 ## Repo hygiene
 
+- [ ] `test_logs_filter_by_position` cleanup deletes an `actions_log` row — the append-only DB rule blocks it
+      (SAWarning "expected to delete 1 row(s); 0 were matched"); drop the delete from the test
+- [ ] Silence pytest-asyncio deprecation: set `asyncio_default_fixture_loop_scope = "function"` (pytest config)
 - [ ] Line endings are mixed (most `.py` CRLF, some LF, `.gitignore` mixed). Add `.gitattributes`
       (`* text=auto eol=lf`, `*.sh eol=lf`) and renormalise in one dedicated commit — `.sh` must be LF to run
 
