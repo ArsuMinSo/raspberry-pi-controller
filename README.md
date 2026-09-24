@@ -106,7 +106,17 @@ server:
   port: 8000
   log_level: INFO
   workers: 1
+
+# Optional — commands run on the Pis for fleet actions (defaults shown)
+pi_commands:
+  reboot: LC_ALL=C nohup sh -c 'sleep 3; systemctl reboot' >/dev/null 2>&1 &   # no sudo: polkit allows logind reboot on Raspberry Pi OS
+  throttled: cat /sys/devices/platform/soc/soc:firmware/get_throttled 2>/dev/null || vcgencmd get_throttled
+  disk: df -P /
 ```
+
+`pi_commands` is edited in `config.yaml` only (not via the API/UI), so operators can't change what "reboot" runs.
+Reboot is detached (returns at once), so its result is always "ok" — the web page verifies it with a health check
+~90 s later (uptime must have reset).
 
 All `network.*` and `ssh.*` settings can be changed live from the TUI Settings screen without restarting the backend.
 
@@ -153,6 +163,9 @@ Log out with `POST /auth/logout` when done.
 - **Inventory:** search, status filter, numeric position sort, CPU/RAM/temp; select Pis → *Health check*
   (operator+) → live progress per Pi.
 - **Menu** on the left: pinned open from 768 px wide; drag its right edge to resize (double-click resets); collapse with « (then ☰ opens it), pin again with 📌 — remembered per browser.
+- **Fleet** (operator+): selection → *Diagnostics* (throttling / power / disk per Pi) or *Reboot* (confirm; a health
+  check ~90 s later shows per Pi whether it really rebooted). Summary strip above the list: counts, stale Pis
+  (click to select), hottest Pi, last health check.
 - **Users** (admin): create (password twice, *must change at first login* on by default), change role, disable/enable,
   reset password, end sessions. Never deleted — disabled instead; the last active admin is protected.
 - **Pi detail**, **Activity log** (operator+; Pi actions + logins/changes), **Account** (change password — entered twice —,
@@ -490,6 +503,9 @@ finishes (`done`/`total`), `finished: true` at the end. Jobs cut off by a backen
 | `POST` | `/users/{id}/revoke-sessions` | Log a user out everywhere | admin |
 | `GET` | `/health` | Backend + DB liveness | public |
 | `GET` | `/actions/{action_id}` | Progress + per-Pi results of any background action | viewer |
+| `POST` | `/pi/reboot` | Reboot selected Pis (background; see `pi_commands.reboot`) | operator |
+| `POST` | `/diagnostics` | Throttling/under-voltage flags + root disk usage per Pi (background) | operator |
+| `GET` | `/fleet/summary?stale_hours=24` | Counts, stale / never-seen Pis, top 5 by temp / CPU / RAM (DB only) | viewer |
 | `GET` | `/pi/list` | List Pis (status/tags/version filter, paginated) | viewer |
 | `GET` | `/pi/{position}/status` | Single Pi detail | viewer |
 | `POST` | `/pi` | Create Pi | admin |

@@ -97,3 +97,18 @@ pre.output {
 .error-text {
   color: var(--ion-color-danger);
 }
+
+.summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  align-items: center;
+  padding: 10px 16px;
+  font-size: 0.9rem;
+  border-bottom: 1px solid var(--ion-border-color, #565c66);
+
+  .clickable {
+    cursor: pointer;
+    text-decoration: underline dotted;
+  }
+}

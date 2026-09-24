@@ -1,3 +1,4 @@
+import { rebootVerdict, throttleText } from './fleet';
 import { newPasswordProblem } from '../pages/account.page';
 import { matchesSearch } from '../pages/inventory.page';
 import { num, statusColor, uptime } from './format';
@@ -90,5 +91,24 @@ describe('username check (same rule as the server)', () => {
     for (const name of ['A', 'Alice', 'has space', '-lead', 'x'.repeat(33), 'local-tui', 'local-tui2']) {
       expect(usernameProblem(name)).not.toBeNull();
     }
+  });
+});
+
+describe('fleet helpers', () => {
+  it('throttle text', () => {
+    expect(throttleText({ raw: '0x0', ok: true })).toBe('ok');
+    expect(throttleText({ raw: '0x50005', ok: false, under_voltage_now: true, throttled_now: true,
+      under_voltage_ever: true, throttled_ever: true })).toBe(
+      'under-voltage now, throttled now, under-voltage since boot, throttled since boot');
+    expect(throttleText(null)).toBe('—');
+  });
+
+  it('reboot verdict from server timestamps', () => {
+    const reboot = '2026-09-24T12:00:00';
+    const health = '2026-09-24T12:01:40'; // 100 s later
+    expect(rebootVerdict(80, reboot, health)).toBe('rebooted');
+    expect(rebootVerdict(150, reboot, health)).toBe('rebooted'); // within margin
+    expect(rebootVerdict(86400, reboot, health)).toBe('not-rebooted');
+    expect(rebootVerdict(null, reboot, health)).toBe('unknown');
   });
 });

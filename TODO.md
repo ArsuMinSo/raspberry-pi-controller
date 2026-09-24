@@ -46,10 +46,10 @@
 ## Fleet API ideas (roles: viewer / operator / admin; long ones as background jobs)
 
 **First picks** — cheap on the job system, cover most kiosk incidents:
-- [ ] `POST /pi/reboot` (operator)
-- [ ] `POST /display/power {on|off}` (operator) — `vcgencmd display_power` / HDMI-CEC; night schedule via tasks
-- [ ] `GET /pi/{pos}/throttled` + `GET /pi/{pos}/disk` (viewer) — undervoltage/overheat, full SD card
-- [ ] `GET /fleet/summary` (viewer) — reachable/unreachable, hottest, low disk, stale last_seen (web dashboard)
+- [x] `POST /pi/reboot` (operator) — no sudo (logind/polkit); web verifies via uptime
+- [x] `POST /diagnostics` (operator) — throttling/under-voltage flags + disk (sysfs, no video group needed)
+- [x] `GET /fleet/summary` (viewer) — counts, stale, top temp/CPU/RAM; summary strip in web
+- ~~Display on/off~~ — not needed (decided 2026-09-24)
 
 **Later:**
 - [ ] `POST /pi/shutdown` (admin); `POST /pi/wake` WoL (operator, Pi 4/5 mostly unsupported)
@@ -82,7 +82,7 @@
   - [x] Phase 3 web MVP: login, inventory, Pi detail, health + live progress, logs, account; release_web.sh + deploy download
   - [x] Phase 4a — web Users screen (admin)
   - [ ] Phase 4b — web parity with TUI: execute, kill, restart, discovery, tasks, settings, Pi edit, deploy key
-  - [ ] Web: retry polling on transient network errors (action page stops on first error)
+  - [x] Web: retry polling on transient network errors
   - [ ] First real web release (`scripts/release_web.sh`) + browser test against the server (CSP, login, progress)
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
         settings in DB/shared store instead of per-process cache — until then `--workers 1`

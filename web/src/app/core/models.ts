@@ -119,3 +119,24 @@ export interface AuditEvent {
   details: Record<string, unknown> | null;
   ip: string | null;
 }
+
+// ── Fleet ────────────────────────────────────────────────────────────────────
+
+export interface FleetPiValue {
+  position: string;
+  hostname: string | null;
+  value: number;
+}
+
+export interface FleetSummary {
+  total: number;
+  reachable: number;
+  unreachable: number;
+  stale_hours: number;
+  stale: string[];
+  never_seen: string[];
+  hottest: FleetPiValue[];
+  busiest_cpu: FleetPiValue[];
+  highest_mem: FleetPiValue[];
+  last_health_check_at: string | null;
+}

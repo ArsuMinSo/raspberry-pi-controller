@@ -1,18 +1,29 @@
+import { HttpErrorResponse } from '@angular/common/http';
 import { Component, DestroyRef, OnInit, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { RouterLink } from '@angular/router';
 import {
-  IonBackButton, IonBadge, IonButtons, IonContent, IonHeader, IonProgressBar, IonText, IonTitle, IonToolbar,
+  IonBackButton, IonBadge, IonButton, IonButtons, IonContent, IonHeader, IonProgressBar, IonText, IonTitle,
+  IonToolbar,
 } from '@ionic/angular';
-import { catchError, of, switchMap, takeWhile, timer } from 'rxjs';
+import { catchError, firstValueFrom, map, of, switchMap, take, takeWhile, timer } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, num, pct, statusColor, temp, uptime } from '../core/format';
+import { RebootVerdict, rebootVerdict, throttleText } from '../core/fleet';
 import { ActionProgress, ActionResult } from '../core/models';
 import { comparePositions } from '../core/sort';
 
 const POLL_MS = 1000;
+/** Wait before checking that rebooted Pis came back with a fresh uptime. */
+const REBOOT_VERIFY_DELAY_S = 90;
+
+/** Stop polling only on these; anything else (network blip, 502 during a restart) is retried. */
+function isFatal(err: unknown): boolean {
+  return err instanceof HttpErrorResponse && [401, 403, 404].includes(err.status);
+}
 
 @Component({
   selector: 'app-action',
@@ -45,7 +56,26 @@ const POLL_MS = 1000;
           @if (p.total) { <p>{{ p.done }} / {{ p.total }} Pis done</p> }
           @if (p.error) { <ion-text color="danger"><p>{{ p.error }}</p></ion-text> }
 
-          @if (p.action === 'health') {
+          @if (p.action === 'diagnostics') {
+            <div class="table-scroll">
+              <table class="data">
+                <thead><tr><th>Position</th><th>Result</th><th>Throttling / power</th><th>Disk used</th><th>Free</th></tr></thead>
+                <tbody>
+                  @for (r of sorted(); track r.position) {
+                    <tr class="clickable" [routerLink]="['/pi', r.position]">
+                      <td><strong>{{ r.position }}</strong></td>
+                      <td>
+                        @if (r.error) { <span class="error-text">{{ r.error }}</span> } @else { <ion-badge color="success">ok</ion-badge> }
+                      </td>
+                      <td [class.error-text]="throttleText(r.details?.['throttled']) !== 'ok'">{{ throttleText(r.details?.['throttled']) }}</td>
+                      <td [class.error-text]="diskUsed(r) >= 90">{{ pct(diskUsed(r) >= 0 ? diskUsed(r) : null) }}</td>
+                      <td>{{ diskFree(r) }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else if (p.action === 'health') {
             <div class="table-scroll">
               <table class="data">
                 <thead><tr><th>Position</th><th>Result</th><th>CPU 1m</th><th>RAM</th><th>Temp</th><th>Uptime</th></tr></thead>
@@ -82,6 +112,46 @@ const POLL_MS = 1000;
           @if (pending().length) {
             <p class="muted">Waiting for: {{ pending().join(', ') }}</p>
           }
+
+          @if (p.action === 'reboot' && p.finished && canAct) {
+            <h3>Did they reboot?</h3>
+            <p class="muted">A health check compares each Pi's uptime with the time since the reboot was requested.</p>
+            @if (verifyCountdown() !== null) {
+              <p>Checking in {{ verifyCountdown() }} s …
+                <ion-button size="small" fill="outline" (click)="startVerify()">Check now</ion-button></p>
+            }
+            @if (verifyCountdown() === null && !verify() && !verifyError()) {
+              <ion-button size="small" fill="outline" (click)="startVerify()">Check now</ion-button>
+            }
+            @if (verifyError()) { <ion-text color="danger"><p>{{ verifyError() }}</p></ion-text> }
+            @if (verify(); as v) {
+              <div class="table-scroll">
+                <table class="data">
+                  <thead><tr><th>Position</th><th>Verdict</th><th>Uptime</th></tr></thead>
+                  <tbody>
+                    @for (r of verifySorted(); track r.position) {
+                      <tr>
+                        <td><strong>{{ r.position }}</strong></td>
+                        <td>
+                          @switch (verdict(r)) {
+                            @case ('rebooted') { <ion-badge color="success">rebooted</ion-badge> }
+                            @case ('not-rebooted') { <ion-badge color="danger">NOT rebooted</ion-badge> }
+                            @default { <span class="error-text">{{ r.error ?? 'unknown' }}</span> }
+                          }
+                        </td>
+                        <td>{{ uptime(num(r.details, 'uptime_s')) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              @if (v.finished) {
+                <ion-button size="small" fill="outline" (click)="startVerify()">Check again</ion-button>
+              } @else {
+                <p class="muted">Checking {{ v.done }} / {{ v.total }} …</p>
+              }
+            }
+          }
         </div>
       }
     </ion-content>
@@ -89,12 +159,13 @@ const POLL_MS = 1000;
   styles: [`.result { margin: 12px 0; } ion-badge { margin-left: 6px; }`],
   imports: [
     RouterLink, IonHeader, IonToolbar, IonButtons, IonBackButton, IonTitle, IonProgressBar, IonContent, IonText,
-    IonBadge,
+    IonBadge, IonButton,
   ],
 })
 export class ActionPage implements OnInit {
   private readonly api = inject(ApiService);
   private readonly destroyRef = inject(DestroyRef);
+  readonly canAct = inject(AuthService).can('operator');
 
   /** Route param :id */
   readonly id = input.required<string>();
@@ -108,6 +179,17 @@ export class ActionPage implements OnInit {
   readonly temp = temp;
   readonly uptime = uptime;
   readonly num = num;
+  readonly throttleText = throttleText;
+
+  /** Reboot verification: a follow-up health check on the Pis that accepted the reboot */
+  readonly verify = signal<ActionProgress | null>(null);
+  readonly verifyError = signal<string | null>(null);
+  readonly verifyCountdown = signal<number | null>(null);
+  private verifyStarted = false;
+  private sawRunning = false;
+
+  readonly verifySorted = computed<ActionResult[]>(() =>
+    [...(this.verify()?.results ?? [])].sort((a, b) => comparePositions(a.position, b.position)));
 
   readonly sorted = computed<ActionResult[]>(() =>
     [...(this.progress()?.results ?? [])].sort((a, b) => comparePositions(a.position, b.position)));
@@ -122,24 +204,92 @@ export class ActionPage implements OnInit {
   });
 
   ngOnInit(): void {
-    const id = Number(this.id());
+    this.poll(Number(this.id()), (p) => {
+      this.progress.set(p);
+      if (!p.finished) {
+        this.sawRunning = true;
+      } else if (p.action === 'reboot' && this.canAct && this.sawRunning) {
+        this.scheduleVerify(); // only when watched live — opening an old reboot doesn't trigger checks
+      }
+    }, (msg) => this.error.set(msg));
+  }
+
+  /** Poll an action every second until it finishes; transient errors are shown and retried. */
+  private poll(id: number, onProgress: (p: ActionProgress) => void, onError: (msg: string | null) => void): void {
     timer(0, POLL_MS)
       .pipe(
         switchMap(() => this.api.action(id).pipe(
-          catchError((err: unknown) => {
-            this.error.set(errorMessage(err));
-            return of(null);
-          }),
+          map((p) => ({ p, fatal: false, err: null as string | null })),
+          catchError((err: unknown) => of({ p: null, fatal: isFatal(err), err: errorMessage(err) })),
         )),
-        // stop after the first finished response (inclusive) — or on a hard error
-        takeWhile((p) => p !== null && !p.finished, true),
+        takeWhile((r) => !r.fatal && !r.p?.finished, true),
         takeUntilDestroyed(this.destroyRef),
       )
-      .subscribe((p) => {
-        if (p) {
-          this.error.set(null);
-          this.progress.set(p);
+      .subscribe((r) => {
+        if (r.p) {
+          onError(null);
+          onProgress(r.p);
+        } else {
+          onError(r.fatal ? r.err : `${r.err} — retrying …`);
         }
       });
+  }
+
+  diskUsed(r: ActionResult): number {
+    const disk = r.details?.['disk'] as Record<string, unknown> | undefined;
+    return typeof disk?.['used_percent'] === 'number' ? disk['used_percent'] : -1;
+  }
+
+  diskFree(r: ActionResult): string {
+    const disk = r.details?.['disk'] as Record<string, unknown> | undefined;
+    const mb = disk?.['free_mb'];
+    return typeof mb === 'number' ? (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`) : '—';
+  }
+
+  verdict(r: ActionResult): RebootVerdict {
+    const reboot = this.progress();
+    const check = this.verify();
+    if (!reboot || !check || r.error) {
+      return 'unknown';
+    }
+    return rebootVerdict(num(r.details, 'uptime_s'), reboot.started_at, check.started_at);
+  }
+
+  private scheduleVerify(): void {
+    if (this.verifyStarted || this.verifyCountdown() !== null) {
+      return;
+    }
+    timer(0, 1000)
+      .pipe(take(REBOOT_VERIFY_DELAY_S + 1), takeUntilDestroyed(this.destroyRef))
+      .subscribe((i) => {
+        if (this.verifyStarted) {
+          return;
+        }
+        const left = REBOOT_VERIFY_DELAY_S - i;
+        this.verifyCountdown.set(left);
+        if (left <= 0) {
+          void this.startVerify();
+        }
+      });
+  }
+
+  async startVerify(): Promise<void> {
+    const accepted = (this.progress()?.results ?? [])
+      .filter((r) => !r.error && r.exit_code === 0)
+      .map((r) => r.position);
+    this.verifyStarted = true;
+    this.verifyCountdown.set(null);
+    if (accepted.length === 0) {
+      this.verifyError.set('No Pi accepted the reboot — nothing to check.');
+      return;
+    }
+    try {
+      const queued = await firstValueFrom(this.api.healthCheck(accepted));
+      this.verify.set(null);
+      this.verifyError.set(null);
+      this.poll(queued.action_id, (v) => this.verify.set(v), (msg) => this.verifyError.set(msg));
+    } catch (err) {
+      this.verifyError.set(errorMessage(err));
+    }
   }
 }

@@ -2,17 +2,17 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
-  IonBadge, IonButton, IonButtons, IonCheckbox, IonContent, IonHeader, IonIcon, IonMenuButton, IonRefresher,
+  AlertController, IonBadge, IonButton, IonButtons, IonCheckbox, IonContent, IonHeader, IonIcon, IonMenuButton, IonRefresher,
   IonRefresherContent, IonSearchbar, IonSegment, IonSegmentButton, IonLabel, IonSpinner, IonText, IonTitle,
   IonToolbar,
 } from '@ionic/angular';
-import { firstValueFrom } from 'rxjs';
+import { Observable, firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, pct, statusColor, temp } from '../core/format';
-import { PiSummary } from '../core/models';
+import { ActionQueued, FleetSummary, PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
 
 type StatusFilter = 'all' | 'reachable' | 'unreachable';
@@ -62,6 +62,12 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
               <ion-icon slot="start" name="pulse-outline"></ion-icon>
               Health check ({{ selected().size }})
             </ion-button>
+            <ion-button fill="outline" (click)="diagnostics()" [disabled]="selected().size === 0 || starting()">
+              Diagnostics
+            </ion-button>
+            <ion-button fill="outline" color="danger" (click)="reboot()" [disabled]="selected().size === 0 || starting()">
+              Reboot
+            </ion-button>
           </ion-buttons>
         </ion-toolbar>
       }
@@ -74,6 +80,24 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
 
       @if (error()) {
         <ion-text color="danger"><p class="ion-padding">{{ error() }}</p></ion-text>
+      }
+      @if (summary(); as f) {
+        <div class="summary">
+          <span><strong>{{ f.total }}</strong> Pis</span>
+          <span><ion-badge color="success">{{ f.reachable }}</ion-badge> reachable</span>
+          <span><ion-badge [color]="f.unreachable ? 'danger' : 'medium'">{{ f.unreachable }}</ion-badge> unreachable</span>
+          @if (f.stale.length) {
+            <span class="clickable" (click)="selectPositions(f.stale)" [title]="'Click to select: ' + f.stale.join(', ')">
+              <ion-badge color="warning">{{ f.stale.length }}</ion-badge> not seen &gt; {{ f.stale_hours }} h</span>
+          }
+          @if (f.never_seen.length) {
+            <span [title]="f.never_seen.join(', ')"><ion-badge color="medium">{{ f.never_seen.length }}</ion-badge> never seen</span>
+          }
+          @if (f.hottest[0]; as hot) {
+            <span>hottest <strong>{{ hot.position }}</strong> {{ temp(hot.value) }}</span>
+          }
+          <span class="muted">last health check {{ dateTime(f.last_health_check_at) }}</span>
+        </div>
       }
       @if (loading() && pis().length === 0) {
         <div class="ion-padding ion-text-center"><ion-spinner></ion-spinner></div>
@@ -126,6 +150,7 @@ export class InventoryPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
+  private readonly alerts = inject(AlertController);
 
   readonly canAct = this.auth.can('operator');
   readonly statusColor = statusColor;
@@ -134,6 +159,7 @@ export class InventoryPage {
   readonly dateTime = dateTime;
 
   readonly pis = signal<PiSummary[]>([]);
+  readonly summary = signal<FleetSummary | null>(null);
   readonly loading = signal(false);
   readonly starting = signal(false);
   readonly error = signal<string | null>(null);
@@ -171,7 +197,12 @@ export class InventoryPage {
     this.loading.set(true);
     this.error.set(null);
     try {
-      this.pis.set(await firstValueFrom(this.api.listPis()));
+      const [pis, summary] = await Promise.all([
+        firstValueFrom(this.api.listPis()),
+        firstValueFrom(this.api.fleetSummary()).catch(() => null), // optional — list still shows without it
+      ]);
+      this.pis.set(pis);
+      this.summary.set(summary);
       const known = new Set(this.pis().map((p) => p.position));
       this.selected.set(new Set([...this.selected()].filter((p) => known.has(p))));
     } catch (err) {
@@ -204,12 +235,40 @@ export class InventoryPage {
     void this.router.navigate(['/pi', pi.position]);
   }
 
-  async healthCheck(): Promise<void> {
+  /** Select these positions (e.g. the stale ones) for an action. */
+  selectPositions(positions: string[]): void {
+    this.statusFilter.set('all');
+    this.selected.set(new Set(positions));
+  }
+
+  healthCheck(): Promise<void> {
+    return this.start((positions) => this.api.healthCheck(positions));
+  }
+
+  diagnostics(): Promise<void> {
+    return this.start((positions) => this.api.diagnostics(positions));
+  }
+
+  async reboot(): Promise<void> {
+    const positions = [...this.selected()].sort(comparePositions);
+    const alert = await this.alerts.create({
+      header: `Reboot ${positions.length} Pi${positions.length === 1 ? '' : 's'}?`,
+      message: `Their screens go dark for about a minute: ${positions.slice(0, 20).join(', ')}` +
+        (positions.length > 20 ? ` … (+${positions.length - 20})` : ''),
+      buttons: [{ text: 'Cancel', role: 'cancel' }, { text: 'Reboot', role: 'confirm' }],
+    });
+    await alert.present();
+    if ((await alert.onDidDismiss()).role === 'confirm') {
+      await this.start((p) => this.api.reboot(p));
+    }
+  }
+
+  private async start(fn: (positions: string[]) => Observable<ActionQueued>): Promise<void> {
     this.starting.set(true);
     this.error.set(null);
     try {
       const positions = [...this.selected()].sort(comparePositions);
-      const queued = await firstValueFrom(this.api.healthCheck(positions));
+      const queued = await firstValueFrom(fn(positions));
       await this.router.navigate(['/actions', queued.action_id]);
     } catch (err) {
       this.error.set(errorMessage(err));

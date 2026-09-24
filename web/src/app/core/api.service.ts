@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  ActionProgress, ActionQueued, AuditEvent, LogEntry, Me, PiDetail, PiSummary, Role, SessionInfo, User,
+  ActionProgress, ActionQueued, AuditEvent, FleetSummary, LogEntry, Me, PiDetail, PiSummary, Role, SessionInfo, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -58,6 +58,18 @@ export class ApiService {
 
   healthCheckAll(): Observable<ActionQueued> {
     return this.http.post<ActionQueued>(`${API}/health/trigger`, { all: true });
+  }
+
+  reboot(positions: string[]): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/pi/reboot`, { pis: positions });
+  }
+
+  diagnostics(positions: string[]): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/diagnostics`, { pis: positions });
+  }
+
+  fleetSummary(staleHours = 24): Observable<FleetSummary> {
+    return this.http.get<FleetSummary>(`${API}/fleet/summary`, { params: params({ stale_hours: staleHours }) });
   }
 
   action(id: number): Observable<ActionProgress> {
