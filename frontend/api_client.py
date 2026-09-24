@@ -1,3 +1,5 @@
+import time
+
 import requests
 
 
@@ -70,6 +72,15 @@ class ApiClient:
         except requests.RequestException as e:
             raise ApiError(str(e))
 
+    def _wait(self, queued: dict) -> dict:
+        """Long operations run as background jobs — poll until done so screens see final results."""
+        action_id = queued["action_id"]
+        while True:
+            progress = self._get(f"/actions/{action_id}")
+            if progress.get("finished"):
+                return queued
+            time.sleep(0.5)
+
     def system_health(self) -> dict:
         return self._get("/health")
 
@@ -117,17 +128,17 @@ class ApiClient:
             body["ssh_username"] = ssh_username
         if ssh_password:
             body["ssh_password"] = ssh_password
-        return self._post("/command/execute", body)
+        return self._wait(self._post("/command/execute", body))
 
     def get_command_result(self, action_id: int) -> dict:
         return self._get(f"/command/{action_id}")
 
     def kill_process(self, positions: list[str], process_name: str, signal: str = "SIGTERM") -> dict:
-        return self._post("/process/kill", {
+        return self._wait(self._post("/process/kill", {
             "pis": positions,
             "process_name": process_name,
             "signal": signal,
-        })
+        }))
 
     def get_process_result(self, action_id: int) -> dict:
         return self._get(f"/process/kill/{action_id}")
@@ -136,11 +147,11 @@ class ApiClient:
         return self._get(f"/service/restart/{action_id}")
 
     def restart_service(self, positions: list[str], service: str) -> dict:
-        return self._post("/service/restart", {"pis": positions, "service": service})
+        return self._wait(self._post("/service/restart", {"pis": positions, "service": service}))
 
     def trigger_health(self, positions: list[str] | None = None, all_pis: bool = False) -> dict:
         body = {"all": True} if all_pis else {"pis": positions or []}
-        return self._post("/health/trigger", body)
+        return self._wait(self._post("/health/trigger", body))
 
     def get_health_result(self, action_id: int) -> dict:
         return self._get(f"/health/{action_id}")
@@ -152,7 +163,8 @@ class ApiClient:
         return self._get("/logs", params)
 
     def scan_discovery(self, probe_password: str | None = None) -> dict:
-        return self._post("/discovery/scan", {"probe_password": probe_password})
+        queued = self._wait(self._post("/discovery/scan", {"probe_password": probe_password}))
+        return self.get_discovery_result(queued["action_id"])
 
     def get_discovery_result(self, action_id: int) -> dict:
         return self._get(f"/discovery/scan/{action_id}")

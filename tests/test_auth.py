@@ -5,7 +5,7 @@ from unittest.mock import patch
 from backend.auth import LOCKOUT_FAILURES, utcnow
 from backend.models import ActionLog, AuditEvent, User, UserSession
 from backend.services.ssh_executor import SSHResult
-from tests.conftest import API, TEST_PASSWORD, unique_name
+from tests.conftest import API, TEST_PASSWORD, fake_execute_many, unique_name
 
 NEW_PASSWORD = "another-long-password"
 
@@ -171,7 +171,7 @@ def test_actions_log_records_user(anon_client, make_user, db, sample_pi):
     headers = _bearer(_login(anon_client, name))
     ssh_result = SSHResult(position="01-001", exit_code=0, stdout="ok", stderr="", error=None,
                            duration_ms=5, retry_count=0)
-    with patch("backend.routes.command.execute_many", return_value=[ssh_result]):
+    with patch("backend.services.actions.execute_many", fake_execute_many([ssh_result])):
         res = anon_client.post(f"{API}/command/execute", json={"pis": ["01-001"], "command": "uptime"},
                                headers=headers)
     assert res.status_code == 200

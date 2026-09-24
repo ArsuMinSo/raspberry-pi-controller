@@ -18,6 +18,7 @@ from backend.auth import Actor, create_session, current_actor, hash_password
 from backend.database import Base, get_db
 from backend.main import app
 from backend.models import ActionLog, Pi, User
+from backend.services import jobs
 from backend.services.ssh_executor import SSHResult
 
 TEST_DB_URL = os.environ.get(
@@ -49,17 +50,31 @@ def test_engine():
 
 def _drop_tables(engine):
     with engine.begin() as conn:
-        for table in ("audit_events", "sessions", "scheduled_tasks", "actions_log", "users", "raspberries"):
+        for table in ("action_results", "audit_events", "sessions", "scheduled_tasks", "actions_log", "users",
+                      "raspberries"):
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
 
 
 @pytest.fixture
-def db(test_engine):
+def db(test_engine, monkeypatch):
     Session = sessionmaker(bind=test_engine)
+    # Background jobs: run synchronously, on the test database
+    monkeypatch.setattr(jobs, "session_factory", Session)
+    monkeypatch.setattr(jobs, "run_inline", True)
     session = Session()
     yield session
     session.rollback()
     session.close()
+
+
+def fake_execute_many(results):
+    """Stand-in for ssh_executor.execute_many that also reports each result (like the real one)."""
+    def _fake(targets, command, settings, ssh_username=None, ssh_password=None, on_result=None):
+        for r in results:
+            if on_result:
+                on_result(r)
+        return results
+    return _fake
 
 
 API = "/api/v1"

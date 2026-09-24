@@ -14,6 +14,7 @@ from backend.utils.helpers import extract_pi_version, is_valid_mac, load_private
 from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
+from backend.services import jobs
 
 
 def ping_host(ip: str) -> bool:
@@ -141,9 +142,11 @@ def scan_subnet(
     ssh_settings: SSHSettings,
     net_settings: NetworkSettings | None = None,
     probe_password: str | None = None,
-    actor=None,
+    entry=None,
 ) -> DiscoveryScanResult:
-    entry = al.create_action(db, [], "discovery", status="running", actor=actor)
+    """Ping (+ probe) every host in `subnet`, update known Pis. `entry` is the action row (a job's)."""
+    if entry is None:
+        entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
 
     do_probe = net_settings.probe_ssh if net_settings else True
@@ -236,3 +239,18 @@ def scan_subnet(
         started_at=entry.timestamp,
         completed_at=None,
     )
+
+
+def start_discovery(db: Session, subnet: str, ssh_settings: SSHSettings, net_settings: NetworkSettings,
+                    probe_password: str | None = None, actor=None, wait: bool = False) -> int:
+    """Create the queued action and scan — in the background, or right here if `wait` (scheduler)."""
+    entry = al.create_action(db, [], "discovery", status="queued", actor=actor)
+
+    def work(job_db: Session, job_entry) -> None:
+        scan_subnet(subnet, job_db, ssh_settings, net_settings, probe_password=probe_password, entry=job_entry)
+
+    if wait:
+        jobs.run_action(entry.id, work)
+    else:
+        jobs.submit(jobs.run_action, entry.id, work)
+    return entry.id

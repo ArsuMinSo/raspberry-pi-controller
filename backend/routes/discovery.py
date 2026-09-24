@@ -7,9 +7,9 @@ from sqlalchemy.orm import Session
 from backend.auth import Actor, require_role
 from backend.config import effective_network_settings, effective_ssh_settings
 from backend.database import get_db
-from backend.schemas import DiscoveredPi, DiscoveryScanResult
+from backend.schemas import ActionQueued, DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
-from backend.services.discovery import scan_subnet
+from backend.services.discovery import start_discovery
 
 router = APIRouter()
 
@@ -18,16 +18,13 @@ class ScanRequest(BaseModel):
     probe_password: str | None = None
 
 
-@router.post("/scan", response_model=DiscoveryScanResult)
+@router.post("/scan", response_model=ActionQueued)
 def start_scan(body: ScanRequest = None, actor: Actor = Depends(require_role("operator")),
                db: Session = Depends(get_db)):
     net = effective_network_settings()
-    result = scan_subnet(
-        net.subnet, db, effective_ssh_settings(), net,
-        probe_password=body.probe_password if body else None,
-        actor=actor,
-    )
-    return result
+    action_id = start_discovery(db, net.subnet, effective_ssh_settings(), net,
+                                probe_password=body.probe_password if body else None, actor=actor)
+    return ActionQueued(action_id=action_id)
 
 
 @router.get("/scan/{action_id}", response_model=DiscoveryScanResult, dependencies=[Depends(require_role("viewer"))])

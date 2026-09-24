@@ -5,7 +5,9 @@ import pytest
 
 from backend.models import ActionLog, Pi
 from backend.services.ssh_executor import SSHResult
-from tests.conftest import API
+from backend.schemas import PiHealthResult
+from backend.services.health_check import HealthCheckData
+from tests.conftest import API, fake_execute_many
 
 
 # ─── Pi / Inventory ───────────────────────────────────────────────────────────
@@ -79,10 +81,24 @@ def test_health_trigger_no_reachable(client):
 
 
 def test_health_trigger_success(client, db, sample_pi):
-    with patch("backend.routes.health.run_health_check", return_value=1) as mock_hc:
+    data = HealthCheckData(
+        result=PiHealthResult(position="01-001", cpu_1m=12.5, cpu_5m=10.0, cpu_15m=8.0, mem_percent=40.0,
+                              temp_c=50.0, pi_time="12:00:00", uptime_s=3600, error=None),
+        hostname="kiosk-01", mac=None, pi_version=4, serial=None,
+    )
+    with patch("backend.services.health_check.check_health", return_value=data):
         res = client.post(f"{API}/health/trigger", json={"pis": ["01-001"]})
     assert res.status_code == 200
-    assert res.json()["action_id"] == 1
+    body = res.json()
+    assert body["status"] == "queued"
+
+    progress = client.get(f"{API}/actions/{body['action_id']}").json()
+    assert progress["status"] == "success" and progress["finished"] is True
+    assert (progress["done"], progress["total"]) == (1, 1)
+    assert progress["results"][0]["details"]["cpu_1m"] == 12.5
+    # Old result endpoint still works
+    old = client.get(f"{API}/health/{body['action_id']}").json()
+    assert old["results"][0]["temp_c"] == 50.0
 
 
 def test_health_result_not_found(client):
@@ -102,7 +118,7 @@ def test_command_execute_success(client, db, sample_pi):
         position="01-001", exit_code=0, stdout="up 1 day", stderr="", error=None,
         duration_ms=50, retry_count=0,
     )
-    with patch("backend.routes.command.execute_many", return_value=[ssh_result]):
+    with patch("backend.services.actions.execute_many", fake_execute_many([ssh_result])):
         res = client.post(f"{API}/command/execute", json={"pis": ["01-001"], "command": "uptime"})
     assert res.status_code == 200
     action_id = res.json()["action_id"]
@@ -121,7 +137,7 @@ def test_process_kill_success(client, db, sample_pi):
         position="01-001", exit_code=0, stdout="", stderr="", error=None,
         duration_ms=30, retry_count=0,
     )
-    with patch("backend.routes.process.execute_many", return_value=[ssh_result]):
+    with patch("backend.services.actions.execute_many", fake_execute_many([ssh_result])):
         res = client.post(f"{API}/process/kill", json={"pis": ["01-001"], "process_name": "chromium"})
     assert res.status_code == 200
 
@@ -131,7 +147,7 @@ def test_process_kill_not_found(client, db, sample_pi):
         position="01-001", exit_code=1, stdout="", stderr="process not found: chromium",
         error=None, duration_ms=30, retry_count=0,
     )
-    with patch("backend.routes.process.execute_many", return_value=[ssh_result]):
+    with patch("backend.services.actions.execute_many", fake_execute_many([ssh_result])):
         res = client.post(f"{API}/process/kill", json={"pis": ["01-001"], "process_name": "chromium"})
     assert res.status_code == 200
     assert res.json()["action_id"] is not None
@@ -144,7 +160,7 @@ def test_service_restart_success(client, db, sample_pi):
         position="01-001", exit_code=0, stdout="", stderr="", error=None,
         duration_ms=40, retry_count=0,
     )
-    with patch("backend.routes.service.execute_many", return_value=[ssh_result]):
+    with patch("backend.services.actions.execute_many", fake_execute_many([ssh_result])):
         res = client.post(f"{API}/service/restart", json={"pis": ["01-001"], "service": "kiosk.service"})
     assert res.status_code == 200
 

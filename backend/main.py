@@ -1,3 +1,4 @@
+import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -7,8 +8,9 @@ from sqlalchemy.orm import Session
 
 from backend.database import check_db, get_db, SessionLocal
 from backend.routes import (
-    auth, command, discovery, health, logs, pi, process, service, settings, tasks, users,
+    actions, auth, command, discovery, health, logs, pi, process, service, settings, tasks, users,
 )
+from backend.services import audit_log as al
 from backend.services import scheduler as sched
 
 _start_time = time.monotonic()
@@ -18,11 +20,14 @@ _start_time = time.monotonic()
 async def lifespan(app: FastAPI):
     global _start_time
     _start_time = time.monotonic()
-    # Tests set this: the scheduler would connect to the real DB from config.yaml
+    # Tests set this: startup DB work would connect to the real DB from config.yaml
     run_scheduler = os.environ.get("PI_CONTROLLER_DISABLE_SCHEDULER") != "1"
     if run_scheduler:
         db = SessionLocal()
         try:
+            interrupted = al.mark_interrupted(db)  # jobs cut off by the last restart
+            if interrupted:
+                logging.getLogger(__name__).warning("Marked %d unfinished action(s) as interrupted", interrupted)
             sched.start(db)
         finally:
             db.close()
@@ -46,6 +51,7 @@ API = "/api/v1"
 app.include_router(auth.router,      prefix=f"{API}/auth",      tags=["auth"])
 app.include_router(users.router,     prefix=f"{API}/users",     tags=["users"])
 app.include_router(pi.router,        prefix=f"{API}/pi",        tags=["inventory"])
+app.include_router(actions.router,   prefix=f"{API}/actions",   tags=["actions"])
 app.include_router(health.router,    prefix=f"{API}/health",    tags=["health"])
 app.include_router(command.router,   prefix=f"{API}/command",   tags=["command"])
 app.include_router(process.router,   prefix=f"{API}/process",   tags=["process"])

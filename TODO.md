@@ -57,7 +57,7 @@
   - [x] Phase 0: nginx in front (installed by deploy.sh), uvicorn on 127.0.0.1
   - [ ] Enforce `must_change_password` (web page forces a change on first login)
   - [x] Decide UI stack → Ionic/Angular app in `web/`, served by nginx (API proxied to uvicorn on 127.0.0.1); released via GitHub releases
-  - [ ] Live progress for health/command runs (polling vs WebSocket/SSE)
+  - [x] Live progress — background jobs + `GET /api/v1/actions/{id}` polling, per-Pi `action_results` (phase 2)
   - [ ] Feature parity with TUI: inventory, select, execute, monitor, logs, health, discovery, tasks, settings
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
         settings in DB/shared store instead of per-process cache — until then `--workers 1`

@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from backend.auth import Actor
-from backend.models import ActionLog
+from backend.models import ActionLog, ActionResult
 
 
 def create_action(
@@ -54,6 +54,40 @@ def update_action(
     db.commit()
     db.refresh(entry)
     return entry
+
+
+def add_result(
+    db: Session,
+    action_id: int,
+    position: str,
+    exit_code: int | None = None,
+    stdout: str | None = None,
+    stderr: str | None = None,
+    error: str | None = None,
+    details: dict | None = None,
+    duration_ms: int | None = None,
+) -> None:
+    """Record one Pi's result as soon as it finishes (progress for the web page)."""
+    db.add(ActionResult(
+        action_id=action_id, position=position, exit_code=exit_code, stdout=stdout or None,
+        stderr=stderr or None, error=error, details=details, duration_ms=duration_ms,
+    ))
+    db.commit()
+
+
+def get_results(db: Session, action_id: int) -> list[ActionResult]:
+    return db.query(ActionResult).filter(ActionResult.action_id == action_id).order_by(ActionResult.id).all()
+
+
+def mark_interrupted(db: Session) -> int:
+    """At startup: jobs that were queued/running when the process stopped will never finish."""
+    count = (
+        db.query(ActionLog)
+        .filter(ActionLog.status.in_(("queued", "running")))
+        .update({"status": "interrupted"}, synchronize_session=False)
+    )
+    db.commit()
+    return count
 
 
 def get_action(db: Session, action_id: int) -> ActionLog | None:

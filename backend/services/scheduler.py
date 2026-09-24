@@ -103,7 +103,7 @@ def _task_actor(task: ScheduledTask, db: Session):
 def _exec_command(task: ScheduledTask, db: Session, actor) -> int | None:
     from backend.config import effective_ssh_settings
     from backend.models import Pi
-    from backend.routes.command import _run_command
+    from backend.services.actions import start_ssh_action
     pis = (
         db.query(Pi).filter(Pi.position.in_(task.pis)).all()
         if task.pis
@@ -111,13 +111,13 @@ def _exec_command(task: ScheduledTask, db: Session, actor) -> int | None:
     )
     if not pis or not task.command:
         return None
-    return _run_command(pis, task.command, db, actor=actor)
+    return start_ssh_action(db, "execute", [p.position for p in pis], task.command, actor, wait=True)
 
 
 def _exec_health(task: ScheduledTask, db: Session, actor) -> int | None:
     from backend.config import effective_ssh_settings
     from backend.models import Pi
-    from backend.services.health_check import run_health_check
+    from backend.services.health_check import start_health_check
     pis = (
         db.query(Pi).filter(Pi.position.in_(task.pis)).all()
         if task.pis
@@ -125,12 +125,11 @@ def _exec_health(task: ScheduledTask, db: Session, actor) -> int | None:
     )
     if not pis:
         return None
-    return run_health_check(pis, db, effective_ssh_settings(), actor=actor)
+    return start_health_check(db, [p.position for p in pis], actor=actor, wait=True)
 
 
 def _exec_discovery(db: Session, actor) -> int | None:
     from backend.config import effective_network_settings, effective_ssh_settings
-    from backend.services.discovery import scan_subnet
+    from backend.services.discovery import start_discovery
     net = effective_network_settings()
-    result = scan_subnet(net.subnet, db, effective_ssh_settings(), net, actor=actor)
-    return result.action_id if result else None
+    return start_discovery(db, net.subnet, effective_ssh_settings(), net, actor=actor, wait=True)

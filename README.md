@@ -447,6 +447,10 @@ Everything is under **`/api/v1`**. Full interactive docs at `http://localhost:80
 All endpoints need `Authorization: Bearer <token>` from `POST /api/v1/auth/login`, except login and `GET /health`.
 Minimum role in the last column.
 
+**Long operations run in the background** (health check, execute, kill, restart, discovery): the `POST` returns
+`{action_id, status: "queued"}` at once; poll `GET /actions/{action_id}` (~1 s) — per-Pi results appear as each Pi
+finishes (`done`/`total`), `finished: true` at the end. Jobs cut off by a backend restart are marked `interrupted`.
+
 | Method | Path | Description | Role |
 |--------|------|-------------|------|
 | `POST` | `/auth/login` | Username + password → 12 h session token | public |
@@ -459,6 +463,7 @@ Minimum role in the last column.
 | `POST` | `/users/{id}/password` | Reset password (ends sessions) | admin |
 | `POST` | `/users/{id}/revoke-sessions` | Log a user out everywhere | admin |
 | `GET` | `/health` | Backend + DB liveness | public |
+| `GET` | `/actions/{action_id}` | Progress + per-Pi results of any background action | viewer |
 | `GET` | `/pi/list` | List Pis (status/tags/version filter, paginated) | viewer |
 | `GET` | `/pi/{position}/status` | Single Pi detail | viewer |
 | `POST` | `/pi` | Create Pi | admin |
@@ -472,7 +477,8 @@ Minimum role in the last column.
 | `POST` | `/service/restart` | Restart systemd unit | operator |
 | `POST` | `/health/trigger` | Trigger health check (selected or all) | operator |
 | `GET` | `/health/{action_id}` | Get health check results | viewer |
-| `POST` | `/discovery/scan` | Scan subnet, probe Pis, update DB | operator |
+| `POST` | `/discovery/scan` | Scan subnet, probe Pis, update DB (background → `action_id`) | operator |
+| `GET` | `/discovery/scan/{action_id}` | Discovery result | viewer |
 | `GET` | `/logs` | Pi operations log (actions_log) | viewer |
 | `GET` | `/logs/events` | Logins, edits, settings, user changes (audit_events) | viewer |
 | `GET` | `/tasks` | Scheduled tasks | operator |

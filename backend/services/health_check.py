@@ -6,15 +6,17 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from functools import partial
 
 import paramiko
 from datetime import datetime, timezone
 
-from backend.config import SSHSettings
+from backend.config import SSHSettings, effective_ssh_settings
 from backend.utils.helpers import extract_pi_version, is_valid_mac, load_private_key
 from backend.models import Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
+from backend.services import jobs
 
 log = logging.getLogger(__name__)
 
@@ -191,10 +193,21 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
         client.close()
 
 
-def run_health_check(pis: list[Pi], db, ssh: SSHSettings, actor=None) -> int:
-    positions = [p.position for p in pis]
-    entry = al.create_action(db, positions, "health", status="running", actor=actor)
+def start_health_check(db, positions: list[str], actor=None, wait: bool = False) -> int:
+    """Create the queued action and run it — in the background, or right here if `wait` (scheduler)."""
+    entry = al.create_action(db, positions, "health", status="queued", actor=actor)
+    work = partial(health_job, ssh=effective_ssh_settings())
+    if wait:
+        jobs.run_action(entry.id, work)
+    else:
+        jobs.submit(jobs.run_action, entry.id, work)
+    return entry.id
+
+
+def health_job(db, entry, ssh: SSHSettings) -> None:
+    """Check every Pi of the action; one action_results row per Pi as it finishes, then update the Pis."""
     start = time.monotonic()
+    pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
 
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
     workers = min(ssh.parallel_limit, max(1, len(targets)))
@@ -204,6 +217,11 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings, actor=None) -> int:
         for future in as_completed(futures):
             d = future.result()
             data_map[d.result.position] = d
+            al.add_result(db, entry.id, d.result.position, error=d.result.error,
+                          details=d.result.model_dump(exclude={"position", "error"}))
+    for pi in pis:
+        if pi.current_ip is None:
+            al.add_result(db, entry.id, pi.position, error="no IP recorded")
 
     results: list[PiHealthResult] = []
     # MAC is the PK: never reassign one that another Pi already holds (in DB or earlier this run)
@@ -265,4 +283,3 @@ def run_health_check(pis: list[Pi], db, ssh: SSHSettings, actor=None) -> int:
         stdout=json.dumps([r.model_dump() for r in results]),
         duration_ms=duration_ms,
     )
-    return entry.id

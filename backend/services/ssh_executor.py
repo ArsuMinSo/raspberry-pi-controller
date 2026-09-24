@@ -2,6 +2,7 @@ import socket
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
+from typing import Callable
 
 import paramiko
 
@@ -99,8 +100,12 @@ def execute_many(
     settings: SSHSettings,
     ssh_username: str | None = None,
     ssh_password: str | None = None,
+    on_result: Callable[[SSHResult], None] | None = None,
 ) -> list[SSHResult]:
-    """targets: list of (ip, position). Parallel execution, order preserved."""
+    """targets: list of (ip, position). Parallel execution, order preserved.
+
+    `on_result` is called for each Pi as it finishes, in the calling thread.
+    """
     if not targets:
         return []
     workers = min(settings.parallel_limit, len(targets))
@@ -113,4 +118,6 @@ def execute_many(
         for future in as_completed(futures):
             r = future.result()
             result_map[r.position] = r
+            if on_result is not None:
+                on_result(r)
     return [result_map[pos] for _, pos in targets]

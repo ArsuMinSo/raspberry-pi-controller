@@ -347,3 +347,34 @@ class AuditEventOut(BaseModel):
     ip: str | None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ─── Background actions (migration 004) ───────────────────────────────────────
+
+class ActionResultOut(BaseModel):
+    position: str
+    exit_code: int | None
+    stdout: str | None
+    stderr: str | None
+    error: str | None
+    details: dict | None
+    duration_ms: int | None
+    finished_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ActionProgress(BaseModel):
+    action_id: int
+    action: str
+    status: str                 # queued / running / success / fail / partial_fail / interrupted
+    finished: bool
+    user: str
+    command: str | None
+    pis_selected: list[str]
+    total: int                  # Pis in the action (0 for discovery)
+    done: int                   # Pis finished so far
+    results: list[ActionResultOut]
+    error: str | None           # job-level failure (not per-Pi)
+    started_at: datetime
+    duration_ms: int | None

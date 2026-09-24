@@ -1,11 +1,9 @@
 import json
-import time
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.auth import Actor, require_role
-from backend.config import effective_ssh_settings, get_settings
 from backend.database import get_db
 from backend.models import Pi
 from backend.schemas import (
@@ -15,67 +13,9 @@ from backend.schemas import (
     PiCommandResult,
 )
 from backend.services import audit_log as al
-from backend.services.ssh_executor import execute_many
+from backend.services.actions import start_ssh_action
 
 router = APIRouter()
-
-
-def _run_command(
-    pis: list[Pi],
-    command: str,
-    db: Session,
-    ssh_username: str | None = None,
-    ssh_password: str | None = None,
-    actor: Actor | None = None,
-) -> int:
-    positions = [p.position for p in pis]
-    entry = al.create_action(db, positions, "execute", command=command, status="running", actor=actor)
-    start = time.monotonic()
-
-    targets = []
-    skipped: list[PiCommandResult] = []
-    for pi in pis:
-        if pi.current_ip is None:
-            skipped.append(PiCommandResult(
-                position=pi.position,
-                exit_code=None,
-                stdout=None,
-                stderr=None,
-                error="no IP recorded",
-            ))
-        else:
-            targets.append((str(pi.current_ip), pi.position))
-
-    ssh_results = execute_many(targets, command, effective_ssh_settings(), ssh_username, ssh_password)
-
-    all_results = skipped + [
-        PiCommandResult(
-            position=r.position,
-            exit_code=r.exit_code,
-            stdout=r.stdout or None,
-            stderr=r.stderr or None,
-            error=r.error,
-        )
-        for r in ssh_results
-    ]
-
-    errors = [r for r in all_results if r.error or (r.exit_code is not None and r.exit_code != 0)]
-    if len(errors) == 0:
-        status = "success"
-    elif len(errors) == len(all_results):
-        status = "fail"
-    else:
-        status = "partial_fail"
-
-    duration_ms = int((time.monotonic() - start) * 1000)
-    al.update_action(
-        db,
-        entry.id,
-        status=status,
-        stdout=json.dumps([r.model_dump() for r in all_results]),
-        duration_ms=duration_ms,
-    )
-    return entry.id
 
 
 @router.post("/execute", response_model=ActionQueued)
@@ -87,7 +27,8 @@ def execute_command(body: CommandExecuteRequest, actor: Actor = Depends(require_
     if missing:
         raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
 
-    action_id = _run_command(pis, body.command, db, body.ssh_username, body.ssh_password, actor=actor)
+    action_id = start_ssh_action(db, "execute", [p.position for p in pis], body.command, actor,
+                                 ssh_username=body.ssh_username, ssh_password=body.ssh_password)
     return ActionQueued(action_id=action_id)
 
 

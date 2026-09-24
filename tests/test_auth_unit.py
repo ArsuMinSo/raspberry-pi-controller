@@ -32,6 +32,7 @@ EXPECTED_ROLES = {
     ("DELETE", "/pi/{position}"): "admin",
     ("POST", "/health/trigger"): "operator",
     ("GET", "/health/{action_id}"): "viewer",
+    ("GET", "/actions/{action_id}"): "viewer",
     ("POST", "/command/execute"): "admin",
     ("GET", "/command/{action_id}"): "viewer",
     ("POST", "/process/kill"): "operator",

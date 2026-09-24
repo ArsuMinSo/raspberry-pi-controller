@@ -104,3 +104,19 @@ class AuditEvent(Base):
     details = mapped_column(JSONB)
     ip = mapped_column(String(45))
     user_agent = mapped_column(String(255))
+
+
+class ActionResult(Base):
+    """Per-Pi result of a background action (migration 004), written as each Pi finishes."""
+    __tablename__ = "action_results"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    action_id: MappedColumn[int] = mapped_column(Integer, ForeignKey("actions_log.id"), nullable=False)
+    position: MappedColumn[str] = mapped_column(String(20), nullable=False)
+    exit_code = mapped_column(Integer)
+    stdout = mapped_column(Text)
+    stderr = mapped_column(Text)
+    error = mapped_column(Text)
+    details = mapped_column(JSONB)
+    duration_ms = mapped_column(Integer)
+    finished_at = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
