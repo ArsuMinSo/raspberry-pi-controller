@@ -1,14 +1,22 @@
 from collections.abc import Generator
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from backend.config import get_settings
 
 
-def _build_url(cfg) -> str:
+def _build_url(cfg) -> URL:
     db = cfg.database
-    return f"postgresql://{db.user}:{db.password}@{db.host}:{db.port}/{db.db_name}"
+    # URL.create escapes the password — '@', ':', '/', '#', '%' are safe
+    return URL.create(
+        "postgresql",
+        username=db.user,
+        password=db.password,
+        host=db.host,
+        port=db.port,
+        database=db.db_name,
+    )
 
 
 def _make_engine():

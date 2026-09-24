@@ -51,13 +51,14 @@ CREATE DATABASE pi_controller OWNER pi_controller;
 GRANT ALL ON SCHEMA public TO pi_controller;
 ```
 
-Then apply the migrations in order (`scripts/setup_db.sh` does both steps):
+Then apply the migrations — easiest with `scripts/setup_db.sh` (creates role + DB, then applies pending migrations):
 
 ```bash
-for f in migrations/*.sql; do psql -v ON_ERROR_STOP=1 -U pi_controller -d pi_controller -f "$f"; done
+sudo DB_PASSWORD='…' bash scripts/setup_db.sh
 ```
 
-Migrations are safe to re-run. `002_mac_pk.sql` makes MAC the primary key and aborts without changes if any Pi still has the all-zeros placeholder MAC or two Pis share a MAC — fix those rows first.
+Applied migrations are recorded in the `schema_migrations` table, so each runs once. Every migration runs in a single transaction with its record — if it fails, nothing is changed. When migrations are pending on a database that already has tables, a `pg_dump` backup is written to `/var/backups/pi-controller/` first.
+ `002_mac_pk.sql` makes MAC the primary key and aborts without changes if any Pi still has the all-zeros placeholder MAC or two Pis share a MAC — fix those rows first.
 
 ---
 
@@ -139,8 +140,10 @@ sudo bash scripts/deploy.sh
 
 Installs to `/opt/pi-controller` as a systemd service; re-run it to update. **Settings persist across updates:**
 
-- `.env` (`DB_PASSWORD`) is gitignored and never overwritten — it's only created on first install.
+- `.env` (`DB_PASSWORD`) is gitignored and never overwritten — it's only created on first install. The password is asked **3 times** and all entries must match; it may not contain a single quote (`'`).
 - `config.yaml` (edited by the Settings screen) is backed up to `config.yaml.bak-<timestamp>` before `git pull`, then merged back: your existing values win, and any new options added by the update get their defaults.
+
+**Database updates:** only new migrations run, after a `pg_dump` backup to `/var/backups/pi-controller/`. If one fails, it is rolled back, the code in `/opt/pi-controller` is reset to the previous version, and the service is not restarted — it keeps running the old version on the unchanged database.
 
 ---
 

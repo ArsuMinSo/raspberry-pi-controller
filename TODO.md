@@ -19,14 +19,20 @@
 
 ## Deploy (`scripts/deploy.sh`)
 
-- [ ] `curl … | sudo bash` first install: `read` for DB_PASSWORD consumes the script from stdin — use `read … < /dev/tty`
-- [ ] Deploy runs every migration via `setup_db.sh` — guard before `git pull` (or add a `schema_migrations`
+- [x] `curl … | sudo bash` first install: `read` for DB_PASSWORD consumes the script from stdin — use `read … < /dev/tty`
+- [x] Deploy runs every migration via `setup_db.sh` — guard before `git pull` (or add a `schema_migrations`
       table) so a failing migration doesn't leave new code pulled next to an old schema; prompt to back up DB first
-- [ ] `.env` is `source`d by bash (setup_db.sh SQL quoting now safe; `source`/systemd parsing still open) and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
+- [x] `.env` is `source`d by bash (now written single-quoted, `'` rejected; backend URL escapes password) and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
 - [x] venv path mismatch: `deploy.sh` uses `.venv`, `systemd/pi-controller.service` uses `venv`
 - [x] git as root on `/opt/pi-controller` owned by `pi_controller` → "dubious ownership"; add `safe.directory` or run git as service user
 - [ ] Consider untracking `config.yaml` (ship `config.example.yaml`) — tracked copy currently contains dev-machine values (key path, username)
+- [x] Password prompts ask 3 times, all must match (apply to every future password set/verify — web users too)
 - [x] setup_db.sh: migrations failed with "Peer authentication failed" (socket as root) — now TCP + password
+
+## Repo hygiene
+
+- [ ] Line endings are mixed (most `.py` CRLF, some LF, `.gitignore` mixed). Add `.gitattributes`
+      (`* text=auto eol=lf`, `*.sh eol=lf`) and renormalise in one dedicated commit — `.sh` must be LF to run
 
 ## Future
 

@@ -42,8 +42,10 @@ fi
 # back over the new defaults after the pull.
 CONFIG_FILE="$INSTALL_DIR/config.yaml"
 CONFIG_BACKUP=""
+PREV_HEAD=""  # commit to roll back to if migrations fail
 if [ -d "$INSTALL_DIR/.git" ]; then
     echo "Updating existing install at $INSTALL_DIR …"
+    PREV_HEAD="$(git -C "$INSTALL_DIR" rev-parse HEAD)"
     if [ -f "$CONFIG_FILE" ]; then
         CONFIG_BACKUP="$INSTALL_DIR/config.yaml.bak-$(date +%Y%m%d-%H%M%S)"
         cp -p "$CONFIG_FILE" "$CONFIG_BACKUP"
@@ -101,12 +103,33 @@ fi
 
 # ── .env file ─────────────────────────────────────────────────────────────────
 ENV_FILE="$INSTALL_DIR/.env"
+
+# Ask 3 times; all entries must match. Reads from the terminal, so it also
+# works when the script itself arrives on stdin (curl … | sudo bash).
+prompt_new_password() {
+    local label="$1" p1 p2 p3
+    while true; do
+        read -rsp "Enter $label: " p1 </dev/tty; echo >/dev/tty
+        read -rsp "Enter $label again (2/3): " p2 </dev/tty; echo >/dev/tty
+        read -rsp "Enter $label again (3/3): " p3 </dev/tty; echo >/dev/tty
+        if [ -z "$p1" ]; then
+            echo "Password must not be empty." >/dev/tty
+        elif [ "$p1" != "$p2" ] || [ "$p1" != "$p3" ]; then
+            echo "Entries do not match — try again." >/dev/tty
+        elif [[ "$p1" == *"'"* ]]; then
+            # .env stores it single-quoted (read literally by bash and systemd)
+            echo "Password must not contain a single quote (')." >/dev/tty
+        else
+            REPLY="$p1"
+            return
+        fi
+    done
+}
+
 if [ ! -f "$ENV_FILE" ]; then
-    read -rsp "Enter DB_PASSWORD for pi_controller user: " DB_PASSWORD
-    echo
-    cat > "$ENV_FILE" <<EOF
-DB_PASSWORD=${DB_PASSWORD}
-EOF
+    prompt_new_password "DB_PASSWORD for pi_controller user"
+    DB_PASSWORD="$REPLY"
+    ( umask 077; printf "DB_PASSWORD='%s'\n" "$DB_PASSWORD" > "$ENV_FILE" )
     chown "$SERVICE_USER:$SERVICE_USER" "$ENV_FILE"
     chmod 600 "$ENV_FILE"
     echo "Created $ENV_FILE"
@@ -119,7 +142,17 @@ export DB_PASSWORD
 
 # ── Database ──────────────────────────────────────────────────────────────────
 echo "Setting up database …"
-bash "$INSTALL_DIR/scripts/setup_db.sh"
+if ! bash "$INSTALL_DIR/scripts/setup_db.sh"; then
+    echo ""
+    echo "!!! Database setup failed — the failed migration was rolled back, DB unchanged."
+    if [ -n "$PREV_HEAD" ]; then
+        git -C "$INSTALL_DIR" reset --hard --quiet "$PREV_HEAD"
+        [ -n "$CONFIG_BACKUP" ] && cp -p "$CONFIG_BACKUP" "$CONFIG_FILE"
+        chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+        echo "!!! Code rolled back to $(git -C "$INSTALL_DIR" rev-parse --short HEAD); service not restarted (still running the old version)."
+    fi
+    exit 1
+fi
 
 # Single worker: scheduler and runtime settings live in-process — more workers
 # would run every scheduled task N times and split settings between processes.
