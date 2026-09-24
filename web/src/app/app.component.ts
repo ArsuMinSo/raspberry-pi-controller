@@ -14,6 +14,23 @@ import { AuthService } from './core/auth.service';
 import { Role } from './core/models';
 
 const PIN_KEY = 'pic.menuPinned';
+const WIDTH_KEY = 'pic.menuWidth';
+const WIDTH_DEFAULT = 270;
+const WIDTH_MIN = 180;
+const WIDTH_MAX = 480;
+
+function clampWidth(px: number): number {
+  return Math.min(WIDTH_MAX, Math.max(WIDTH_MIN, Math.round(px)));
+}
+
+function readWidth(): number {
+  try {
+    const v = Number(localStorage.getItem(WIDTH_KEY));
+    return v ? clampWidth(v) : WIDTH_DEFAULT;
+  } catch {
+    return WIDTH_DEFAULT;
+  }
+}
 
 /** Menu pinned open on wide screens? Per-browser preference; storage may be unavailable. */
 function readPinned(): boolean {
@@ -29,7 +46,10 @@ function readPinned(): boolean {
   template: `
     <ion-app>
       <!-- Pinned: menu always visible from 768 px. Collapsed: overlay, opened with ☰ -->
-      <ion-split-pane contentId="main" when="md" [disabled]="!menuPinned()">
+      <ion-split-pane contentId="main" when="md" [disabled]="!menuPinned()"
+                      [style.--side-width]="menuWidth() + 'px'"
+                      [style.--side-min-width]="menuWidth() + 'px'"
+                      [style.--side-max-width]="menuWidth() + 'px'">
         <ion-menu contentId="main" type="overlay" [disabled]="!auth.loggedIn()">
           <ion-content>
             <ion-list lines="none">
@@ -62,6 +82,12 @@ function readPinned(): boolean {
               </ion-menu-toggle>
             </ion-list>
           </ion-content>
+          @if (menuPinned()) {
+            <!-- Drag to resize the pinned menu; double-click resets -->
+            <div class="resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize menu"
+                 title="Drag to resize · double-click to reset"
+                 (pointerdown)="startResize($event)" (dblclick)="setWidth(270)"></div>
+          }
         </ion-menu>
         <ion-router-outlet id="main"></ion-router-outlet>
       </ion-split-pane>
@@ -69,7 +95,23 @@ function readPinned(): boolean {
   `,
   styles: [`
     .who { display: block; padding: 0 16px 12px; }
-    ion-item.selected { --color: var(--ion-color-primary); font-weight: 600; }
+    ion-item.selected {
+      --background: var(--ion-color-primary);
+      --color: var(--ion-color-primary-contrast);
+      font-weight: 600;
+    }
+    .resize-handle {
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 6px;
+      height: 100%;
+      z-index: 10;
+      cursor: col-resize;
+      touch-action: none;
+    }
+    .resize-handle:hover,
+    .resize-handle.dragging { background: var(--ion-color-secondary); }
   `],
   imports: [
     IonApp, IonButton, IonSplitPane, IonMenu, IonContent, IonList, IonListHeader, IonNote, IonMenuToggle, IonItem, IonIcon,
@@ -80,6 +122,7 @@ export class AppComponent {
   readonly auth = inject(AuthService);
 
   readonly menuPinned = signal(readPinned());
+  readonly menuWidth = signal(readWidth());
 
   readonly menu: { title: string; url: string; icon: string; role?: Role }[] = [
     { title: 'Inventory', url: '/inventory', icon: 'grid-outline' },
@@ -92,6 +135,35 @@ export class AppComponent {
       chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, personCircleOutline, pinOutline,
       pulseOutline, refreshOutline,
     });
+  }
+
+  startResize(down: PointerEvent): void {
+    const handle = down.target as HTMLElement;
+    const menuLeft = (handle.parentElement?.getBoundingClientRect().left ?? 0);
+    handle.setPointerCapture(down.pointerId);
+    handle.classList.add('dragging');
+    down.preventDefault();
+
+    const move = (e: PointerEvent) => this.menuWidth.set(clampWidth(e.clientX - menuLeft));
+    const up = () => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', up);
+      handle.removeEventListener('pointercancel', up);
+      handle.classList.remove('dragging');
+      this.setWidth(this.menuWidth());
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up);
+    handle.addEventListener('pointercancel', up);
+  }
+
+  setWidth(px: number): void {
+    this.menuWidth.set(clampWidth(px));
+    try {
+      localStorage.setItem(WIDTH_KEY, String(this.menuWidth()));
+    } catch {
+      // storage unavailable — width lasts for this page load only
+    }
   }
 
   togglePinned(): void {

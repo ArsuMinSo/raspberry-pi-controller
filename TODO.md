@@ -40,7 +40,7 @@
 
 ## Server
 
-- [ ] Production server runs Ubuntu 25.04 (end-of-life, no security updates) — upgrade to 26.04 LTS
+- [ ] ⏸ Postponed (2026-09-24): production server runs Ubuntu 25.04 (end-of-life, no security updates) — upgrade to 26.04 LTS
       before the web service exposes a login page
 
 ## Fleet API ideas (roles: viewer / operator / admin; long ones as background jobs)
@@ -50,7 +50,6 @@
 - [ ] `POST /display/power {on|off}` (operator) — `vcgencmd display_power` / HDMI-CEC; night schedule via tasks
 - [ ] `GET /pi/{pos}/throttled` + `GET /pi/{pos}/disk` (viewer) — undervoltage/overheat, full SD card
 - [ ] `GET /fleet/summary` (viewer) — reachable/unreachable, hottest, low disk, stale last_seen (web dashboard)
-- [ ] `/commands/presets` — named commands: operator runs, admin manages (execute is admin-only)
 
 **Later:**
 - [ ] `POST /pi/shutdown` (admin); `POST /pi/wake` WoL (operator, Pi 4/5 mostly unsupported)
@@ -67,7 +66,7 @@
 
 ## Future
 
-- [ ] **Web service** — web page for everyone via nginx on port 80 (LAN, plain HTTP for now; name TBD, meanwhile http://10.10.20.115/); TUI stays as local break-glass tool;
+- [ ] **Web service** — web page for everyone at http://tv.omnika.home/ (nginx, LAN, plain HTTP); TUI stays as local break-glass tool;
       Android app later (plan together). **Design: [docs/design/web-service.md](docs/design/web-service.md)** —
       ~5 users, viewer/operator/admin, Ionic + Angular (TypeScript), web built locally → GitHub release. It needs:
   - [x] **User login** — argon2id, 12 h bearer sessions, lockout; TUI break-glass key (phase 1)
@@ -86,7 +85,7 @@
   - [ ] First real web release (`scripts/release_web.sh`) + browser test against the server (CSP, login, progress)
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
         settings in DB/shared store instead of per-process cache — until then `--workers 1`
-  - [ ] Later: HTTPS in nginx via Let's Encrypt for the chosen *.omnika.com name (DNS-01)
+  - [ ] Later, optional: HTTPS — `.home` isn't public, so own CA + cert in nginx, CA installed on each device
 - [ ] **Showroom / presentation** — project showcase: what it does, screenshots/demo of TUI + web UI,
       architecture overview; demo mode with fake Pis so it can be shown without real hardware
 - [ ] **Documentation** — proper docs (user guide, admin/deployment guide, API reference, developer guide);

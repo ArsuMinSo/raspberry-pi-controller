@@ -148,11 +148,11 @@ Log out with `POST /auth/logout` when done.
 
 ### Web page
 
-`http://<server>/` (nginx, port 80) — log in with your account. Ionic + Angular app in `web/`.
+`http://tv.omnika.home/` (nginx, port 80; or the server's IP) — log in with your account. Ionic + Angular app in `web/`.
 
 - **Inventory:** search, status filter, numeric position sort, CPU/RAM/temp; select Pis → *Health check*
   (operator+) → live progress per Pi.
-- **Menu** on the left: pinned open from 768 px wide; collapse with « (then ☰ opens it), pin again with 📌 — remembered per browser.
+- **Menu** on the left: pinned open from 768 px wide; drag its right edge to resize (double-click resets); collapse with « (then ☰ opens it), pin again with 📌 — remembered per browser.
 - **Pi detail**, **Activity log** (operator+; Pi actions + logins/changes), **Account** (change password — entered twice —,
   sessions, logout). Accounts flagged *must change password* go to Account first.
 - Session lives in the browser tab (sessionStorage), 12 h max.

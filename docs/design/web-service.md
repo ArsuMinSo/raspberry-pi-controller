@@ -13,7 +13,7 @@ permissions. The TUI stays as a local backup tool on the server.
 | Roles | `viewer` / `operator` / `admin` |
 | Clients | **Web page** — the main way in, for everyone. **TUI** — local-only backup on the server itself (break-glass). **Android app** — out of scope for now |
 | Web stack | TypeScript — **Ionic 9 + Angular 22 (standalone)**, same stack as `UTB/05_3WS/PM/02_projekt/counter-app`. Capacitor added later if/when the Android app is planned |
-| Network | **LAN only** (no Tailscale), **plain HTTP** for now. **nginx on port 80** in front (web page + API proxy); address `http://<name>/` — name open (question 1), meanwhile `http://10.10.20.115/`. `:8080` on this server is another service (untouched) |
+| Network | **LAN only** (no Tailscale), **plain HTTP** for now. **nginx on port 80** in front (web page + API proxy); address **`http://tv.omnika.home/`** (internal DNS; or `http://10.10.20.115/`). `:8080` on this server is another service (untouched) |
 | Passwords | Setting / changing / resetting a password asks **2 times** (entry + confirmation). **Login asks once** |
 | Arbitrary commands | **Admin (web) and TUI only**, with or without `sudo` |
 | Session length | **12 h maximum** from login, no separate idle timeout (log in once per working day) |
@@ -51,11 +51,11 @@ permissions. The TUI stays as a local backup tool on the server.
   (from a template in the repo), `nginx -t` to validate, reload. Nothing to configure by hand.
 - **API moves under `/api/v1`** so it can't collide with web-page routes (e.g. `/logs`). The TUI is updated in the
   same release, so old root paths are simply removed — no aliases.
-- **Name:** open question 1. Until a name exists, `http://10.10.20.115/` works.
+- **Name:** `tv.omnika.home` (internal LAN DNS, resolves to this server) — decided 2026-09-24.
 - **Plain HTTP (for now):** passwords and session tokens cross the LAN unencrypted — anyone who can capture LAN
   traffic could read them. Acceptable on the isolated LAN to start; sessions end after 12 h, which limits damage.
-  **Later:** nginx makes HTTPS a config change — `omnika.com` is a real domain, so a free Let's Encrypt
-  certificate for the chosen `*.omnika.com` name (DNS-01 challenge) gives HTTPS every browser trusts, with no device setup.
+  **Later, if wanted:** nginx makes HTTPS a config change, but `.home` is not a public domain, so Let's Encrypt
+  can't issue for it — it would need an own small CA installed on each device (~5).
 
 ## Authentication
 
@@ -185,28 +185,25 @@ If the repo is ever made private, the server needs a read-only GitHub token for 
 
 | Phase | Scope | Outcome |
 |-------|-------|---------|
-| 0 · Server | `deploy.sh` installs + configures nginx; uvicorn moves to 127.0.0.1. Separately, optional: Ubuntu 25.04 → 26.04 LTS, done together (commands pasted into the server pane, DB backup first) | Single entry point; API no longer open on the LAN |
+| 0 · Server | `deploy.sh` installs + configures nginx; uvicorn moves to 127.0.0.1. Ubuntu 25.04 → 26.04 upgrade: postponed (decided 2026-09-24) | Single entry point; API no longer open on the LAN |
 | 1 · Backend auth | migration 003, users/sessions/roles, `/api/v1`, audit events, `backend.manage`, TUI break-glass key | Every action attributed to a person; permissions enforced |
 | 2 · Background jobs | job executor, `action_results`, polling endpoint, TUI on new mechanism | Web-ready progress |
 | 3 · Web page MVP | `web/` Ionic app: login, inventory, Pi detail, health, logs, account; nginx serves it; `release_web.sh` + deploy download | Read-only + health in the browser |
 | 4 · Web page full | actions, discovery, tasks, settings, users | Everything the TUI can do |
 | 5 · Showroom & docs | demo mode with fake Pis (fake SSH executor), screenshots, user/admin guides | Presentable project |
-| later · HTTPS | Let's Encrypt certificate for the chosen `*.omnika.com` name (DNS-01) in nginx | Encrypted logins, no device setup |
+| later · HTTPS (optional) | own CA + certificate for `tv.omnika.home` in nginx; CA installed on each device | Encrypted logins |
 | later · Android | Capacitor app — **to be planned together** when needed | App on phones |
 
 Each phase ships on its own; tests (pytest for backend, vitest for web) grow with it.
 
 ## Open questions
 
-1. **Name for the web page.** Checked 2026-09-24: `tv.omnika.com` resolves only to `2a00:4b40:aaaa:2005::7` (a public
-   IPv6 host) — **not** this server (`10.10.20.115`). Options:
-   - internal DNS record (LAN DNS / router) for e.g. `picontroller.omnika.com` → `10.10.20.115` (recommended if the
-     LAN has its own DNS),
-   - public DNS A record for a new `omnika.com` name → `10.10.20.115` (works without internal DNS; publishes an
-     internal IP; easiest path to Let's Encrypt later),
-   - use `http://10.10.20.115/` for now.
+None at the moment.
 
 ## Resolved
 
 - **Port** (checked 2026-09-24): 80 is free → nginx on 80; uvicorn stays on 8000, bound to 127.0.0.1;
   8080 is another service on this server.
+- **Name** (2026-09-24): `tv.omnika.home` via internal DNS — no public DNS record, no Let's Encrypt.
+- **Ubuntu upgrade**: postponed.
+- **Command presets for operators**: no — free-form commands stay admin-only.
