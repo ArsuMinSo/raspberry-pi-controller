@@ -128,9 +128,10 @@ Interactive API docs available at `http://localhost:8000/docs`.
 ### TUI
 
 ```bash
-source .venv/bin/activate
-python -m frontend.main
+.venv/bin/python -m frontend.main
 ```
+
+Run it from the project venv, not the system Python — distro packages can be far older (Ubuntu 25.04 ships Textual 2.1.1; the TUI needs ≥ 8, see `requirements.txt`) and fail with `MarkupError` or `Error in stylesheet`. Create the venv with `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` (`scripts/run_tests.sh` also creates it).
 
 Press `q` to quit. Ctrl+C is intentionally ignored to prevent accidental exit.
 

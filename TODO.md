@@ -38,6 +38,11 @@
 - [ ] Line endings are mixed (most `.py` CRLF, some LF, `.gitignore` mixed). Add `.gitattributes`
       (`* text=auto eol=lf`, `*.sh eol=lf`) and renormalise in one dedicated commit — `.sh` must be LF to run
 
+## Server
+
+- [ ] Production server runs Ubuntu 25.04 (end-of-life, no security updates) — upgrade to 26.04 LTS
+      before the web service exposes a login page
+
 ## Future
 
 - [ ] **Web service** — operate the controller from a browser, alongside the TUI.
