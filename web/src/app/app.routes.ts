@@ -1,0 +1,38 @@
+import { Routes } from '@angular/router';
+
+import { authGuard, guestGuard } from './core/guards';
+
+export const routes: Routes = [
+  { path: '', pathMatch: 'full', redirectTo: 'inventory' },
+  {
+    path: 'login',
+    canActivate: [guestGuard],
+    loadComponent: () => import('./pages/login.page').then((m) => m.LoginPage),
+  },
+  {
+    path: 'inventory',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/inventory.page').then((m) => m.InventoryPage),
+  },
+  {
+    path: 'pi/:position',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/pi-detail.page').then((m) => m.PiDetailPage),
+  },
+  {
+    path: 'actions/:id',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/action.page').then((m) => m.ActionPage),
+  },
+  {
+    path: 'logs',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/logs.page').then((m) => m.LogsPage),
+  },
+  {
+    path: 'account',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/account.page').then((m) => m.AccountPage),
+  },
+  { path: '**', redirectTo: 'inventory' },
+];
