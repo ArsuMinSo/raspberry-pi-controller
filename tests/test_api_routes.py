@@ -5,18 +5,19 @@ import pytest
 
 from backend.models import ActionLog, Pi
 from backend.services.ssh_executor import SSHResult
+from tests.conftest import API
 
 
 # ─── Pi / Inventory ───────────────────────────────────────────────────────────
 
 def test_pi_list_empty(client):
-    res = client.get("/pi/list")
+    res = client.get(f"{API}/pi/list")
     assert res.status_code == 200
     assert res.json() == []
 
 
 def test_pi_list_returns_pis(client, sample_pi):
-    res = client.get("/pi/list")
+    res = client.get(f"{API}/pi/list")
     assert res.status_code == 200
     data = res.json()
     assert any(p["position"] == "01-001" for p in data)
@@ -27,7 +28,7 @@ def test_pi_list_filter_status(client, db, sample_pi):
     db.add(unreachable)
     db.commit()
 
-    res = client.get("/pi/list?status=reachable")
+    res = client.get(f"{API}/pi/list?status=reachable")
     positions = [p["position"] for p in res.json()]
     assert "01-001" in positions
     assert "09-001" not in positions
@@ -41,7 +42,7 @@ def test_pi_list_filter_tags(client, db):
     db.add(pi)
     db.commit()
 
-    res = client.get("/pi/list?tags=lobby")
+    res = client.get(f"{API}/pi/list?tags=lobby")
     positions = [p["position"] for p in res.json()]
     assert "08-001" in positions
 
@@ -50,49 +51,49 @@ def test_pi_list_filter_tags(client, db):
 
 
 def test_pi_status_found(client, sample_pi):
-    res = client.get("/pi/01-001/status")
+    res = client.get(f"{API}/pi/01-001/status")
     assert res.status_code == 200
     assert res.json()["position"] == "01-001"
 
 
 def test_pi_status_not_found(client):
-    res = client.get("/pi/99-999/status")
+    res = client.get(f"{API}/pi/99-999/status")
     assert res.status_code == 404
 
 
 def test_pi_status_invalid_position(client):
-    res = client.get("/pi/bad/status")
+    res = client.get(f"{API}/pi/bad/status")
     assert res.status_code == 422
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────
 
 def test_health_trigger_unknown_position(client):
-    res = client.post("/health/trigger", json={"pis": ["99-999"]})
+    res = client.post(f"{API}/health/trigger", json={"pis": ["99-999"]})
     assert res.status_code == 422
 
 
 def test_health_trigger_no_reachable(client):
-    res = client.post("/health/trigger", json={"all": True})
+    res = client.post(f"{API}/health/trigger", json={"all": True})
     assert res.status_code == 404
 
 
 def test_health_trigger_success(client, db, sample_pi):
     with patch("backend.routes.health.run_health_check", return_value=1) as mock_hc:
-        res = client.post("/health/trigger", json={"pis": ["01-001"]})
+        res = client.post(f"{API}/health/trigger", json={"pis": ["01-001"]})
     assert res.status_code == 200
     assert res.json()["action_id"] == 1
 
 
 def test_health_result_not_found(client):
-    res = client.get("/health/99999")
+    res = client.get(f"{API}/health/99999")
     assert res.status_code == 404
 
 
 # ─── Command ──────────────────────────────────────────────────────────────────
 
 def test_command_execute_unknown_position(client):
-    res = client.post("/command/execute", json={"pis": ["99-999"], "command": "uptime"})
+    res = client.post(f"{API}/command/execute", json={"pis": ["99-999"], "command": "uptime"})
     assert res.status_code == 422
 
 
@@ -102,11 +103,11 @@ def test_command_execute_success(client, db, sample_pi):
         duration_ms=50, retry_count=0,
     )
     with patch("backend.routes.command.execute_many", return_value=[ssh_result]):
-        res = client.post("/command/execute", json={"pis": ["01-001"], "command": "uptime"})
+        res = client.post(f"{API}/command/execute", json={"pis": ["01-001"], "command": "uptime"})
     assert res.status_code == 200
     action_id = res.json()["action_id"]
 
-    res2 = client.get(f"/command/{action_id}")
+    res2 = client.get(f"{API}/command/{action_id}")
     assert res2.status_code == 200
     results = res2.json()["results"]
     assert results[0]["exit_code"] == 0
@@ -121,7 +122,7 @@ def test_process_kill_success(client, db, sample_pi):
         duration_ms=30, retry_count=0,
     )
     with patch("backend.routes.process.execute_many", return_value=[ssh_result]):
-        res = client.post("/process/kill", json={"pis": ["01-001"], "process_name": "chromium"})
+        res = client.post(f"{API}/process/kill", json={"pis": ["01-001"], "process_name": "chromium"})
     assert res.status_code == 200
 
 
@@ -131,7 +132,7 @@ def test_process_kill_not_found(client, db, sample_pi):
         error=None, duration_ms=30, retry_count=0,
     )
     with patch("backend.routes.process.execute_many", return_value=[ssh_result]):
-        res = client.post("/process/kill", json={"pis": ["01-001"], "process_name": "chromium"})
+        res = client.post(f"{API}/process/kill", json={"pis": ["01-001"], "process_name": "chromium"})
     assert res.status_code == 200
     assert res.json()["action_id"] is not None
 
@@ -144,14 +145,14 @@ def test_service_restart_success(client, db, sample_pi):
         duration_ms=40, retry_count=0,
     )
     with patch("backend.routes.service.execute_many", return_value=[ssh_result]):
-        res = client.post("/service/restart", json={"pis": ["01-001"], "service": "kiosk.service"})
+        res = client.post(f"{API}/service/restart", json={"pis": ["01-001"], "service": "kiosk.service"})
     assert res.status_code == 200
 
 
 # ─── Logs ─────────────────────────────────────────────────────────────────────
 
 def test_logs_empty(client):
-    res = client.get("/logs")
+    res = client.get(f"{API}/logs")
     assert res.status_code == 200
     assert isinstance(res.json(), list)
 
@@ -161,7 +162,7 @@ def test_logs_filter_by_position(client, db):
     db.add(entry)
     db.commit()
 
-    res = client.get("/logs?pi=07-001")
+    res = client.get(f"{API}/logs?pi=07-001")
     assert res.status_code == 200
     data = res.json()
     assert any("07-001" in e["pis_selected"] for e in data)
@@ -171,7 +172,7 @@ def test_logs_filter_by_position(client, db):
 # ─── System health ────────────────────────────────────────────────────────────
 
 def test_system_health(client):
-    res = client.get("/health")
+    res = client.get(f"{API}/health")
     assert res.status_code == 200
     body = res.json()
     assert body["status"] == "ok"

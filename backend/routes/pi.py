@@ -5,6 +5,7 @@ import paramiko
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from backend.auth import Actor, record_event, require_role
 from backend.config import effective_ssh_settings
 from backend.database import get_db
 from backend.models import Pi
@@ -52,7 +53,7 @@ def _pi_to_detail(pi: Pi) -> PiDetail:
     )
 
 
-@router.get("/list", response_model=list[PiSummary])
+@router.get("/list", response_model=list[PiSummary], dependencies=[Depends(require_role("viewer"))])
 def list_pis(
     status: str | None = Query(None),
     tags: list[str] | None = Query(None),
@@ -73,7 +74,7 @@ def list_pis(
     return [_pi_to_summary(p) for p in rows]
 
 
-@router.get("/{position}/status", response_model=PiDetail)
+@router.get("/{position}/status", response_model=PiDetail, dependencies=[Depends(require_role("viewer"))])
 def get_pi_status(position: str, db: Session = Depends(get_db)):
     try:
         pos = validate_position(position)
@@ -86,7 +87,7 @@ def get_pi_status(position: str, db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=PiDetail, status_code=201)
-def create_pi(body: PiCreateRequest, db: Session = Depends(get_db)):
+def create_pi(body: PiCreateRequest, actor: Actor = Depends(require_role("admin")), db: Session = Depends(get_db)):
     mac = body.mac.lower()
     if db.query(Pi).filter(Pi.position == body.position).first():
         raise HTTPException(status_code=409, detail=f"Position {body.position} already exists")
@@ -104,11 +105,12 @@ def create_pi(body: PiCreateRequest, db: Session = Depends(get_db)):
     db.add(pi)
     db.commit()
     db.refresh(pi)
+    record_event(db, actor, "pi_created", target=pi.position, details={"mac": mac, "ip": body.ip})
     return _pi_to_detail(pi)
 
 
 @router.patch("/{position}", response_model=PiDetail)
-def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db)):
+def update_pi(position: str, body: PiUpdateRequest, actor: Actor = Depends(require_role("admin")), db: Session = Depends(get_db)):
     try:
         pos = validate_position(position)
     except ValueError as e:
@@ -137,11 +139,12 @@ def update_pi(position: str, body: PiUpdateRequest, db: Session = Depends(get_db
         pi.status = body.status
     db.commit()
     db.refresh(pi)
+    record_event(db, actor, "pi_updated", target=pos, details=body.model_dump(exclude_none=True))
     return _pi_to_detail(pi)
 
 
 @router.post("/bulk", response_model=BulkPiCreateResponse, status_code=200)
-def bulk_create_pis(body: BulkPiCreateRequest, db: Session = Depends(get_db)):
+def bulk_create_pis(body: BulkPiCreateRequest, actor: Actor = Depends(require_role("admin")), db: Session = Depends(get_db)):
     results: list[BulkPiCreateItemResult] = []
     created = 0
     skipped = 0
@@ -184,11 +187,14 @@ def bulk_create_pis(body: BulkPiCreateRequest, db: Session = Depends(get_db)):
         created += 1
 
     db.commit()
+    record_event(db, actor, "pi_bulk_created", details={
+        "created": [r.position for r in results if r.created], "skipped": skipped,
+    })
     return BulkPiCreateResponse(results=results, created=created, skipped=skipped)
 
 
 @router.post("/deploy-key", response_model=DeployKeyResponse)
-def deploy_key(body: DeployKeyRequest, db: Session = Depends(get_db)):
+def deploy_key(body: DeployKeyRequest, actor: Actor = Depends(require_role("admin")), db: Session = Depends(get_db)):
     ssh = effective_ssh_settings()
     pub_key_path = ssh.private_key_path + ".pub"
     if not os.path.exists(pub_key_path):
@@ -250,11 +256,15 @@ def deploy_key(body: DeployKeyRequest, db: Session = Depends(get_db)):
             client.close()
 
     succeeded = sum(1 for r in results if r.success)
+    record_event(db, actor, "deploy_key", details={  # never the password
+        "succeeded": [r.position for r in results if r.success],
+        "failed": [r.position for r in results if not r.success],
+    })
     return DeployKeyResponse(results=results, succeeded=succeeded, failed=len(results) - succeeded)
 
 
 @router.delete("/{position}", status_code=204)
-def delete_pi(position: str, db: Session = Depends(get_db)):
+def delete_pi(position: str, actor: Actor = Depends(require_role("admin")), db: Session = Depends(get_db)):
     try:
         pos = validate_position(position)
     except ValueError as e:
@@ -262,5 +272,7 @@ def delete_pi(position: str, db: Session = Depends(get_db)):
     pi = db.query(Pi).filter(Pi.position == pos).first()
     if not pi:
         raise HTTPException(status_code=404, detail=f"Pi at position {position} not found")
+    details = {"mac": pi.mac, "ip": str(pi.current_ip) if pi.current_ip else None, "hostname": pi.hostname}
     db.delete(pi)
     db.commit()
+    record_event(db, actor, "pi_deleted", target=pos, details=details)

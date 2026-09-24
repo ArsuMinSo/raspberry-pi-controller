@@ -2,6 +2,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from backend.auth import Actor
 from backend.models import ActionLog
 
 
@@ -11,12 +12,15 @@ def create_action(
     action: str,
     command: str | None = None,
     status: str = "queued",
+    actor: Actor | None = None,
 ) -> ActionLog:
     entry = ActionLog(
         pis_selected=pis_selected,
         action=action,
         command=command,
         status=status,
+        user=actor.username if actor else "system",
+        user_id=actor.user_id if actor else None,
     )
     db.add(entry)
     db.commit()

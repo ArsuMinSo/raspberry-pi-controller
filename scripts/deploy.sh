@@ -166,6 +166,15 @@ if ! bash "$INSTALL_DIR/scripts/setup_db.sh"; then
     exit 1
 fi
 
+# ── Accounts ──────────────────────────────────────────────────────────────────
+# Commands run as the service user from the install dir (config.yaml, .tui-key live there)
+manage() {
+    ( cd "$INSTALL_DIR" && sudo -u "$SERVICE_USER" --preserve-env=DB_PASSWORD "$VENV/bin/python" -m backend.manage "$@" )
+}
+manage ensure-tui-key   # break-glass key for the local TUI (/opt/pi-controller/.tui-key, mode 600)
+echo "Web users:"
+manage list-users | sed 's/^/  /'
+
 # Single worker: scheduler and runtime settings live in-process — more workers
 # would run every scheduled task N times and split settings between processes.
 # ── systemd service ───────────────────────────────────────────────────────────
@@ -194,3 +203,6 @@ systemctl restart pi-controller
 echo ""
 echo "=== Done ==="
 systemctl status pi-controller --no-pager
+echo ""
+echo "Users:      sudo $INSTALL_DIR/scripts/manage.sh create-user <name> --role admin   (password asked twice)"
+echo "Local TUI:  sudo $INSTALL_DIR/scripts/tui.sh"

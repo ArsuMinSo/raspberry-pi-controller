@@ -2,8 +2,9 @@ import os
 import socket
 
 import paramiko
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from backend.config import (
     apply_network_override,
@@ -13,6 +14,8 @@ from backend.config import (
     persist_network_settings,
     persist_ssh_settings,
 )
+from backend.auth import Actor, record_event, require_role
+from backend.database import get_db
 from backend.utils.helpers import load_private_key
 
 router = APIRouter()
@@ -59,7 +62,7 @@ def _net_view(net) -> dict:
     }
 
 
-@router.get("")
+@router.get("", dependencies=[Depends(require_role("admin"))])
 def get_settings_view():
     return {
         "ssh": _ssh_view(effective_ssh_settings()),
@@ -68,7 +71,9 @@ def get_settings_view():
 
 
 @router.patch("")
-def patch_settings(body: SettingsPatch):
+def patch_settings(body: SettingsPatch, actor: Actor = Depends(require_role("admin")),
+                   db: Session = Depends(get_db)):
+    before = {"ssh": _ssh_view(effective_ssh_settings()), "network": _net_view(effective_network_settings())}
     apply_ssh_override(
         key_path=body.ssh_key_path,
         username=body.username,
@@ -87,13 +92,18 @@ def patch_settings(body: SettingsPatch):
     )
     persist_ssh_settings()
     persist_network_settings()
-    return {
-        "ssh": _ssh_view(effective_ssh_settings()),
-        "network": _net_view(effective_network_settings()),
+    after = {"ssh": _ssh_view(effective_ssh_settings()), "network": _net_view(effective_network_settings())}
+    changes = {
+        f"{section}.{key}": {"from": before[section][key], "to": value}
+        for section in after for key, value in after[section].items()
+        if before[section][key] != value
     }
+    if changes:
+        record_event(db, actor, "settings_changed", details=changes)
+    return after
 
 
-@router.post("/test")
+@router.post("/test", dependencies=[Depends(require_role("admin"))])
 def test_ssh(body: SSHTestRequest):
     ssh = effective_ssh_settings()
     result: dict = {

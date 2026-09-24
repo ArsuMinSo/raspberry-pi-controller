@@ -1,5 +1,6 @@
 import os
 import pathlib
+import uuid
 
 import pytest
 from fastapi.testclient import TestClient
@@ -13,9 +14,10 @@ os.environ.setdefault(  # tests never depend on (or write) a local config.yaml
 )
 os.environ["PI_CONTROLLER_DISABLE_SCHEDULER"] = "1"  # don't touch the real DB on app startup
 
+from backend.auth import Actor, create_session, current_actor, hash_password
 from backend.database import Base, get_db
 from backend.main import app
-from backend.models import ActionLog, Pi
+from backend.models import ActionLog, Pi, User
 from backend.services.ssh_executor import SSHResult
 
 TEST_DB_URL = os.environ.get(
@@ -47,7 +49,7 @@ def test_engine():
 
 def _drop_tables(engine):
     with engine.begin() as conn:
-        for table in ("scheduled_tasks", "actions_log", "raspberries"):
+        for table in ("audit_events", "sessions", "scheduled_tasks", "actions_log", "users", "raspberries"):
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
 
 
@@ -60,12 +62,54 @@ def db(test_engine):
     session.close()
 
 
+API = "/api/v1"
+TEST_PASSWORD = "correct-horse-battery"
+
+
 @pytest.fixture
 def client(db):
+    """Authenticated as an admin (auth itself is covered in test_auth.py)."""
+    app.dependency_overrides[get_db] = lambda: db
+    app.dependency_overrides[current_actor] = lambda: Actor(username="test-admin", role="admin")
+    with TestClient(app) as c:
+        yield c
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def anon_client(db):
+    """No authentication — real auth dependencies."""
     app.dependency_overrides[get_db] = lambda: db
     with TestClient(app) as c:
         yield c
     app.dependency_overrides.clear()
+
+
+def unique_name(prefix: str) -> str:
+    """Usernames must be unique across the whole test session (rows persist between tests)."""
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"
+
+
+@pytest.fixture
+def make_user(db):
+    """make_user("alice", "viewer") → User with password TEST_PASSWORD."""
+    def _make(username: str, role: str, **kw) -> User:
+        user = User(username=username, role=role, password_hash=hash_password(TEST_PASSWORD), **kw)
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+        return user
+    return _make
+
+
+@pytest.fixture
+def login_as(db, make_user):
+    """login_as("operator") → Authorization headers for a fresh user with that role."""
+    def _login(role: str) -> dict:
+        user = make_user(unique_name(role), role)
+        token, _ = create_session(db, user, "testclient", "pytest")
+        return {"Authorization": f"Bearer {token}"}
+    return _login
 
 
 @pytest.fixture

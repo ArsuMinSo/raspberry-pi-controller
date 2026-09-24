@@ -2,11 +2,13 @@ import os
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import Depends, FastAPI
+from fastapi import APIRouter, Depends, FastAPI
 from sqlalchemy.orm import Session
 
 from backend.database import check_db, get_db, SessionLocal
-from backend.routes import command, discovery, health, logs, pi, process, service, settings, tasks
+from backend.routes import (
+    auth, command, discovery, health, logs, pi, process, service, settings, tasks, users,
+)
 from backend.services import scheduler as sched
 
 _start_time = time.monotonic()
@@ -33,23 +35,37 @@ app = FastAPI(
     title="Pi Controller API",
     version="1.0.0",
     lifespan=lifespan,
+    # Everything lives under /api/v1 (nginx serves the web page at /)
+    docs_url="/api/v1/docs",
+    openapi_url="/api/v1/openapi.json",
+    redoc_url=None,
 )
 
-app.include_router(pi.router,        prefix="/pi",        tags=["inventory"])
-app.include_router(health.router,    prefix="/health",    tags=["health"])
-app.include_router(command.router,   prefix="/command",   tags=["command"])
-app.include_router(process.router,   prefix="/process",   tags=["process"])
-app.include_router(service.router,   prefix="/service",   tags=["service"])
-app.include_router(logs.router,      prefix="/logs",      tags=["logs"])
-app.include_router(discovery.router, prefix="/discovery", tags=["discovery"])
-app.include_router(settings.router,  prefix="/settings",  tags=["settings"])
-app.include_router(tasks.router,     prefix="/tasks",     tags=["tasks"])
+API = "/api/v1"
+
+app.include_router(auth.router,      prefix=f"{API}/auth",      tags=["auth"])
+app.include_router(users.router,     prefix=f"{API}/users",     tags=["users"])
+app.include_router(pi.router,        prefix=f"{API}/pi",        tags=["inventory"])
+app.include_router(health.router,    prefix=f"{API}/health",    tags=["health"])
+app.include_router(command.router,   prefix=f"{API}/command",   tags=["command"])
+app.include_router(process.router,   prefix=f"{API}/process",   tags=["process"])
+app.include_router(service.router,   prefix=f"{API}/service",   tags=["service"])
+app.include_router(logs.router,      prefix=f"{API}/logs",      tags=["logs"])
+app.include_router(discovery.router, prefix=f"{API}/discovery", tags=["discovery"])
+app.include_router(settings.router,  prefix=f"{API}/settings",  tags=["settings"])
+app.include_router(tasks.router,     prefix=f"{API}/tasks",     tags=["tasks"])
+
+system = APIRouter(prefix=API, tags=["system"])
 
 
-@app.get("/health", tags=["system"])
-def system_health(db: Session = Depends(get_db)):
+@system.get("/health")
+def system_health():
+    """Liveness check — no login required."""
     return {
         "status": "ok",
         "db": "ok" if check_db() else "error",
         "uptime_s": int(time.monotonic() - _start_time),
     }
+
+
+app.include_router(system)

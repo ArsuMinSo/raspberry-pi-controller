@@ -66,15 +66,16 @@ def _run_task(task_id: int) -> None:
         if not task or not task.enabled:
             return
 
+        actor = _task_actor(task, db)
         action_id = None
         status = "success"
         try:
             if task.task_type == "command":
-                action_id = _exec_command(task, db)
+                action_id = _exec_command(task, db, actor)
             elif task.task_type == "health":
-                action_id = _exec_health(task, db)
+                action_id = _exec_health(task, db, actor)
             elif task.task_type == "discovery":
-                action_id = _exec_discovery(db)
+                action_id = _exec_discovery(db, actor)
         except Exception as e:
             log.error("Scheduled task %s (%s) failed: %s", task_id, task.name, e)
             status = "fail"
@@ -89,7 +90,17 @@ def _run_task(task_id: int) -> None:
         db.close()
 
 
-def _exec_command(task: ScheduledTask, db: Session) -> int | None:
+def _task_actor(task: ScheduledTask, db: Session):
+    """Scheduled runs are logged as the user who last edited the task ("scheduler" if none)."""
+    from backend.auth import Actor
+    from backend.models import User
+    owner = db.get(User, task.owner_user_id) if task.owner_user_id else None
+    if owner is None:
+        return Actor(username="scheduler", role="admin")
+    return Actor(username=owner.username, role=owner.role, user_id=owner.id)
+
+
+def _exec_command(task: ScheduledTask, db: Session, actor) -> int | None:
     from backend.config import effective_ssh_settings
     from backend.models import Pi
     from backend.routes.command import _run_command
@@ -100,10 +111,10 @@ def _exec_command(task: ScheduledTask, db: Session) -> int | None:
     )
     if not pis or not task.command:
         return None
-    return _run_command(pis, task.command, db)
+    return _run_command(pis, task.command, db, actor=actor)
 
 
-def _exec_health(task: ScheduledTask, db: Session) -> int | None:
+def _exec_health(task: ScheduledTask, db: Session, actor) -> int | None:
     from backend.config import effective_ssh_settings
     from backend.models import Pi
     from backend.services.health_check import run_health_check
@@ -114,12 +125,12 @@ def _exec_health(task: ScheduledTask, db: Session) -> int | None:
     )
     if not pis:
         return None
-    return run_health_check(pis, db, effective_ssh_settings())
+    return run_health_check(pis, db, effective_ssh_settings(), actor=actor)
 
 
-def _exec_discovery(db: Session) -> int | None:
+def _exec_discovery(db: Session, actor) -> int | None:
     from backend.config import effective_network_settings, effective_ssh_settings
     from backend.services.discovery import scan_subnet
     net = effective_network_settings()
-    result = scan_subnet(net.subnet, db, effective_ssh_settings(), net)
+    result = scan_subnet(net.subnet, db, effective_ssh_settings(), net, actor=actor)
     return result.action_id if result else None

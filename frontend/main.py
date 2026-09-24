@@ -1,3 +1,5 @@
+import getpass
+import os
 import signal
 import sys
 from pathlib import Path
@@ -10,7 +12,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 
 from frontend.api_client import ApiClient
-from frontend.config import BACKEND_URL
+from frontend.config import BACKEND_URL, TUI_KEY_FILE
 from frontend.screens.discovery import DiscoveryScreen
 from frontend.screens.execute import ExecuteScreen
 from frontend.screens.home import HomeScreen
@@ -60,9 +62,26 @@ class PiController(App):
             super().push_screen(screen, *args, **kwargs)
 
 
+def _read_local_key() -> str:
+    try:
+        with open(TUI_KEY_FILE) as f:
+            key = f.read().strip()
+    except PermissionError:
+        sys.exit(f"Can't read the TUI key {TUI_KEY_FILE} — run the TUI on the server with sudo:\n"
+                 f"    sudo .venv/bin/python -m frontend.main")
+    except FileNotFoundError:
+        sys.exit(f"TUI key {TUI_KEY_FILE} not found — run scripts/deploy.sh on this server first\n"
+                 f"(or set PI_CONTROLLER_TUI_KEY_FILE).")
+    if not key:
+        sys.exit(f"TUI key {TUI_KEY_FILE} is empty — rotate it: python -m backend.manage rotate-tui-key")
+    return key
+
+
 def main() -> None:
+    key = _read_local_key()
+    unix_user = os.environ.get("SUDO_USER") or getpass.getuser()  # shown in the activity log
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    api = ApiClient(BACKEND_URL)
+    api = ApiClient(BACKEND_URL, key, unix_user)
     app = PiController(api)
     app.run()
 

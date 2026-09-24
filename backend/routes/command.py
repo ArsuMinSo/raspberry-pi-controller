@@ -4,6 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from backend.auth import Actor, require_role
 from backend.config import effective_ssh_settings, get_settings
 from backend.database import get_db
 from backend.models import Pi
@@ -25,9 +26,10 @@ def _run_command(
     db: Session,
     ssh_username: str | None = None,
     ssh_password: str | None = None,
+    actor: Actor | None = None,
 ) -> int:
     positions = [p.position for p in pis]
-    entry = al.create_action(db, positions, "execute", command=command, status="running")
+    entry = al.create_action(db, positions, "execute", command=command, status="running", actor=actor)
     start = time.monotonic()
 
     targets = []
@@ -77,18 +79,19 @@ def _run_command(
 
 
 @router.post("/execute", response_model=ActionQueued)
-def execute_command(body: CommandExecuteRequest, db: Session = Depends(get_db)):
+def execute_command(body: CommandExecuteRequest, actor: Actor = Depends(require_role("admin")),
+                    db: Session = Depends(get_db)):
     pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
     found = {p.position for p in pis}
     missing = [pos for pos in body.pis if pos not in found]
     if missing:
         raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
 
-    action_id = _run_command(pis, body.command, db, body.ssh_username, body.ssh_password)
+    action_id = _run_command(pis, body.command, db, body.ssh_username, body.ssh_password, actor=actor)
     return ActionQueued(action_id=action_id)
 
 
-@router.get("/{action_id}", response_model=CommandExecutionResult)
+@router.get("/{action_id}", response_model=CommandExecutionResult, dependencies=[Depends(require_role("viewer"))])
 def get_command_result(action_id: int, db: Session = Depends(get_db)):
     entry = al.get_action(db, action_id)
     if not entry or entry.action != "execute":

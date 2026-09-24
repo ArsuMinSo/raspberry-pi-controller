@@ -141,8 +141,9 @@ def scan_subnet(
     ssh_settings: SSHSettings,
     net_settings: NetworkSettings | None = None,
     probe_password: str | None = None,
+    actor=None,
 ) -> DiscoveryScanResult:
-    entry = al.create_action(db, [], "discovery", status="running")
+    entry = al.create_action(db, [], "discovery", status="running", actor=actor)
     start = time.monotonic()
 
     do_probe = net_settings.probe_ssh if net_settings else True

@@ -4,6 +4,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from backend.auth import Actor, require_role
 from backend.config import effective_ssh_settings
 from backend.database import get_db
 from backend.models import Pi
@@ -15,7 +16,8 @@ router = APIRouter()
 
 
 @router.post("/kill", response_model=ActionQueued)
-def kill_process(body: ProcessKillRequest, db: Session = Depends(get_db)):
+def kill_process(body: ProcessKillRequest, actor: Actor = Depends(require_role("operator")),
+                 db: Session = Depends(get_db)):
     pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
     found = {p.position for p in pis}
     missing = [pos for pos in body.pis if pos not in found]
@@ -27,7 +29,7 @@ def kill_process(body: ProcessKillRequest, db: Session = Depends(get_db)):
         f"pkill -{body.signal} {body.process_name} "
         f"|| (echo 'process not found: {body.process_name}' >&2 && exit 1)"
     )
-    entry = al.create_action(db, positions, "kill", command=command, status="running")
+    entry = al.create_action(db, positions, "kill", command=command, status="running", actor=actor)
     start = time.monotonic()
 
     targets = [
@@ -70,7 +72,7 @@ def kill_process(body: ProcessKillRequest, db: Session = Depends(get_db)):
     return ActionQueued(action_id=entry.id)
 
 
-@router.get("/kill/{action_id}", response_model=CommandExecutionResult)
+@router.get("/kill/{action_id}", response_model=CommandExecutionResult, dependencies=[Depends(require_role("viewer"))])
 def get_kill_result(action_id: int, db: Session = Depends(get_db)):
     entry = al.get_action(db, action_id)
     if not entry or entry.action != "kill":

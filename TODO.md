@@ -48,12 +48,14 @@
 - [ ] **Web service** — web page for everyone via nginx on port 80 (LAN, plain HTTP for now; name TBD, meanwhile http://10.10.20.115/); TUI stays as local break-glass tool;
       Android app later (plan together). **Design: [docs/design/web-service.md](docs/design/web-service.md)** —
       ~5 users, viewer/operator/admin, Ionic + Angular (TypeScript), web built locally → GitHub release. It needs:
-  - [ ] **User login** — accounts, password hashing, sessions/tokens (replaces "no auth, localhost trust")
-  - [ ] **Per-user activity log** — every action attributed to the logged-in user
+  - [x] **User login** — argon2id, 12 h bearer sessions, lockout; TUI break-glass key (phase 1)
+  - [x] **Per-user activity log** — `actions_log.user/user_id` + append-only `audit_events` (phase 1)
         (`actions_log.user` exists but is always "admin"); include logins, edits, deletes, settings changes
-  - [ ] **Permissions** — roles (e.g. viewer / operator / admin): who can view, run commands, kill/restart,
+  - [x] **Permissions** — viewer / operator / admin on every endpoint (phase 1): who can view, run commands, kill/restart,
         edit inventory, change settings, manage users
-  - [ ] User management (create/disable users, reset passwords)
+  - [x] User management — API `/api/v1/users` + `scripts/manage.sh` (web UI in phase 4)
+  - [ ] Phase 0: nginx in front (installed by deploy.sh), uvicorn on 127.0.0.1
+  - [ ] Enforce `must_change_password` (web page forces a change on first login)
   - [x] Decide UI stack → Ionic/Angular app in `web/`, served by nginx (API proxied to uvicorn on 127.0.0.1); released via GitHub releases
   - [ ] Live progress for health/command runs (polling vs WebSocket/SSE)
   - [ ] Feature parity with TUI: inventory, select, execute, monitor, logs, health, discovery, tasks, settings

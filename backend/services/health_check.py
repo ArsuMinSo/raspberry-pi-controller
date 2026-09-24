@@ -191,9 +191,9 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
         client.close()
 
 
-def run_health_check(pis: list[Pi], db, ssh: SSHSettings) -> int:
+def run_health_check(pis: list[Pi], db, ssh: SSHSettings, actor=None) -> int:
     positions = [p.position for p in pis]
-    entry = al.create_action(db, positions, "health", status="running")
+    entry = al.create_action(db, positions, "health", status="running", actor=actor)
     start = time.monotonic()
 
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]

@@ -264,3 +264,86 @@ class DiscoveryScanResult(BaseModel):
     updated: int
     started_at: datetime | None
     completed_at: datetime | None
+
+
+# ─── Auth / users (migration 003) ─────────────────────────────────────────────
+
+Role = Literal["viewer", "operator", "admin"]
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=1024)
+
+
+class UserOut(BaseModel):
+    id: int
+    username: str
+    role: str
+    is_active: bool
+    must_change_password: bool
+    created_at: datetime
+    last_login_at: datetime | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class LoginResponse(BaseModel):
+    token: str
+    expires_at: datetime
+    user: UserOut
+
+
+class MeOut(BaseModel):
+    username: str
+    role: str
+    user: UserOut | None  # None for the TUI break-glass key
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(..., max_length=1024)
+    new_password: str = Field(..., max_length=1024)
+    new_password_confirm: str = Field(..., max_length=1024)
+
+
+class UserCreate(BaseModel):
+    username: str
+    role: Role
+    password: str = Field(..., max_length=1024)
+    password_confirm: str = Field(..., max_length=1024)
+    must_change_password: bool = True
+
+
+class UserUpdate(BaseModel):
+    role: Role | None = None
+    is_active: bool | None = None
+
+
+class PasswordReset(BaseModel):
+    password: str = Field(..., max_length=1024)
+    password_confirm: str = Field(..., max_length=1024)
+    must_change_password: bool = True
+
+
+class SessionOut(BaseModel):
+    id: int
+    created_at: datetime
+    last_used_at: datetime
+    expires_at: datetime
+    ip: str | None
+    user_agent: str | None
+    current: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AuditEventOut(BaseModel):
+    id: int
+    ts: datetime
+    username: str
+    event: str
+    target: str | None
+    details: dict | None
+    ip: str | None
+
+    model_config = ConfigDict(from_attributes=True)

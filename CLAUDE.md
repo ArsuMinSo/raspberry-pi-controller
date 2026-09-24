@@ -15,7 +15,7 @@
 - **Backend:** Python + FastAPI + Paramiko + PostgreSQL
 - **Frontend:** Python + PyRatatui (TUI)
 - **Config:** YAML
-- **Auth:** None (localhost trust)
+- **Auth:** users + roles (viewer/operator/admin), bearer sessions (12 h), argon2id; TUI = local break-glass key — see `docs/design/web-service.md`
 - **Deployment:** Ubuntu, systemd service
 - **Concurrency v1:** Serial SSH (parallelize v2)
 
@@ -81,7 +81,7 @@
 |--------|------|-------|
 | id | SERIAL PRIMARY KEY | Auto |
 | timestamp | TIMESTAMP | When action ran |
-| user | VARCHAR(255) | Admin (v1: always "admin") |
+| user | VARCHAR(255) | Username of who ran it (`local-tui (…)`, `scheduler`, `system`); + `user_id` FK (migration 003) |
 | pis_selected | TEXT[] | Array of position strings e.g. ["01-003"] |
 | action | VARCHAR(50) | kill/restart/execute/health/status |
 | command | TEXT | Full command executed |
@@ -99,6 +99,8 @@
 ---
 
 ## API Endpoints (Phase 1)
+
+> Historical list. Current API: everything under `/api/v1`, login required, role per endpoint — see README → API Reference.
 
 ### Inventory & Status
 
@@ -265,7 +267,7 @@ pi-controller/
 **Process kill: error if missing** (not silent)
 **Service restart: error if missing** (not silent)
 **Trust admin** (no shell sanitization)
-**Single user (admin)** (multi-user v2)
+**Multi-user** (~5 people): viewer / operator / admin; every action attributed to a user (migration 003)
 **Subnet scan every run** (10.10.20.0/24)
 **Health check 1x/day cron + manual callable**
 **Unreachable Pi: mark unreachable (expected if powered off)**
@@ -307,7 +309,7 @@ pi-controller/
 - **VNC access:** Low priority, enabled externally (not controller's job)
 - **Alerts:** UI + beep (v2, low priority)
 - **SSH key distribution:** Script-based, one-time setup
-- **No auth:** Localhost only (change later if exposed)
+- **Auth:** login required for the API; TUI uses a local break-glass key (`/opt/pi-controller/.tui-key`)
 - **Logs:** DB (immutable, queryable) + file (debug)
 
 ---

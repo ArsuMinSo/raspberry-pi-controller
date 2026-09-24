@@ -1,5 +1,5 @@
-from sqlalchemy import Boolean, DateTime, Float, Integer, SmallInteger, String, Text
-from sqlalchemy.dialects.postgresql import ARRAY, INET
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text
+from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import mapped_column, MappedColumn
 from sqlalchemy.sql import func
 
@@ -42,6 +42,7 @@ class ActionLog(Base):
     status: MappedColumn[str] = mapped_column(String(20), nullable=False)
     retry_count: MappedColumn[int] = mapped_column(SmallInteger, nullable=False, default=0)
     duration_ms = mapped_column(Integer)
+    user_id = mapped_column(Integer, ForeignKey("users.id"))
 
 
 class ScheduledTask(Base):
@@ -57,4 +58,49 @@ class ScheduledTask(Base):
     last_run = mapped_column(DateTime)
     last_status = mapped_column(String(20))
     last_action_id = mapped_column(Integer)
+    owner_user_id = mapped_column(Integer, ForeignKey("users.id"))  # scheduled runs are logged as this user
     created_at = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+# ─── Auth (migration 003) ─────────────────────────────────────────────────────
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    username: MappedColumn[str] = mapped_column(String(32), nullable=False, unique=True)
+    password_hash: MappedColumn[str] = mapped_column(Text, nullable=False)
+    role: MappedColumn[str] = mapped_column(String(10), nullable=False)  # viewer/operator/admin
+    is_active: MappedColumn[bool] = mapped_column(Boolean, nullable=False, default=True)
+    must_change_password: MappedColumn[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now())
+    last_login_at = mapped_column(DateTime(timezone=True))
+
+
+class UserSession(Base):
+    __tablename__ = "sessions"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    user_id: MappedColumn[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    token_hash: MappedColumn[str] = mapped_column(String(64), nullable=False, unique=True)
+    created_at = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    last_used_at = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = mapped_column(DateTime(timezone=True), nullable=False)
+    revoked_at = mapped_column(DateTime(timezone=True))
+    ip = mapped_column(String(45))
+    user_agent = mapped_column(String(255))
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    ts = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    user_id = mapped_column(Integer, ForeignKey("users.id"))
+    username: MappedColumn[str] = mapped_column(String(64), nullable=False)
+    event: MappedColumn[str] = mapped_column(String(40), nullable=False)
+    target = mapped_column(String(255))
+    details = mapped_column(JSONB)
+    ip = mapped_column(String(45))
+    user_agent = mapped_column(String(255))

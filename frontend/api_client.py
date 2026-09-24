@@ -6,9 +6,11 @@ class ApiError(Exception):
 
 
 class ApiClient:
-    def __init__(self, base_url: str):
-        self._base = base_url.rstrip("/")
+    def __init__(self, base_url: str, local_key: str, local_user: str):
+        self._base = base_url.rstrip("/") + "/api/v1"
         self._session = requests.Session()
+        # Break-glass auth: accepted by the backend only on direct connections from 127.0.0.1
+        self._session.headers.update({"X-PiC-Local-Key": local_key, "X-PiC-Local-User": local_user})
 
     def _get(self, path: str, params: dict | None = None):
         try:

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
+from backend.auth import Actor, require_role
 from backend.config import effective_network_settings, effective_ssh_settings
 from backend.database import get_db
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
@@ -18,16 +19,18 @@ class ScanRequest(BaseModel):
 
 
 @router.post("/scan", response_model=DiscoveryScanResult)
-def start_scan(body: ScanRequest = None, db: Session = Depends(get_db)):
+def start_scan(body: ScanRequest = None, actor: Actor = Depends(require_role("operator")),
+               db: Session = Depends(get_db)):
     net = effective_network_settings()
     result = scan_subnet(
         net.subnet, db, effective_ssh_settings(), net,
         probe_password=body.probe_password if body else None,
+        actor=actor,
     )
     return result
 
 
-@router.get("/scan/{action_id}", response_model=DiscoveryScanResult)
+@router.get("/scan/{action_id}", response_model=DiscoveryScanResult, dependencies=[Depends(require_role("viewer"))])
 def get_scan_result(action_id: int, db: Session = Depends(get_db)):
     entry = al.get_action(db, action_id)
     if not entry or entry.action != "discovery":

@@ -121,15 +121,39 @@ source .venv/bin/activate
 DB_PASSWORD=changeme uvicorn backend.main:app --host 0.0.0.0 --port 8000 --workers 1
 ```
 
-Interactive API docs available at `http://localhost:8000/docs`.
+Interactive API docs available at `http://localhost:8000/api/v1/docs`.
 
 **Run exactly one worker.** The task scheduler and runtime settings live inside the process: with more workers every scheduled task runs once per worker, and a Settings change only reaches one of them.
 
-### TUI
+### Users & login
+
+The API requires a login (except `POST /api/v1/auth/login` and `GET /api/v1/health`). Roles: **viewer** (read),
+**operator** (+ health check, kill process, restart service, discovery scan), **admin** (everything, incl. running
+commands, inventory edits, settings, scheduled tasks, users). Sessions last 12 h. Every action is logged with the
+user's name — Pi operations in `actions_log`, everything else (logins, edits, settings, users) in `audit_events`.
+
+Create the first admin on the server (password asked twice, ≥ 12 characters):
 
 ```bash
-.venv/bin/python -m frontend.main
+sudo /opt/pi-controller/scripts/manage.sh create-user <name> --role admin
+sudo /opt/pi-controller/scripts/manage.sh list-users
+sudo /opt/pi-controller/scripts/manage.sh reset-password <name>
 ```
+
+Design: [`docs/design/web-service.md`](docs/design/web-service.md).
+
+### TUI (local break-glass)
+
+The TUI is the backup way in: it runs **on the controller itself, with sudo**, has admin rights, and needs no
+account — it reads the key `/opt/pi-controller/.tui-key` (created by `deploy.sh`, mode 600) and talks to the backend
+on `127.0.0.1`. Its actions are logged as `local-tui (<your unix user>)`. It works even if every web account is
+locked, and it can't be used over the network.
+
+```bash
+sudo /opt/pi-controller/scripts/tui.sh
+```
+
+Rotate the key with `sudo /opt/pi-controller/scripts/manage.sh rotate-tui-key`.
 
 Run it from the project venv, not the system Python — distro packages can be far older (Ubuntu 25.04 ships Textual 2.1.1; the TUI needs ≥ 8, see `requirements.txt`) and fail with `MarkupError` or `Error in stylesheet`. Create the venv with `python3 -m venv .venv && .venv/bin/pip install -r requirements.txt` (`scripts/run_tests.sh` also creates it).
 
@@ -409,29 +433,43 @@ pi-controller/
 
 ## API Reference
 
-Full interactive docs at `http://localhost:8000/docs`.
+Everything is under **`/api/v1`**. Full interactive docs at `http://localhost:8000/api/v1/docs`.
+All endpoints need `Authorization: Bearer <token>` from `POST /api/v1/auth/login`, except login and `GET /health`.
+Minimum role in the last column.
 
-| Method | Path | Description |
-|--------|------|-------------|
-| `GET` | `/health` | Backend + DB liveness |
-| `GET` | `/pi/list` | List Pis (status/tags/version filter, paginated) |
-| `GET` | `/pi/{position}/status` | Single Pi detail |
-| `POST` | `/pi` | Create Pi |
-| `PATCH` | `/pi/{position}` | Update Pi fields |
-| `DELETE` | `/pi/{position}` | Delete Pi |
-| `POST` | `/pi/bulk` | Bulk create with MAC deduplication |
-| `POST` | `/pi/deploy-key` | Deploy SSH public key via password auth |
-| `POST` | `/command/execute` | Run shell command on Pis |
-| `GET` | `/command/{action_id}` | Get command results |
-| `POST` | `/process/kill` | Kill process by name (SIGTERM or SIGKILL) |
-| `POST` | `/service/restart` | Restart systemd unit |
-| `POST` | `/health/trigger` | Trigger health check (selected or all) |
-| `GET` | `/health/{action_id}` | Get health check results |
-| `POST` | `/discovery/scan` | Scan subnet, probe Pis, update DB |
-| `GET` | `/logs` | Query audit log |
-| `GET` | `/settings` | Get current SSH + network config |
-| `PATCH` | `/settings` | Update config (persisted to config.yaml) |
-| `POST` | `/settings/test` | Test SSH connection to IP |
+| Method | Path | Description | Role |
+|--------|------|-------------|------|
+| `POST` | `/auth/login` | Username + password → 12 h session token | public |
+| `POST` | `/auth/logout` | End this session | any |
+| `GET` | `/auth/me` | Current user | any |
+| `POST` | `/auth/me/password` | Change own password (current + new twice) | any |
+| `GET`/`DELETE` | `/auth/me/sessions[/{id}]` | List / end own sessions | any |
+| `GET`/`POST` | `/users` | List / create users | admin |
+| `PATCH` | `/users/{id}` | Change role, enable/disable (disable ends sessions) | admin |
+| `POST` | `/users/{id}/password` | Reset password (ends sessions) | admin |
+| `POST` | `/users/{id}/revoke-sessions` | Log a user out everywhere | admin |
+| `GET` | `/health` | Backend + DB liveness | public |
+| `GET` | `/pi/list` | List Pis (status/tags/version filter, paginated) | viewer |
+| `GET` | `/pi/{position}/status` | Single Pi detail | viewer |
+| `POST` | `/pi` | Create Pi | admin |
+| `PATCH` | `/pi/{position}` | Update Pi fields | admin |
+| `DELETE` | `/pi/{position}` | Delete Pi | admin |
+| `POST` | `/pi/bulk` | Bulk create with MAC deduplication | admin |
+| `POST` | `/pi/deploy-key` | Deploy SSH public key via password auth | admin |
+| `POST` | `/command/execute` | Run shell command on Pis | admin |
+| `GET` | `/command/{action_id}` | Get command results | viewer |
+| `POST` | `/process/kill` | Kill process by name (SIGTERM or SIGKILL) | operator |
+| `POST` | `/service/restart` | Restart systemd unit | operator |
+| `POST` | `/health/trigger` | Trigger health check (selected or all) | operator |
+| `GET` | `/health/{action_id}` | Get health check results | viewer |
+| `POST` | `/discovery/scan` | Scan subnet, probe Pis, update DB | operator |
+| `GET` | `/logs` | Pi operations log (actions_log) | viewer |
+| `GET` | `/logs/events` | Logins, edits, settings, user changes (audit_events) | viewer |
+| `GET` | `/tasks` | Scheduled tasks | operator |
+| `POST`/`PATCH`/`DELETE` | `/tasks[/{id}]` | Manage scheduled tasks | admin |
+| `GET` | `/settings` | Get current SSH + network config | admin |
+| `PATCH` | `/settings` | Update config (persisted to config.yaml) | admin |
+| `POST` | `/settings/test` | Test SSH connection to IP | admin |
 
 ---
 
