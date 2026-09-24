@@ -22,10 +22,11 @@
 - [ ] `curl … | sudo bash` first install: `read` for DB_PASSWORD consumes the script from stdin — use `read … < /dev/tty`
 - [ ] Deploy runs every migration via `setup_db.sh` — guard before `git pull` (or add a `schema_migrations`
       table) so a failing migration doesn't leave new code pulled next to an old schema; prompt to back up DB first
-- [ ] `.env` is `source`d by bash and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
+- [ ] `.env` is `source`d by bash (setup_db.sh SQL quoting now safe; `source`/systemd parsing still open) and parsed by systemd `EnvironmentFile` — passwords with `$`, spaces, quotes, `#` break or differ; quote/validate
 - [ ] venv path mismatch: `deploy.sh` uses `.venv`, `systemd/pi-controller.service` uses `venv`
-- [ ] git as root on `/opt/pi-controller` owned by `pi_controller` → "dubious ownership"; add `safe.directory` or run git as service user
+- [x] git as root on `/opt/pi-controller` owned by `pi_controller` → "dubious ownership"; add `safe.directory` or run git as service user
 - [ ] Consider untracking `config.yaml` (ship `config.example.yaml`) — tracked copy currently contains dev-machine values (key path, username)
+- [x] setup_db.sh: migrations failed with "Peer authentication failed" (socket as root) — now TCP + password
 
 ## Future
 

@@ -15,6 +15,10 @@ PYTHON="python3"
 
 echo "=== Pi Controller Deploy ==="
 
+# Runs as root on a repo owned by $SERVICE_USER — tell git that's fine
+# (otherwise: "detected dubious ownership")
+git() { command git -c safe.directory="$INSTALL_DIR" "$@"; }
+
 # ── Prerequisites ─────────────────────────────────────────────────────────────
 for cmd in git python3 pip3 psql; do
     if ! command -v "$cmd" &>/dev/null; then
