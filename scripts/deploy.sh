@@ -175,11 +175,105 @@ manage ensure-tui-key   # break-glass key for the local TUI (/opt/pi-controller/
 echo "Web users:"
 manage list-users | sed 's/^/  /'
 
+# ── Web page release ──────────────────────────────────────────────────────────
+# Installs the newest GitHub release "web-*" (made by scripts/release_web.sh) whose
+# commit is contained in the deployed code, so the page is never newer than the API.
+# Any problem (offline, no release, bad checksum) keeps the current page.
+WEB_CURRENT="$INSTALL_DIR/web-current"
+WEB_RELEASES="$INSTALL_DIR/web-releases"
+WEB_REPO="ArsuMinSo/raspberry-pi-controller"
+WEB_KEEP=3  # newest real releases kept (the placeholder is never deleted)
+
+# stdin: GitHub releases JSON → "tag sha tar_url sha256_url" per usable web release, newest first
+PICK_WEB_RELEASE_PY=$(cat <<'PY'
+import json, re, sys
+out = []
+for r in json.load(sys.stdin):
+    tag, sha = r.get("tag_name") or "", r.get("target_commitish") or ""
+    # release_web.sh always targets a full commit SHA; a branch name can't be checked for ancestry
+    if r.get("draft") or not tag.startswith("web-") or not re.fullmatch(r"[0-9a-f]{40}", sha):
+        continue
+    assets = {a["name"]: a["browser_download_url"] for a in r.get("assets", [])}
+    tar = next((n for n in sorted(assets) if n.endswith(".tar.gz")), None)
+    if tar and tar + ".sha256" in assets:
+        out.append((r.get("published_at") or "", tag, sha, assets[tar], assets[tar + ".sha256"]))
+for _, tag, sha, tar_url, sum_url in sorted(out, reverse=True):
+    print(tag, sha, tar_url, sum_url)
+PY
+)
+
+install_web_release() {
+    local releases candidates tag sha tar_url sum_url chosen="" tmp expected actual current
+    if ! releases="$(curl -fsSL --max-time 20 -H 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$WEB_REPO/releases?per_page=100")"; then
+        echo "Web page: GitHub unreachable — keeping the current page."
+        return 0
+    fi
+    if ! candidates="$(printf '%s' "$releases" | "$VENV/bin/python" -c "$PICK_WEB_RELEASE_PY")"; then
+        echo "Web page: couldn't read the release list — keeping the current page."
+        return 0
+    fi
+    while read -r tag sha tar_url sum_url; do
+        [ -n "$tag" ] || continue
+        if git -C "$INSTALL_DIR" merge-base --is-ancestor "$sha" HEAD 2>/dev/null; then
+            chosen="$tag"
+            break
+        fi
+    done <<< "$candidates"
+    if [ -z "$chosen" ]; then
+        echo "Web page: no web release for this code yet — keeping the current page."
+        return 0
+    fi
+
+    current="$(basename "$(readlink -f "$WEB_CURRENT" 2>/dev/null || true)")"
+    if [ "$current" = "$chosen" ] && [ -f "$WEB_RELEASES/$chosen/index.html" ]; then
+        echo "Web page: $chosen already installed."
+        return 0
+    fi
+
+    tmp="$(mktemp -d)"
+    if ! curl -fsSL --max-time 120 -o "$tmp/web.tar.gz" "$tar_url" \
+            || ! curl -fsSL --max-time 20 -o "$tmp/web.tar.gz.sha256" "$sum_url"; then
+        echo "Web page: download of $chosen failed — keeping the current page."
+        rm -rf "$tmp"
+        return 0
+    fi
+    expected="$(awk '{print $1}' "$tmp/web.tar.gz.sha256")"
+    actual="$(sha256sum "$tmp/web.tar.gz" | awk '{print $1}')"
+    if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+        echo "Web page: checksum mismatch for $chosen — keeping the current page."
+        rm -rf "$tmp"
+        return 0
+    fi
+    mkdir -p "$tmp/www"
+    if ! tar -xzf "$tmp/web.tar.gz" -C "$tmp/www" --no-same-owner || [ ! -f "$tmp/www/index.html" ]; then
+        echo "Web page: $chosen archive is broken — keeping the current page."
+        rm -rf "$tmp"
+        return 0
+    fi
+
+    mkdir -p "$WEB_RELEASES"
+    rm -rf "${WEB_RELEASES:?}/$chosen"
+    mv "$tmp/www" "$WEB_RELEASES/$chosen"
+    touch "$WEB_RELEASES/$chosen"  # install time (tar restored the build time) — pruning goes by this
+    rm -rf "$tmp"
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$WEB_RELEASES/$chosen"
+    # Atomic switch: nginx never sees a half-updated page
+    ln -sfn "$WEB_RELEASES/$chosen" "$WEB_CURRENT.new"
+    chown -h "$SERVICE_USER:$SERVICE_USER" "$WEB_CURRENT.new"
+    mv -T "$WEB_CURRENT.new" "$WEB_CURRENT"
+    echo "Web page: installed $chosen."
+
+    # Keep the newest $WEB_KEEP releases (never the current one or the placeholder)
+    { ls -1dt "$WEB_RELEASES"/web-* 2>/dev/null || true; } | tail -n +$((WEB_KEEP + 1)) | while read -r old; do
+        [ "$(basename "$old")" = "$chosen" ] || rm -rf "$old"
+    done
+}
+install_web_release
+
 # ── Web root + nginx ──────────────────────────────────────────────────────────
 # nginx serves web-current/ (a web release, or a placeholder until the first one)
 # and proxies /api/ to uvicorn, which then listens on 127.0.0.1 only.
-WEB_CURRENT="$INSTALL_DIR/web-current"
-WEB_RELEASES="$INSTALL_DIR/web-releases"
 if [ ! -e "$WEB_CURRENT" ]; then
     mkdir -p "$WEB_RELEASES/placeholder"
     cp "$INSTALL_DIR/deploy/web-placeholder/index.html" "$WEB_RELEASES/placeholder/"
