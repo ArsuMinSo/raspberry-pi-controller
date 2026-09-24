@@ -13,9 +13,9 @@ permissions. The TUI stays as a local backup tool on the server.
 | Roles | `viewer` / `operator` / `admin` |
 | Clients | **Web page** — the main way in, for everyone. **TUI** — local-only backup on the server itself (break-glass). **Android app** — out of scope for now |
 | Web stack | TypeScript — **Ionic 9 + Angular 22 (standalone)**, same stack as `UTB/05_3WS/PM/02_projekt/counter-app`. Capacitor added later if/when the Android app is planned |
-| Network | **LAN only** (no Tailscale). HTTPS with our own small certificate authority |
-| Passwords | Setting / changing / resetting a password asks **3 times**, all must match. **Login asks once** |
-| Arbitrary commands | **Admin only** |
+| Network | **LAN only** (no Tailscale), **plain HTTP** for now at `http://tv.omnika.com:8000/` (`:8080` on that host is another service). No nginx — uvicorn serves web + API |
+| Passwords | Setting / changing / resetting a password asks **2 times** (entry + confirmation). **Login asks once** |
+| Arbitrary commands | **Admin (web) and TUI only**, with or without `sudo` |
 | Session length | **12 h maximum** from login, no separate idle timeout (log in once per working day) |
 | Web build | Built on the dev machine, published as a **GitHub release**; `deploy.sh` downloads it (no Node on the server, no build output in git) |
 
@@ -31,22 +31,26 @@ permissions. The TUI stays as a local backup tool on the server.
 ## Architecture
 
 ```
-                                ┌──────────────────── Ubuntu server ─────────────────────┐
- Browser (LAN) ── HTTPS 443 ──► │ nginx ─┬─ /          → web-current/ (static Ionic build)│
-                                │        └─ /api/v1/*  → uvicorn 127.0.0.1:8000 (1 worker)│
-                                │                            ▲                           │
-                                │ TUI (sudo, on the server) ─┘ break-glass key           │
-                                └────────────────────────────────────────────────────────┘
+                                 ┌──────────────── Ubuntu server (tv.omnika.com) ────────────────┐
+ Browser (LAN) ── HTTP :8000 ──► │ uvicorn 0.0.0.0:8000 (1 worker)                                │
+                                 │   /api/v1/*  → FastAPI routes (login required)                 │
+                                 │   /*         → web-current/ (static Ionic build, SPA fallback) │
+                                 │        ▲                                                       │
+                                 │ TUI (sudo, on the server) → 127.0.0.1:8000 + break-glass key   │
+                                 └────────────────────────────────────────────────────────────────┘
 ```
 
-- **nginx** terminates TLS, serves the web app, proxies `/api/` to uvicorn. uvicorn binds to **127.0.0.1 only** —
-  the API is no longer reachable from the LAN except through nginx with a login.
-- **API moves under `/api/v1`** (so it can't collide with web-app routes). Old root paths stay as aliases for one
-  release while the TUI is updated, then are removed.
-- **HTTPS on the LAN — own certificate authority (CA):** `scripts/setup_ca.sh` (run once on the server) creates a CA
-  and signs a certificate for the server's LAN name/IP. The CA certificate is installed once on each browser/laptop
-  (~5 devices; instructions in the docs). Renewal: server certificate valid ~1 year, re-signed by the same script;
-  devices keep trusting the CA. Plain HTTP is not offered — passwords and session tokens would cross the LAN unencrypted.
+- **One process, one port:** uvicorn serves the API under `/api/v1` and the built web page from
+  `/opt/pi-controller/web-current/` (FastAPI `StaticFiles`; unknown paths fall back to `index.html` for the
+  web app's own routes). No nginx, nothing extra to install on the server.
+- **API moves under `/api/v1`** so it can't collide with web-page routes (e.g. `/logs`). The TUI is updated in the
+  same release, so old root paths are simply removed — no aliases.
+- **Name:** people open `http://tv.omnika.com:8000/`. `tv.omnika.com` must resolve to this server on the LAN
+  (DNS entry or `hosts` line) — see open question 1. Port `8080` on that host belongs to another service.
+- **Plain HTTP (for now):** passwords and session tokens cross the LAN unencrypted — anyone who can capture LAN
+  traffic could read them. Acceptable on the isolated LAN to start; sessions end after 12 h, which limits damage.
+  **Later:** `omnika.com` is a real domain, so a free Let's Encrypt certificate for `tv.omnika.com` (DNS-01
+  challenge) would give HTTPS that every browser trusts, without installing anything on devices.
 
 ## Authentication
 
@@ -55,23 +59,24 @@ permissions. The TUI stays as a local backup tool on the server.
   Only its SHA-256 hash is stored (`sessions` table). Valid **12 h from login**, then log in again. Revocable: logout,
   admin revokes, user disabled, password changed → all that user's sessions end.
   Web stores the token in `sessionStorage` (cleared when the browser closes) + strict Content-Security-Policy.
+  Over plain HTTP the token is visible on the network — see Architecture.
 - **Brute-force protection:** 5 failed logins per username+IP → 15 min lockout; every failure is logged.
-- **Password rules:** ≥ 12 characters; set/change/reset forms have 3 fields that must match. Login: one field.
+- **Password rules:** ≥ 12 characters; set/change/reset: password + confirmation (2 fields, must match). Login: one field.
 - **First admin:** created on the server by a CLI command, not the web:
-  `sudo -u pi_controller .venv/bin/python -m backend.manage create-user --role admin <username>` (password asked 3×).
+  `sudo -u pi_controller .venv/bin/python -m backend.manage create-user --role admin <username>` (password asked 2×).
   Same command resets a forgotten password.
 - **Scheduled tasks** run as the user who created/last edited them (stored on the task) — logged under that name.
 
-### TUI — local break-glass access (proposal)
+### TUI — local break-glass access
 
 The TUI becomes a **backup tool used only on the server itself** — for when the web page or accounts are broken,
 or someone is locked out.
 
 - No username/password. `deploy.sh` generates a random **break-glass key** in `/opt/pi-controller/.tui-key`
   (owner `pi_controller`, mode 600). The TUI reads it, so it is run with `sudo` on the server.
-- The TUI talks to `127.0.0.1:8000` directly (not through nginx) and sends the key in a separate header.
-  The backend accepts that header **only on direct connections from 127.0.0.1** (not on requests proxied by nginx,
-  which carry `X-Forwarded-For`), and grants `admin`.
+- The TUI talks to `127.0.0.1:8000` and sends the key in a separate header. The backend accepts that header
+  **only on connections from 127.0.0.1** (there is no proxy in front, so the client address is trustworthy),
+  and grants `admin`.
 - Every TUI action is logged as `local-tui (<unix user>)` — the TUI sends the `sudo` caller (`$SUDO_USER`).
 - Works even if the users/sessions tables are empty or broken; can't be used from the network.
 - Rotating the key: re-run `deploy.sh` (or `backend.manage rotate-tui-key`).
@@ -85,7 +90,7 @@ or someone is locked out.
 | Run health check | `POST /health/trigger` | | ✓ | ✓ |
 | Kill process / restart service | `POST /process/kill`, `POST /service/restart` | | ✓ | ✓ |
 | Discovery scan (updates IP/hostname of known Pis) | `POST /discovery/scan` | | ✓ | ✓ |
-| **Execute arbitrary command** (effectively root on Pis) | `POST /command/execute` | | | ✓ |
+| **Execute arbitrary command**, incl. `sudo` (effectively root on Pis) — also allowed from the TUI | `POST /command/execute` | | | ✓ |
 | Add / edit / delete Pis | `POST /pi`, `POST /pi/bulk`, `PATCH /pi/*`, `DELETE /pi/*` | | | ✓ |
 | Deploy SSH key | `POST /pi/deploy-key` | | | ✓ |
 | Settings (read + write + test) | `/settings*` | | | ✓ |
@@ -136,8 +141,8 @@ Screens mirror the TUI:
 | Logs | merged activity log with filters |
 | Scheduled tasks | list (operator read), manage (admin) |
 | Settings | SSH + network settings (admin) |
-| Users | list, create (password 3×), change role, disable, reset password, revoke sessions (admin) |
-| Account | change own password (3×), active sessions, logout |
+| Users | list, create (password 2×), change role, disable, reset password, revoke sessions (admin) |
+| Account | change own password (2×), active sessions, logout |
 
 - Typed API client generated from FastAPI's OpenAPI schema (`openapi-typescript`) — backend and web stay in sync.
 - Source in `web/` in this repo; build output (`web/www`) is gitignored.
@@ -155,7 +160,7 @@ Screens mirror the TUI:
    than the backend it talks to.
 2. Downloads with `curl` (public repo, no token), verifies the checksum, unpacks to
    `/opt/pi-controller/web-releases/<tag>/`.
-3. Switches the `web-current` symlink atomically (nginx never serves half-copied files); keeps the last 3 for rollback.
+3. Switches the `web-current` symlink atomically (the backend never serves half-copied files); keeps the last 3 for rollback.
 4. If GitHub is unreachable, keeps the current web page and finishes the deploy.
 
 If the repo is ever made private, the server needs a read-only GitHub token for step 2.
@@ -174,18 +179,19 @@ If the repo is ever made private, the server needs a read-only GitHub token for 
 
 | Phase | Scope | Outcome |
 |-------|-------|---------|
-| 0 · Server | Ubuntu 25.04 → 26.04 LTS, nginx, own CA + server certificate, uvicorn on 127.0.0.1 | HTTPS in front, API no longer open on the LAN |
+| 0 · Server (optional, separate) | Ubuntu 25.04 → 26.04 LTS — done together: commands pasted into the server pane, DB backup first | Server gets security updates again |
 | 1 · Backend auth | migration 003, users/sessions/roles, `/api/v1`, audit events, `backend.manage`, TUI break-glass key | Every action attributed to a person; permissions enforced |
 | 2 · Background jobs | job executor, `action_results`, polling endpoint, TUI on new mechanism | Web-ready progress |
-| 3 · Web page MVP | `web/` Ionic app: login, inventory, Pi detail, health, logs, account; `release_web.sh` + deploy download | Read-only + health from the browser |
+| 3 · Web page MVP | `web/` Ionic app: login, inventory, Pi detail, health, logs, account; backend serves it; `release_web.sh` + deploy download | Read-only + health at `http://tv.omnika.com:8000/` |
 | 4 · Web page full | actions, discovery, tasks, settings, users | Everything the TUI can do |
-| 5 · Showroom & docs | demo mode with fake Pis (fake SSH executor), screenshots, user/admin guides, CA install guide | Presentable project |
+| 5 · Showroom & docs | demo mode with fake Pis (fake SSH executor), screenshots, user/admin guides | Presentable project |
+| later · HTTPS | Let's Encrypt certificate for `tv.omnika.com` (DNS-01) | Encrypted logins, no device setup |
 | later · Android | Capacitor app — **to be planned together** when needed | App on phones |
 
 Each phase ships on its own; tests (pytest for backend, vitest for web) grow with it.
 
 ## Open questions
 
-1. **TUI break-glass key** (above) — OK as proposed?
-2. **Server name for the certificate:** which name/IP will people type — `10.10.20.x`, a hostname like
-   `picontroller.lan`, or both? (A name needs a DNS entry or `hosts` line on each device; the IP works immediately.)
+1. **`tv.omnika.com` → this server:** does the name already resolve to the controller on the LAN (internal DNS),
+   or does it still need a DNS record? Check from a LAN machine: `getent hosts tv.omnika.com` should print the
+   controller's LAN IP.

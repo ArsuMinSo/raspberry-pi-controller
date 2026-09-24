@@ -45,7 +45,7 @@
 
 ## Future
 
-- [ ] **Web service** — web page for everyone (LAN only, HTTPS via own CA); TUI stays as local break-glass tool;
+- [ ] **Web service** — web page for everyone at http://tv.omnika.com:8000 (LAN, plain HTTP for now); TUI stays as local break-glass tool;
       Android app later (plan together). **Design: [docs/design/web-service.md](docs/design/web-service.md)** —
       ~5 users, viewer/operator/admin, Ionic + Angular (TypeScript), web built locally → GitHub release. It needs:
   - [ ] **User login** — accounts, password hashing, sessions/tokens (replaces "no auth, localhost trust")
@@ -54,12 +54,12 @@
   - [ ] **Permissions** — roles (e.g. viewer / operator / admin): who can view, run commands, kill/restart,
         edit inventory, change settings, manage users
   - [ ] User management (create/disable users, reset passwords)
-  - [x] Decide UI stack → Ionic/Angular app in `web/`, served by nginx; released via GitHub releases
+  - [x] Decide UI stack → Ionic/Angular app in `web/`, served by the backend itself; released via GitHub releases
   - [ ] Live progress for health/command runs (polling vs WebSocket/SSE)
   - [ ] Feature parity with TUI: inventory, select, execute, monitor, logs, health, discovery, tasks, settings
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
         settings in DB/shared store instead of per-process cache — until then `--workers 1`
-  - [ ] HTTPS + running beyond localhost (bind address, reverse proxy)
+  - [ ] Later: HTTPS via Let's Encrypt for tv.omnika.com (DNS-01)
 - [ ] **Showroom / presentation** — project showcase: what it does, screenshots/demo of TUI + web UI,
       architecture overview; demo mode with fake Pis so it can be shown without real hardware
 - [ ] **Documentation** — proper docs (user guide, admin/deployment guide, API reference, developer guide);
