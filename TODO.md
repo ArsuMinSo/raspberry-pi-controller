@@ -81,7 +81,19 @@
   - [x] Live progress — background jobs + `GET /api/v1/actions/{id}` polling, per-Pi `action_results` (phase 2)
   - [x] Phase 3 web MVP: login, inventory, Pi detail, health + live progress, logs, account; release_web.sh + deploy download
   - [x] Phase 4a — web Users screen (admin)
-  - [ ] Phase 4b — web parity with TUI: execute, kill, restart, discovery, tasks, settings, Pi edit, deploy key
+  - [ ] Phase 4b — web parity with TUI (new pages/tabs):
+    - [ ] **Execution** page (admin): command on selected Pis, per-Pi output, history re-run
+    - [ ] **Sudo execution** (admin): Pis' `vyroba` has no passwordless sudo → sudo password entered per run
+          (`sudo -S`, never stored/logged), or a sudoers rule — decide
+    - [ ] Kill process / restart service (operator)
+    - [ ] **Scheduled tasks** page: list (operator), create/edit/enable/delete (admin), last run + status
+    - [ ] **Manage Pis** (admin): add, edit (position, MAC, tags, IP), delete; discovery scan + add found Pis;
+          deploy SSH key
+    - [ ] Settings page (admin): SSH + network settings
+    - [ ] Inventory: **sortable columns** (click header; position, hostname, IP, status, CPU, RAM, temp, last seen)
+    - [ ] Inventory: **filters** — tags, Pi version, stale, high temp / CPU / RAM, alongside status + search
+    - [ ] **Dashboards**: fleet overview page (charts: reachable over time, temps, disk), per-Pi history
+          (needs `health_samples` table)
   - [x] Web: retry polling on transient network errors
   - [ ] First real web release (`scripts/release_web.sh`) + browser test against the server (CSP, login, progress)
   - [ ] Multi-worker support (if ever needed): run the scheduler in exactly one process, keep
