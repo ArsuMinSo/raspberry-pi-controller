@@ -10,7 +10,7 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, pct, statusColor, temp } from '../core/format';
-import { FleetPiValue, FleetSummary, LogEntry, PiSummary, ScheduledTask } from '../core/models';
+import { FleetSummary, LogEntry, PiSummary, ScheduledTask } from '../core/models';
 import { comparePositions } from '../core/sort';
 
 @Component({
@@ -68,9 +68,11 @@ import { comparePositions } from '../core/sort';
             } @else {
               <div class="status-grid">
                 @for (pi of sortedPis(); track pi.mac) {
-                  <div class="status-cell" [class]="'status-' + statusColor(pi.status)" [routerLink]="['/pi', pi.position]"
-                       [title]="pi.position + ' — ' + (pi.hostname ?? 'no hostname') + ' — ' + pi.status">
+                  <div class="status-cell" [class]="'status-' + statusColor(pi.status)" [class.hot]="isHot(pi)"
+                       [routerLink]="['/pi', pi.position]"
+                       [title]="pi.position + ' — ' + (pi.hostname ?? 'no hostname') + ' — ' + pi.status + (isHot(pi) ? ' — ' + temp(pi.temp_c) + ' 🔥' : '')">
                     {{ pi.position }}
+                    @if (isHot(pi)) { <span class="flame" aria-hidden="true">🔥</span> }
                   </div>
                 }
               </div>
@@ -102,19 +104,6 @@ import { comparePositions } from '../core/sort';
                   <span class="bar-label">{{ c.position }}</span>
                   <div class="bar-track"><div class="bar-fill" [style.width.%]="pctOf(c.value, 100)"></div></div>
                   <span class="bar-value">{{ pct(c.value) }}</span>
-                </div>
-              }
-            </ion-card-content>
-          </ion-card>
-          <ion-card>
-            <ion-card-header><ion-card-title>Highest RAM</ion-card-title></ion-card-header>
-            <ion-card-content>
-              @if (f.highest_mem.length === 0) { <p class="muted">No data.</p> }
-              @for (m of f.highest_mem; track m.position) {
-                <div class="bar-row clickable" [routerLink]="['/pi', m.position]">
-                  <span class="bar-label">{{ m.position }}</span>
-                  <div class="bar-track"><div class="bar-fill" [style.width.%]="pctOf(m.value, 100)"></div></div>
-                  <span class="bar-value">{{ pct(m.value) }}</span>
                 </div>
               }
             </ion-card-content>
@@ -213,6 +202,34 @@ import { comparePositions } from '../core/sort';
     .status-warning { background: var(--ion-color-warning); color: #000; }
     .status-medium { background: var(--ion-color-medium); }
 
+    .status-cell.hot {
+      position: relative;
+      background: linear-gradient(180deg, #ff7b1a, #d0281a);
+      animation: burn-glow 1.1s ease-in-out infinite;
+      overflow: visible;
+    }
+    .flame {
+      position: absolute;
+      top: -10px;
+      right: -2px;
+      font-size: 0.9rem;
+      animation: flame-flicker 0.6s ease-in-out infinite alternate;
+      pointer-events: none;
+    }
+    @keyframes burn-glow {
+      0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 90, 0, 0.6); }
+      50% { box-shadow: 0 0 10px 3px rgba(255, 140, 0, 0.9); }
+    }
+    @keyframes flame-flicker {
+      0% { transform: translateY(0) scale(1) rotate(-4deg); opacity: 0.85; }
+      50% { transform: translateY(-2px) scale(1.15) rotate(3deg); opacity: 1; }
+      100% { transform: translateY(-1px) scale(0.95) rotate(-2deg); opacity: 0.9; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .status-cell.hot { animation: none; box-shadow: 0 0 6px 2px rgba(255, 90, 0, 0.7); }
+      .flame { animation: none; }
+    }
+
     .top5-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
     .top5-row ion-card { flex: 1 1 16rem; margin: 0; }
 
@@ -292,6 +309,12 @@ export class DashboardPage {
 
   pctOf(value: number, max: number): number {
     return Math.max(2, Math.min(100, (value / max) * 100));
+  }
+
+  readonly HOT_THRESHOLD_C = 65;
+
+  isHot(pi: PiSummary): boolean {
+    return pi.temp_c !== null && pi.temp_c > this.HOT_THRESHOLD_C;
   }
 
   async filterAndGo(status: 'reachable' | 'unreachable'): Promise<void> {
