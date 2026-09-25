@@ -23,6 +23,7 @@ EXPECTED_ROLES = {
     ("PATCH", "/users/{user_id}"): "admin",
     ("POST", "/users/{user_id}/password"): "admin",
     ("POST", "/users/{user_id}/revoke-sessions"): "admin",
+    ("POST", "/users/{user_id}/extend-session"): "admin",
     ("GET", "/pi/list"): "viewer",
     ("GET", "/pi/{position}/status"): "viewer",
     ("POST", "/pi"): "admin",
