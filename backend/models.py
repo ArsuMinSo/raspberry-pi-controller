@@ -60,7 +60,8 @@ class ScheduledTask(Base):
     last_run = mapped_column(DateTime)
     last_status = mapped_column(String(20))
     last_action_id = mapped_column(Integer)
-    owner_user_id = mapped_column(Integer, ForeignKey("users.id"))  # scheduled runs are logged as this user
+    owner_user_id = mapped_column(Integer, ForeignKey("users.id"))  # last editor; scheduled runs are logged as this user
+    created_by_user_id = mapped_column(Integer, ForeignKey("users.id"))  # set once at creation, never updated
     created_at = mapped_column(DateTime, nullable=False, server_default=func.now())
 
 

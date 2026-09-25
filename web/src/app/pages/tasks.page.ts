@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   AlertController, IonBadge, IonButton, IonButtons, IonCard, IonCardContent, IonCardHeader, IonCardTitle, IonCheckbox,
@@ -14,8 +14,10 @@ import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime } from '../core/format';
 import { ScheduledTask, TaskType } from '../core/models';
+import { TableSort, compareDates, compareStrings } from '../core/table-sort';
 
 const TASK_TYPES: TaskType[] = ['command', 'health', 'discovery'];
+type SortColumn = 'name' | 'cron' | 'type' | 'enabled' | 'last_run' | 'last_status' | 'created_by' | 'last_edited_by';
 
 @Component({
   selector: 'app-tasks',
@@ -42,13 +44,20 @@ const TASK_TYPES: TaskType[] = ['command', 'health', 'discovery'];
             <table class="data">
               <thead>
                 <tr>
-                  <th>Name</th><th>Cron</th><th>Type</th><th>Pis</th><th>Enabled</th>
-                  <th>Last run</th><th>Last status</th>
+                  <th (click)="sort.sortBy('name')" class="sortable">Name{{ sort.indicator('name') }}</th>
+                  <th (click)="sort.sortBy('cron')" class="sortable">Cron{{ sort.indicator('cron') }}</th>
+                  <th (click)="sort.sortBy('type')" class="sortable">Type{{ sort.indicator('type') }}</th>
+                  <th>Pis</th>
+                  <th (click)="sort.sortBy('enabled')" class="sortable">Enabled{{ sort.indicator('enabled') }}</th>
+                  <th (click)="sort.sortBy('last_run')" class="sortable">Last run{{ sort.indicator('last_run') }}</th>
+                  <th (click)="sort.sortBy('last_status')" class="sortable">Last status{{ sort.indicator('last_status') }}</th>
+                  <th (click)="sort.sortBy('created_by')" class="sortable">Created by{{ sort.indicator('created_by') }}</th>
+                  <th (click)="sort.sortBy('last_edited_by')" class="sortable">Last edit by{{ sort.indicator('last_edited_by') }}</th>
                   @if (canManage) { <th></th> }
                 </tr>
               </thead>
               <tbody>
-                @for (t of tasks(); track t.id) {
+                @for (t of sortedTasks(); track t.id) {
                   <tr [class.disabled]="!t.enabled">
                     <td><strong>{{ t.name }}</strong></td>
                     <td><code>{{ t.cron }}</code></td>
@@ -69,6 +78,8 @@ const TASK_TYPES: TaskType[] = ['command', 'health', 'discovery'];
                         </ion-badge>
                       } @else { — }
                     </td>
+                    <td>{{ t.created_by ?? '—' }}</td>
+                    <td>{{ t.last_edited_by ?? '—' }}</td>
                     @if (canManage) {
                       <td class="actions">
                         <ion-button size="small" fill="outline" (click)="startEdit(t)" [disabled]="busy()">Edit</ion-button>
@@ -134,6 +145,8 @@ const TASK_TYPES: TaskType[] = ['command', 'health', 'discovery'];
     tr.disabled td { opacity: 0.6; }
     ion-select { min-width: 7rem; }
     code { font-size: 0.85rem; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
   `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonContent, IonText,
@@ -157,6 +170,17 @@ export class TasksPage {
   readonly error = signal<string | null>(null);
   readonly formError = signal<string | null>(null);
   readonly editingId = signal<number | null>(null);
+  readonly sort = new TableSort<ScheduledTask, SortColumn>({
+    name: (a, b) => compareStrings(a.name, b.name),
+    cron: (a, b) => compareStrings(a.cron, b.cron),
+    type: (a, b) => compareStrings(a.task_type, b.task_type),
+    enabled: (a, b) => Number(a.enabled) - Number(b.enabled),
+    last_run: (a, b) => compareDates(a.last_run, b.last_run),
+    last_status: (a, b) => compareStrings(a.last_status, b.last_status),
+    created_by: (a, b) => compareStrings(a.created_by, b.created_by),
+    last_edited_by: (a, b) => compareStrings(a.last_edited_by, b.last_edited_by),
+  }, 'name');
+  readonly sortedTasks = computed(() => this.sort.apply(this.tasks()));
 
   name = '';
   cron = '';

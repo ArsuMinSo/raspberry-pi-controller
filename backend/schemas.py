@@ -243,6 +243,8 @@ class ScheduledTaskOut(BaseModel):
     last_status: str | None
     last_action_id: int | None
     created_at: datetime
+    created_by: str | None = None  # username; None if that user was later removed
+    last_edited_by: str | None = None  # username; None if that user was later removed
 
     model_config = ConfigDict(from_attributes=True)
 

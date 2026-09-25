@@ -191,6 +191,8 @@ export interface ScheduledTask {
   last_status: string | null;
   last_action_id: number | null;
   created_at: string;
+  created_by: string | null;
+  last_edited_by: string | null;
 }
 
 export interface ScheduledTaskCreate {

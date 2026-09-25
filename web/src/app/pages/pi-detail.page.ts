@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, input, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import {
   IonBackButton, IonBadge, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonSpinner, IonText, IonTitle,
@@ -11,6 +11,9 @@ import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, statusColor } from '../core/format';
 import { LogEntry, PiDetail } from '../core/models';
+import { TableSort, compareDates, compareStrings } from '../core/table-sort';
+
+type SortColumn = 'when' | 'action' | 'status' | 'user';
 
 @Component({
   selector: 'app-pi-detail',
@@ -56,9 +59,17 @@ import { LogEntry, PiDetail } from '../core/models';
         } @else {
           <div class="table-scroll">
             <table class="data">
-              <thead><tr><th>When</th><th>Action</th><th>Status</th><th>User</th><th>Command</th></tr></thead>
+              <thead>
+                <tr>
+                  <th (click)="sort.sortBy('when')" class="sortable">When{{ sort.indicator('when') }}</th>
+                  <th (click)="sort.sortBy('action')" class="sortable">Action{{ sort.indicator('action') }}</th>
+                  <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
+                  <th (click)="sort.sortBy('user')" class="sortable">User{{ sort.indicator('user') }}</th>
+                  <th>Command</th>
+                </tr>
+              </thead>
               <tbody>
-                @for (a of actions(); track a.id) {
+                @for (a of sortedActions(); track a.id) {
                   <tr class="clickable" [routerLink]="['/actions', a.id]">
                     <td>{{ dateTime(a.timestamp) }}</td>
                     <td>{{ a.action }}</td>
@@ -75,7 +86,11 @@ import { LogEntry, PiDetail } from '../core/models';
       </div>
     </ion-content>
   `,
-  styles: [`table.details th { width: 10rem; }`],
+  styles: [`
+    table.details th { width: 10rem; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
+  `],
   imports: [
     RouterLink, IonHeader, IonToolbar, IonButtons, IonBackButton, IonTitle, IonButton, IonIcon, IonContent,
     IonText, IonBadge, IonSpinner,
@@ -97,6 +112,14 @@ export class PiDetailPage implements OnInit {
   readonly actions = signal<LogEntry[]>([]);
   readonly error = signal<string | null>(null);
   readonly starting = signal(false);
+  // No default column: preserve the API's own order (newest first) until the user clicks a header.
+  readonly sort = new TableSort<LogEntry, SortColumn>({
+    when: (a, b) => compareDates(a.timestamp, b.timestamp),
+    action: (a, b) => compareStrings(a.action, b.action),
+    status: (a, b) => compareStrings(a.status, b.status),
+    user: (a, b) => compareStrings(a.user, b.user),
+  });
+  readonly sortedActions = computed(() => this.sort.apply(this.actions()));
 
   async ngOnInit(): Promise<void> {
     try {

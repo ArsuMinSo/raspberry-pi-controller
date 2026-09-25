@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   AlertController, IonBadge, IonButton, IonButtons, IonCard, IonCardContent, IonCardHeader, IonCardTitle, IonCheckbox,
@@ -15,7 +15,10 @@ import { errorMessage } from '../core/errors';
 import { dateTime } from '../core/format';
 import { Role, User } from '../core/models';
 import { ROLES, usernameProblem } from '../core/roles';
+import { TableSort, compareDates, compareStrings } from '../core/table-sort';
 import { newPasswordProblem } from './account.page';
+
+type SortColumn = 'username' | 'role' | 'status' | 'last_login' | 'created';
 
 /** Admin: create users, change roles, disable, reset passwords, end sessions. Users are never deleted. */
 @Component({
@@ -39,10 +42,17 @@ import { newPasswordProblem } from './account.page';
         <div class="table-scroll">
           <table class="data">
             <thead>
-              <tr><th>User</th><th>Role</th><th>Status</th><th>Last login</th><th>Created</th><th></th></tr>
+              <tr>
+                <th (click)="sort.sortBy('username')" class="sortable">User{{ sort.indicator('username') }}</th>
+                <th (click)="sort.sortBy('role')" class="sortable">Role{{ sort.indicator('role') }}</th>
+                <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
+                <th (click)="sort.sortBy('last_login')" class="sortable">Last login{{ sort.indicator('last_login') }}</th>
+                <th (click)="sort.sortBy('created')" class="sortable">Created{{ sort.indicator('created') }}</th>
+                <th></th>
+              </tr>
             </thead>
             <tbody>
-              @for (u of users(); track u.id) {
+              @for (u of sortedUsers(); track u.id) {
                 <tr [class.disabled]="!u.is_active">
                   <td>
                     {{ u.username }}
@@ -117,6 +127,8 @@ import { newPasswordProblem } from './account.page';
     tr.disabled td { opacity: 0.6; }
     ion-select { min-width: 7rem; }
     ion-badge { margin-left: 4px; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
   `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonContent,
@@ -137,6 +149,14 @@ export class UsersPage implements OnInit {
   readonly busy = signal(false);
   readonly error = signal<string | null>(null);
   readonly createError = signal<string | null>(null);
+  readonly sort = new TableSort<User, SortColumn>({
+    username: (a, b) => compareStrings(a.username, b.username),
+    role: (a, b) => compareStrings(a.role, b.role),
+    status: (a, b) => Number(a.is_active) - Number(b.is_active),
+    last_login: (a, b) => compareDates(a.last_login_at, b.last_login_at),
+    created: (a, b) => compareDates(a.created_at, b.created_at),
+  }, 'username');
+  readonly sortedUsers = computed(() => this.sort.apply(this.users()));
 
   username = '';
   role: Role = 'viewer';

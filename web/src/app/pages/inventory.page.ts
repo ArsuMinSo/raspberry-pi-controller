@@ -14,6 +14,7 @@ import { errorMessage } from '../core/errors';
 import { dateTime, pct, statusColor, temp } from '../core/format';
 import { ActionQueued, FleetSummary, PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
+import { TableSort, compareDates, compareIps, compareStrings } from '../core/table-sort';
 
 type StatusFilter = 'all' | 'reachable' | 'unreachable';
 type SortColumn = 'position' | 'hostname' | 'ip' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'seen';
@@ -164,16 +165,16 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
             <thead>
               <tr>
                 @if (canAct) { <th></th> }
-                <th (click)="sortBy('position')" class="sortable">Position{{ sortIndicator('position') }}</th>
-                <th (click)="sortBy('hostname')" class="sortable">Hostname{{ sortIndicator('hostname') }}</th>
-                <th (click)="sortBy('ip')" class="sortable">IP{{ sortIndicator('ip') }}</th>
-                <th (click)="sortBy('status')" class="sortable">Status{{ sortIndicator('status') }}</th>
-                <th (click)="sortBy('cpu')" class="sortable">CPU 1m{{ sortIndicator('cpu') }}</th>
-                <th (click)="sortBy('ram')" class="sortable">RAM{{ sortIndicator('ram') }}</th>
-                <th (click)="sortBy('temp')" class="sortable">Temp{{ sortIndicator('temp') }}</th>
-                <th (click)="sortBy('pi')" class="sortable">Pi{{ sortIndicator('pi') }}</th>
+                <th (click)="sort.sortBy('position')" class="sortable">Position{{ sort.indicator('position') }}</th>
+                <th (click)="sort.sortBy('hostname')" class="sortable">Hostname{{ sort.indicator('hostname') }}</th>
+                <th (click)="sort.sortBy('ip')" class="sortable">IP{{ sort.indicator('ip') }}</th>
+                <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
+                <th (click)="sort.sortBy('cpu')" class="sortable">CPU 1m{{ sort.indicator('cpu') }}</th>
+                <th (click)="sort.sortBy('ram')" class="sortable">RAM{{ sort.indicator('ram') }}</th>
+                <th (click)="sort.sortBy('temp')" class="sortable">Temp{{ sort.indicator('temp') }}</th>
+                <th (click)="sort.sortBy('pi')" class="sortable">Pi{{ sort.indicator('pi') }}</th>
                 <th>Tags</th>
-                <th (click)="sortBy('seen')" class="sortable">Last seen{{ sortIndicator('seen') }}</th>
+                <th (click)="sort.sortBy('seen')" class="sortable">Last seen{{ sort.indicator('seen') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -237,8 +238,17 @@ export class InventoryPage {
   readonly statusFilter = signal<StatusFilter>('all');
   readonly search = signal('');
   readonly selected = signal<Set<string>>(new Set());
-  readonly sortColumn = signal<SortColumn>('position');
-  readonly sortDir = signal<'asc' | 'desc'>('asc');
+  readonly sort = new TableSort<PiSummary, SortColumn>({
+    position: (a, b) => comparePositions(a.position, b.position),
+    hostname: (a, b) => compareStrings(a.hostname, b.hostname),
+    ip: (a, b) => compareIps(a.ip, b.ip),
+    status: (a, b) => a.status.localeCompare(b.status),
+    cpu: (a, b) => (a.cpu_1m ?? 0) - (b.cpu_1m ?? 0),
+    ram: (a, b) => (a.mem_percent ?? 0) - (b.mem_percent ?? 0),
+    temp: (a, b) => (a.temp_c ?? 0) - (b.temp_c ?? 0),
+    pi: (a, b) => (a.pi_version ?? 0) - (b.pi_version ?? 0),
+    seen: (a, b) => compareDates(a.last_seen, b.last_seen),
+  }, 'position');
   readonly filterTags = signal<Set<string>>(new Set());
   readonly filterVersions = signal<Set<number>>(new Set());
   readonly filterStale = signal(false);
@@ -252,8 +262,6 @@ export class InventoryPage {
   readonly visible = computed(() => {
     const status = this.statusFilter();
     const q = this.search();
-    const col = this.sortColumn();
-    const dir = this.sortDir();
     const tags = this.filterTags();
     const versions = this.filterVersions();
     const stale = this.filterStale();
@@ -269,53 +277,11 @@ export class InventoryPage {
       .filter((pi) => (pi.temp_c ?? 0) >= minTemp)
       .filter((pi) => (pi.cpu_1m ?? 0) >= minCpu)
       .filter((pi) => (pi.mem_percent ?? 0) >= minRam);
-    filtered.sort((a, b) => this.compare(a, b, col) * (dir === 'desc' ? -1 : 1));
-    return filtered;
+    return this.sort.apply(filtered);
   });
 
   constructor() {
     void this.load();
-  }
-
-  private compare(a: PiSummary, b: PiSummary, col: SortColumn): number {
-    switch (col) {
-      case 'position': return comparePositions(a.position, b.position);
-      case 'hostname': return (a.hostname ?? '').localeCompare(b.hostname ?? '');
-      case 'ip': return this.compareIps(a.ip, b.ip);
-      case 'status': return a.status.localeCompare(b.status);
-      case 'cpu': return (a.cpu_1m ?? 0) - (b.cpu_1m ?? 0);
-      case 'ram': return (a.mem_percent ?? 0) - (b.mem_percent ?? 0);
-      case 'temp': return (a.temp_c ?? 0) - (b.temp_c ?? 0);
-      case 'pi': return (a.pi_version ?? 0) - (b.pi_version ?? 0);
-      case 'seen': return new Date(a.last_seen ?? 0).getTime() - new Date(b.last_seen ?? 0).getTime();
-      default: return 0;
-    }
-  }
-
-  private compareIps(a: string | null, b: string | null): number {
-    if (!a && !b) return 0;
-    if (!a) return -1;
-    if (!b) return 1;
-    const aParts = a.split('.').map((x) => parseInt(x, 10));
-    const bParts = b.split('.').map((x) => parseInt(x, 10));
-    for (let i = 0; i < 4; i++) {
-      if (aParts[i] !== bParts[i]) return aParts[i] - bParts[i];
-    }
-    return 0;
-  }
-
-  sortBy(col: SortColumn): void {
-    if (this.sortColumn() === col) {
-      this.sortDir.set(this.sortDir() === 'asc' ? 'desc' : 'asc');
-    } else {
-      this.sortColumn.set(col);
-      this.sortDir.set('asc');
-    }
-  }
-
-  sortIndicator(col: SortColumn): string {
-    if (this.sortColumn() !== col) return '';
-    return this.sortDir() === 'asc' ? ' ▲' : ' ▼';
   }
 
   toggleTag(tag: string): void {

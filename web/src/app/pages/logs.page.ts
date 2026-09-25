@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
@@ -11,8 +11,11 @@ import { ApiService } from '../core/api.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, statusColor } from '../core/format';
 import { AuditEvent, LogEntry } from '../core/models';
+import { TableSort, compareDates, compareStrings } from '../core/table-sort';
 
 type Tab = 'actions' | 'events';
+type ActionSortColumn = 'when' | 'user' | 'action' | 'status' | 'duration';
+type EventSortColumn = 'when' | 'user' | 'event' | 'target' | 'ip';
 
 @Component({
   selector: 'app-logs',
@@ -46,9 +49,19 @@ type Tab = 'actions' | 'events';
       <div class="table-scroll">
         @if (tab() === 'actions') {
           <table class="data">
-            <thead><tr><th>When</th><th>User</th><th>Action</th><th>Status</th><th>Pis</th><th>Command</th><th>Duration</th></tr></thead>
+            <thead>
+              <tr>
+                <th (click)="actionSort.sortBy('when')" class="sortable">When{{ actionSort.indicator('when') }}</th>
+                <th (click)="actionSort.sortBy('user')" class="sortable">User{{ actionSort.indicator('user') }}</th>
+                <th (click)="actionSort.sortBy('action')" class="sortable">Action{{ actionSort.indicator('action') }}</th>
+                <th (click)="actionSort.sortBy('status')" class="sortable">Status{{ actionSort.indicator('status') }}</th>
+                <th>Pis</th>
+                <th>Command</th>
+                <th (click)="actionSort.sortBy('duration')" class="sortable">Duration{{ actionSort.indicator('duration') }}</th>
+              </tr>
+            </thead>
             <tbody>
-              @for (a of actions(); track a.id) {
+              @for (a of sortedActions(); track a.id) {
                 <tr class="clickable" [routerLink]="['/actions', a.id]">
                   <td>{{ dateTime(a.timestamp) }}</td>
                   <td>{{ a.user }}</td>
@@ -65,9 +78,18 @@ type Tab = 'actions' | 'events';
           </table>
         } @else {
           <table class="data">
-            <thead><tr><th>When</th><th>User</th><th>Event</th><th>Target</th><th>Details</th><th>IP</th></tr></thead>
+            <thead>
+              <tr>
+                <th (click)="eventSort.sortBy('when')" class="sortable">When{{ eventSort.indicator('when') }}</th>
+                <th (click)="eventSort.sortBy('user')" class="sortable">User{{ eventSort.indicator('user') }}</th>
+                <th (click)="eventSort.sortBy('event')" class="sortable">Event{{ eventSort.indicator('event') }}</th>
+                <th (click)="eventSort.sortBy('target')" class="sortable">Target{{ eventSort.indicator('target') }}</th>
+                <th>Details</th>
+                <th (click)="eventSort.sortBy('ip')" class="sortable">IP{{ eventSort.indicator('ip') }}</th>
+              </tr>
+            </thead>
             <tbody>
-              @for (e of events(); track e.id) {
+              @for (e of sortedEvents(); track e.id) {
                 <tr>
                   <td>{{ dateTime(e.ts) }}</td>
                   <td>{{ e.username }}</td>
@@ -89,6 +111,8 @@ type Tab = 'actions' | 'events';
     .filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 8px 16px; }
     .filters ion-item { flex: 1 1 12rem; }
     code { font-size: 0.8rem; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
   `],
   imports: [
     FormsModule, RouterLink, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonSegment,
@@ -105,6 +129,23 @@ export class LogsPage {
   readonly actions = signal<LogEntry[]>([]);
   readonly events = signal<AuditEvent[]>([]);
   readonly error = signal<string | null>(null);
+  // No default column: preserve the API's own order (newest first) until the user clicks a header.
+  readonly actionSort = new TableSort<LogEntry, ActionSortColumn>({
+    when: (a, b) => compareDates(a.timestamp, b.timestamp),
+    user: (a, b) => compareStrings(a.user, b.user),
+    action: (a, b) => compareStrings(a.action, b.action),
+    status: (a, b) => compareStrings(a.status, b.status),
+    duration: (a, b) => (a.duration_ms ?? 0) - (b.duration_ms ?? 0),
+  });
+  readonly eventSort = new TableSort<AuditEvent, EventSortColumn>({
+    when: (a, b) => compareDates(a.ts, b.ts),
+    user: (a, b) => compareStrings(a.username, b.username),
+    event: (a, b) => compareStrings(a.event, b.event),
+    target: (a, b) => compareStrings(a.target, b.target),
+    ip: (a, b) => compareStrings(a.ip, b.ip),
+  });
+  readonly sortedActions = computed(() => this.actionSort.apply(this.actions()));
+  readonly sortedEvents = computed(() => this.eventSort.apply(this.events()));
   user = '';
   pi = '';
   event = '';

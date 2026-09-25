@@ -11,6 +11,9 @@ import { ApiService } from '../core/api.service';
 import { errorMessage } from '../core/errors';
 import { PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
+import { TableSort, compareIps, compareStrings } from '../core/table-sort';
+
+type SortColumn = 'position' | 'hostname' | 'ip' | 'status';
 
 @Component({
   selector: 'app-execute-command',
@@ -77,14 +80,14 @@ import { comparePositions } from '../core/sort';
                 <thead>
                   <tr>
                     <th></th>
-                    <th>Position</th>
-                    <th>Hostname</th>
-                    <th>IP</th>
-                    <th>Status</th>
+                    <th (click)="sort.sortBy('position')" class="sortable">Position{{ sort.indicator('position') }}</th>
+                    <th (click)="sort.sortBy('hostname')" class="sortable">Hostname{{ sort.indicator('hostname') }}</th>
+                    <th (click)="sort.sortBy('ip')" class="sortable">IP{{ sort.indicator('ip') }}</th>
+                    <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (pi of pis(); track pi.mac) {
+                  @for (pi of sortedPis(); track pi.mac) {
                     <tr>
                       <td>
                         <ion-checkbox [checked]="selected().has(pi.position)" (ionChange)="toggle(pi.position)"
@@ -111,6 +114,8 @@ import { comparePositions } from '../core/sort';
     ion-card-content { --padding-top: 8px; }
     .table-scroll { overflow-x: auto; margin: 16px 0; }
     .muted { color: var(--ion-color-medium); font-size: 0.9rem; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
   `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonContent, IonCard, IonCardContent,
@@ -125,6 +130,13 @@ export class ExecuteCommandPage {
   readonly selected = signal<Set<string>>(new Set());
   readonly error = signal<string | null>(null);
   readonly submitting = signal(false);
+  readonly sort = new TableSort<PiSummary, SortColumn>({
+    position: (a, b) => comparePositions(a.position, b.position),
+    hostname: (a, b) => compareStrings(a.hostname, b.hostname),
+    ip: (a, b) => compareIps(a.ip, b.ip),
+    status: (a, b) => a.status.localeCompare(b.status),
+  }, 'position');
+  readonly sortedPis = computed(() => this.sort.apply(this.pis()));
 
   command = '';
   sshUsername = '';

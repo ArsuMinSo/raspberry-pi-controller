@@ -15,6 +15,11 @@ import { dateTime, num, pct, statusColor, temp, uptime } from '../core/format';
 import { RebootVerdict, rebootVerdict, throttleText } from '../core/fleet';
 import { ActionProgress, ActionResult } from '../core/models';
 import { comparePositions } from '../core/sort';
+import { TableSort } from '../core/table-sort';
+
+type DiagCol = 'position' | 'result' | 'throttle' | 'disk_used' | 'disk_free';
+type HealthCol = 'position' | 'result' | 'cpu' | 'ram' | 'temp' | 'uptime';
+type VerifyCol = 'position' | 'verdict' | 'uptime';
 
 const POLL_MS = 1000;
 /** Wait before checking that rebooted Pis came back with a fresh uptime. */
@@ -59,9 +64,17 @@ function isFatal(err: unknown): boolean {
           @if (p.action === 'diagnostics') {
             <div class="table-scroll">
               <table class="data">
-                <thead><tr><th>Position</th><th>Result</th><th>Throttling / power</th><th>Disk used</th><th>Free</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th (click)="diagSort.sortBy('position')" class="sortable">Position{{ diagSort.indicator('position') }}</th>
+                    <th (click)="diagSort.sortBy('result')" class="sortable">Result{{ diagSort.indicator('result') }}</th>
+                    <th (click)="diagSort.sortBy('throttle')" class="sortable">Throttling / power{{ diagSort.indicator('throttle') }}</th>
+                    <th (click)="diagSort.sortBy('disk_used')" class="sortable">Disk used{{ diagSort.indicator('disk_used') }}</th>
+                    <th (click)="diagSort.sortBy('disk_free')" class="sortable">Free{{ diagSort.indicator('disk_free') }}</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  @for (r of sorted(); track r.position) {
+                  @for (r of sortedDiag(); track r.position) {
                     <tr class="clickable" [routerLink]="['/pi', r.position]">
                       <td><strong>{{ r.position }}</strong></td>
                       <td>
@@ -78,9 +91,18 @@ function isFatal(err: unknown): boolean {
           } @else if (p.action === 'health') {
             <div class="table-scroll">
               <table class="data">
-                <thead><tr><th>Position</th><th>Result</th><th>CPU 1m</th><th>RAM</th><th>Temp</th><th>Uptime</th></tr></thead>
+                <thead>
+                  <tr>
+                    <th (click)="healthSort.sortBy('position')" class="sortable">Position{{ healthSort.indicator('position') }}</th>
+                    <th (click)="healthSort.sortBy('result')" class="sortable">Result{{ healthSort.indicator('result') }}</th>
+                    <th (click)="healthSort.sortBy('cpu')" class="sortable">CPU 1m{{ healthSort.indicator('cpu') }}</th>
+                    <th (click)="healthSort.sortBy('ram')" class="sortable">RAM{{ healthSort.indicator('ram') }}</th>
+                    <th (click)="healthSort.sortBy('temp')" class="sortable">Temp{{ healthSort.indicator('temp') }}</th>
+                    <th (click)="healthSort.sortBy('uptime')" class="sortable">Uptime{{ healthSort.indicator('uptime') }}</th>
+                  </tr>
+                </thead>
                 <tbody>
-                  @for (r of sorted(); track r.position) {
+                  @for (r of sortedHealth(); track r.position) {
                     <tr class="clickable" [routerLink]="['/pi', r.position]">
                       <td><strong>{{ r.position }}</strong></td>
                       <td>
@@ -127,7 +149,13 @@ function isFatal(err: unknown): boolean {
             @if (verify(); as v) {
               <div class="table-scroll">
                 <table class="data">
-                  <thead><tr><th>Position</th><th>Verdict</th><th>Uptime</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th (click)="verifySort.sortBy('position')" class="sortable">Position{{ verifySort.indicator('position') }}</th>
+                      <th (click)="verifySort.sortBy('verdict')" class="sortable">Verdict{{ verifySort.indicator('verdict') }}</th>
+                      <th (click)="verifySort.sortBy('uptime')" class="sortable">Uptime{{ verifySort.indicator('uptime') }}</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     @for (r of verifySorted(); track r.position) {
                       <tr>
@@ -156,7 +184,12 @@ function isFatal(err: unknown): boolean {
       }
     </ion-content>
   `,
-  styles: [`.result { margin: 12px 0; } ion-badge { margin-left: 6px; }`],
+  styles: [`
+    .result { margin: 12px 0; }
+    ion-badge { margin-left: 6px; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
+  `],
   imports: [
     RouterLink, IonHeader, IonToolbar, IonButtons, IonBackButton, IonTitle, IonProgressBar, IonContent, IonText,
     IonBadge, IonButton,
@@ -188,8 +221,31 @@ export class ActionPage implements OnInit {
   private verifyStarted = false;
   private sawRunning = false;
 
-  readonly verifySorted = computed<ActionResult[]>(() =>
-    [...(this.verify()?.results ?? [])].sort((a, b) => comparePositions(a.position, b.position)));
+  readonly diagSort = new TableSort<ActionResult, DiagCol>({
+    position: (a, b) => comparePositions(a.position, b.position),
+    result: (a, b) => (a.error ?? '').localeCompare(b.error ?? ''),
+    throttle: (a, b) => throttleText(a.details?.['throttled']).localeCompare(throttleText(b.details?.['throttled'])),
+    disk_used: (a, b) => this.diskUsed(a) - this.diskUsed(b),
+    disk_free: (a, b) => this.diskFreeMb(a) - this.diskFreeMb(b),
+  }, 'position');
+  readonly healthSort = new TableSort<ActionResult, HealthCol>({
+    position: (a, b) => comparePositions(a.position, b.position),
+    result: (a, b) => (a.error ?? '').localeCompare(b.error ?? ''),
+    cpu: (a, b) => (num(a.details, 'cpu_1m') ?? 0) - (num(b.details, 'cpu_1m') ?? 0),
+    ram: (a, b) => (num(a.details, 'mem_percent') ?? 0) - (num(b.details, 'mem_percent') ?? 0),
+    temp: (a, b) => (num(a.details, 'temp_c') ?? 0) - (num(b.details, 'temp_c') ?? 0),
+    uptime: (a, b) => (num(a.details, 'uptime_s') ?? 0) - (num(b.details, 'uptime_s') ?? 0),
+  }, 'position');
+  readonly verifySort = new TableSort<ActionResult, VerifyCol>({
+    position: (a, b) => comparePositions(a.position, b.position),
+    verdict: (a, b) => this.verdict(a).localeCompare(this.verdict(b)),
+    uptime: (a, b) => (num(a.details, 'uptime_s') ?? 0) - (num(b.details, 'uptime_s') ?? 0),
+  }, 'position');
+
+  readonly verifySorted = computed<ActionResult[]>(() => this.verifySort.apply(this.verify()?.results ?? []));
+
+  readonly sortedDiag = computed<ActionResult[]>(() => this.diagSort.apply(this.progress()?.results ?? []));
+  readonly sortedHealth = computed<ActionResult[]>(() => this.healthSort.apply(this.progress()?.results ?? []));
 
   readonly sorted = computed<ActionResult[]>(() =>
     [...(this.progress()?.results ?? [])].sort((a, b) => comparePositions(a.position, b.position)));
@@ -241,9 +297,14 @@ export class ActionPage implements OnInit {
   }
 
   diskFree(r: ActionResult): string {
+    const mb = this.diskFreeMb(r);
+    return mb >= 0 ? (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`) : '—';
+  }
+
+  private diskFreeMb(r: ActionResult): number {
     const disk = r.details?.['disk'] as Record<string, unknown> | undefined;
     const mb = disk?.['free_mb'];
-    return typeof mb === 'number' ? (mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${mb} MB`) : '—';
+    return typeof mb === 'number' ? mb : -1;
   }
 
   verdict(r: ActionResult): RebootVerdict {

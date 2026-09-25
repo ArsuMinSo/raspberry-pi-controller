@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, inject, input, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
@@ -13,6 +13,9 @@ import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime } from '../core/format';
 import { SessionInfo } from '../core/models';
+import { TableSort, compareDates, compareStrings } from '../core/table-sort';
+
+type SortColumn = 'created' | 'last_used' | 'expires' | 'ip' | 'ua';
 
 export const MIN_PASSWORD_LENGTH = 12;
 
@@ -77,9 +80,18 @@ export function newPasswordProblem(next: string, confirm: string): string | null
             @if (sessionsError()) { <ion-text color="danger"><p>{{ sessionsError() }}</p></ion-text> }
             <div class="table-scroll">
               <table class="data">
-                <thead><tr><th>Started</th><th>Last used</th><th>Expires</th><th>IP</th><th>Browser</th><th></th></tr></thead>
+                <thead>
+                  <tr>
+                    <th (click)="sort.sortBy('created')" class="sortable">Started{{ sort.indicator('created') }}</th>
+                    <th (click)="sort.sortBy('last_used')" class="sortable">Last used{{ sort.indicator('last_used') }}</th>
+                    <th (click)="sort.sortBy('expires')" class="sortable">Expires{{ sort.indicator('expires') }}</th>
+                    <th (click)="sort.sortBy('ip')" class="sortable">IP{{ sort.indicator('ip') }}</th>
+                    <th (click)="sort.sortBy('ua')" class="sortable">Browser{{ sort.indicator('ua') }}</th>
+                    <th></th>
+                  </tr>
+                </thead>
                 <tbody>
-                  @for (s of sessions(); track s.id) {
+                  @for (s of sortedSessions(); track s.id) {
                     <tr>
                       <td>{{ dateTime(s.created_at) }}</td>
                       <td>{{ dateTime(s.last_used_at) }}</td>
@@ -102,7 +114,12 @@ export function newPasswordProblem(next: string, confirm: string): string | null
       </div>
     </ion-content>
   `,
-  styles: [`.notice { display: block; margin-bottom: 12px; } .ua { max-width: 20rem; font-size: 0.8rem; }`],
+  styles: [`
+    .notice { display: block; margin-bottom: 12px; }
+    .ua { max-width: 20rem; font-size: 0.8rem; }
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
+  `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonContent, IonCard, IonCardHeader,
     IonCardTitle, IonCardContent, IonList, IonItem, IonInput, IonButton, IonText, IonNote, IonBadge,
@@ -120,6 +137,14 @@ export class AccountPage implements OnInit {
   readonly dateTime = dateTime;
   readonly sessions = signal<SessionInfo[]>([]);
   readonly sessionsError = signal<string | null>(null);
+  readonly sort = new TableSort<SessionInfo, SortColumn>({
+    created: (a, b) => compareDates(a.created_at, b.created_at),
+    last_used: (a, b) => compareDates(a.last_used_at, b.last_used_at),
+    expires: (a, b) => compareDates(a.expires_at, b.expires_at),
+    ip: (a, b) => compareStrings(a.ip, b.ip),
+    ua: (a, b) => compareStrings(a.user_agent, b.user_agent),
+  }, 'created');
+  readonly sortedSessions = computed(() => this.sort.apply(this.sessions()));
   readonly passwordError = signal<string | null>(null);
   readonly saving = signal(false);
   readonly forced = signal(false);
