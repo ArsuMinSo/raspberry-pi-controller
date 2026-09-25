@@ -2,9 +2,9 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
-  AlertController, IonBadge, IonButton, IonButtons, IonCheckbox, IonContent, IonHeader, IonIcon, IonMenuButton, IonRefresher,
-  IonRefresherContent, IonSearchbar, IonSegment, IonSegmentButton, IonLabel, IonSpinner, IonText, IonTitle,
-  IonToolbar,
+  AlertController, IonBadge, IonButton, IonButtons, IonCard, IonCardContent, IonCheckbox, IonChip, IonContent,
+  IonHeader, IonIcon, IonItem, IonLabel, IonMenuButton, IonRange, IonRefresher, IonRefresherContent, IonSearchbar,
+  IonSegment, IonSegmentButton, IonSpinner, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { Observable, firstValueFrom } from 'rxjs';
 
@@ -52,6 +52,60 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
           <ion-segment-button value="unreachable"><ion-label>Unreachable ({{ count('unreachable') }})</ion-label></ion-segment-button>
         </ion-segment>
       </ion-toolbar>
+      <ion-toolbar>
+        <ion-buttons>
+          <ion-button fill="outline" (click)="showFilters = !showFilters">
+            <ion-icon slot="start" name="funnel-outline"></ion-icon>
+            Filters
+            @if (filterTags().size + filterVersions().size > 0 || filterStale() || filterMinTemp() > 0 || filterMinCpu() > 0 || filterMinRam() > 0) {
+              <ion-badge color="primary">{{ filterTags().size + filterVersions().size + (filterStale() ? 1 : 0) + (filterMinTemp() > 0 ? 1 : 0) + (filterMinCpu() > 0 ? 1 : 0) + (filterMinRam() > 0 ? 1 : 0) }}</ion-badge>
+            }
+          </ion-button>
+          @if (filterTags().size + filterVersions().size > 0 || filterStale() || filterMinTemp() > 0 || filterMinCpu() > 0 || filterMinRam() > 0) {
+            <ion-button fill="outline" (click)="clearFilters()">Clear</ion-button>
+          }
+        </ion-buttons>
+      </ion-toolbar>
+      @if (showFilters) {
+        <ion-card class="filters-card ion-margin">
+          <ion-card-content>
+            <div class="filter-section">
+              <strong>Tags</strong>
+              <div class="filter-chips">
+                @for (tag of allTags; track tag) {
+                  <ion-chip [outline]="!filterTags().has(tag)" (click)="toggleTag(tag)">{{ tag }}</ion-chip>
+                }
+              </div>
+            </div>
+            <div class="filter-section">
+              <strong>Pi version</strong>
+              <div class="filter-chips">
+                @for (v of [2, 3, 4, 5]; track v) {
+                  <ion-chip [outline]="!filterVersions().has(v)" (click)="toggleVersion(v)">Pi {{ v }}</ion-chip>
+                }
+              </div>
+            </div>
+            <div class="filter-section">
+              <ion-item lines="none">
+                <ion-checkbox slot="start" [checked]="filterStale()" (ionChange)="filterStale.set($any($event.detail.checked))"></ion-checkbox>
+                <ion-label>Not seen &gt; 24h</ion-label>
+              </ion-item>
+            </div>
+            <div class="filter-section">
+              <strong>Temp &gt;= {{ filterMinTemp() }}°C</strong>
+              <ion-range min="0" max="90" step="5" [value]="filterMinTemp()" (ionChange)="filterMinTemp.set($any($event.detail.value))"></ion-range>
+            </div>
+            <div class="filter-section">
+              <strong>CPU 1m &gt;= {{ filterMinCpu() }}%</strong>
+              <ion-range min="0" max="100" step="10" [value]="filterMinCpu()" (ionChange)="filterMinCpu.set($any($event.detail.value))"></ion-range>
+            </div>
+            <div class="filter-section">
+              <strong>RAM &gt;= {{ filterMinRam() }}%</strong>
+              <ion-range min="0" max="100" step="10" [value]="filterMinRam()" (ionChange)="filterMinRam.set($any($event.detail.value))"></ion-range>
+            </div>
+          </ion-card-content>
+        </ion-card>
+      }
       @if (canAct) {
         <ion-toolbar>
           <ion-buttons slot="start">
@@ -152,11 +206,15 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
   styles: [`
     th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     th.sortable:hover { opacity: 0.7; }
+    .filters-card { margin: 8px; }
+    .filter-section { margin-bottom: 16px; }
+    .filter-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    ion-chip { cursor: pointer; }
   `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonSearchbar,
     IonSegment, IonSegmentButton, IonLabel, IonContent, IonRefresher, IonRefresherContent, IonText, IonSpinner,
-    IonCheckbox, IonBadge,
+    IonCheckbox, IonBadge, IonCard, IonCardContent, IonChip, IonItem, IonRange,
   ],
 })
 export class InventoryPage {
@@ -181,16 +239,36 @@ export class InventoryPage {
   readonly selected = signal<Set<string>>(new Set());
   readonly sortColumn = signal<SortColumn>('position');
   readonly sortDir = signal<'asc' | 'desc'>('asc');
+  readonly filterTags = signal<Set<string>>(new Set());
+  readonly filterVersions = signal<Set<number>>(new Set());
+  readonly filterStale = signal(false);
+  readonly filterMinTemp = signal(0);
+  readonly filterMinCpu = signal(0);
+  readonly filterMinRam = signal(0);
   query = '';
+  allTags: string[] = [];
+  showFilters = false;
 
   readonly visible = computed(() => {
     const status = this.statusFilter();
     const q = this.search();
     const col = this.sortColumn();
     const dir = this.sortDir();
+    const tags = this.filterTags();
+    const versions = this.filterVersions();
+    const stale = this.filterStale();
+    const minTemp = this.filterMinTemp();
+    const minCpu = this.filterMinCpu();
+    const minRam = this.filterMinRam();
     const filtered = this.pis()
       .filter((pi) => status === 'all' || pi.status === status)
-      .filter((pi) => matchesSearch(pi, q));
+      .filter((pi) => matchesSearch(pi, q))
+      .filter((pi) => tags.size === 0 || pi.tags.some((t) => tags.has(t)))
+      .filter((pi) => versions.size === 0 || (pi.pi_version && versions.has(pi.pi_version)))
+      .filter((pi) => !stale || !pi.last_seen || new Date(pi.last_seen).getTime() < Date.now() - 24 * 3600 * 1000)
+      .filter((pi) => (pi.temp_c ?? 0) >= minTemp)
+      .filter((pi) => (pi.cpu_1m ?? 0) >= minCpu)
+      .filter((pi) => (pi.mem_percent ?? 0) >= minRam);
     filtered.sort((a, b) => this.compare(a, b, col) * (dir === 'desc' ? -1 : 1));
     return filtered;
   });
@@ -240,6 +318,29 @@ export class InventoryPage {
     return this.sortDir() === 'asc' ? ' ▲' : ' ▼';
   }
 
+  toggleTag(tag: string): void {
+    const next = new Set(this.filterTags());
+    if (next.has(tag)) next.delete(tag);
+    else next.add(tag);
+    this.filterTags.set(next);
+  }
+
+  toggleVersion(v: number): void {
+    const next = new Set(this.filterVersions());
+    if (next.has(v)) next.delete(v);
+    else next.add(v);
+    this.filterVersions.set(next);
+  }
+
+  clearFilters(): void {
+    this.filterTags.set(new Set());
+    this.filterVersions.set(new Set());
+    this.filterStale.set(false);
+    this.filterMinTemp.set(0);
+    this.filterMinCpu.set(0);
+    this.filterMinRam.set(0);
+  }
+
   emptySet(): Set<string> {
     return new Set();
   }
@@ -264,6 +365,9 @@ export class InventoryPage {
       this.summary.set(summary);
       const known = new Set(this.pis().map((p) => p.position));
       this.selected.set(new Set([...this.selected()].filter((p) => known.has(p))));
+      const tagSet = new Set<string>();
+      pis.forEach((pi) => pi.tags.forEach((t) => tagSet.add(t)));
+      this.allTags = [...tagSet].sort();
     } catch (err) {
       this.error.set(errorMessage(err));
     } finally {

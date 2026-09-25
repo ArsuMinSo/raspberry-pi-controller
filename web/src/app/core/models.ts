@@ -174,3 +174,39 @@ export interface SSHTestResult {
   error_type: string | null;
   stdout: string | null;
 }
+
+// ── Scheduled Tasks ─────────────────────────────────────────────────────────
+
+export type TaskType = 'command' | 'health' | 'discovery';
+
+export interface ScheduledTask {
+  id: number;
+  name: string;
+  cron: string;
+  task_type: TaskType;
+  command: string | null;
+  pis: string[];
+  enabled: boolean;
+  last_run: string | null;
+  last_status: string | null;
+  last_action_id: number | null;
+  created_at: string;
+}
+
+export interface ScheduledTaskCreate {
+  name: string;
+  cron: string;
+  task_type: TaskType;
+  command?: string | null;
+  pis?: string[];
+  enabled?: boolean;
+}
+
+export interface ScheduledTaskUpdate {
+  name?: string;
+  cron?: string;
+  task_type?: TaskType;
+  command?: string | null;
+  pis?: string[];
+  enabled?: boolean;
+}

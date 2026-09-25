@@ -4,7 +4,8 @@ import { Observable } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  ActionProgress, ActionQueued, AuditEvent, FleetSummary, LogEntry, Me, PiDetail, PiSummary, Role, SessionInfo, Settings, SSHTestResult, User,
+  ActionProgress, ActionQueued, AuditEvent, FleetSummary, LogEntry, Me, PiDetail, PiSummary, Role, ScheduledTask,
+  ScheduledTaskCreate, ScheduledTaskUpdate, SessionInfo, Settings, SSHTestResult, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -128,5 +129,22 @@ export class ApiService {
     return this.http.post<ActionQueued>(`${API}/command/execute`, {
       pis: positions, command, ssh_username, ssh_password,
     });
+  }
+
+  // ── Scheduled Tasks (operator list, admin manage) ──────────────────────────
+  listTasks(): Observable<ScheduledTask[]> {
+    return this.http.get<ScheduledTask[]>(`${API}/tasks`);
+  }
+
+  createTask(body: ScheduledTaskCreate): Observable<ScheduledTask> {
+    return this.http.post<ScheduledTask>(`${API}/tasks`, body);
+  }
+
+  updateTask(id: number, body: ScheduledTaskUpdate): Observable<ScheduledTask> {
+    return this.http.patch<ScheduledTask>(`${API}/tasks/${id}`, body);
+  }
+
+  deleteTask(id: number): Observable<void> {
+    return this.http.delete<void>(`${API}/tasks/${id}`);
   }
 }

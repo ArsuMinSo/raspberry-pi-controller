@@ -6,8 +6,8 @@ import {
 } from '@ionic/angular';
 import { addIcons } from 'ionicons';
 import {
-  chevronBackOutline, codeOutline, documentTextOutline, gridOutline, logOutOutline, peopleOutline, personCircleOutline,
-  pinOutline, pulseOutline, refreshOutline, settingsOutline,
+  alarmOutline, chevronBackOutline, codeOutline, documentTextOutline, funnelOutline, gridOutline, logOutOutline,
+  peopleOutline, personCircleOutline, pinOutline, pulseOutline, refreshOutline, settingsOutline,
 } from 'ionicons/icons';
 
 import { AuthService } from './core/auth.service';
@@ -127,6 +127,7 @@ export class AppComponent {
   readonly menu: { title: string; url: string; icon: string; role?: Role }[] = [
     { title: 'Inventory', url: '/inventory', icon: 'grid-outline' },
     { title: 'Execute command', url: '/execute', icon: 'code-outline', role: 'admin' },
+    { title: 'Scheduled tasks', url: '/tasks', icon: 'alarm-outline', role: 'operator' },
     { title: 'Activity log', url: '/logs', icon: 'document-text-outline', role: 'operator' },
     { title: 'Users', url: '/users', icon: 'people-outline', role: 'admin' },
     { title: 'Settings', url: '/settings', icon: 'settings-outline', role: 'admin' },
@@ -135,8 +136,8 @@ export class AppComponent {
 
   constructor() {
     addIcons({
-      chevronBackOutline, codeOutline, documentTextOutline, gridOutline, logOutOutline, peopleOutline,
-      personCircleOutline, pinOutline, pulseOutline, refreshOutline, settingsOutline,
+      alarmOutline, chevronBackOutline, codeOutline, documentTextOutline, funnelOutline, gridOutline, logOutOutline,
+      peopleOutline, personCircleOutline, pinOutline, pulseOutline, refreshOutline, settingsOutline,
     });
   }
 

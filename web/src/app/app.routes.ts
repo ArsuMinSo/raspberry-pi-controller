@@ -49,5 +49,10 @@ export const routes: Routes = [
     canActivate: [authGuard, roleGuard('admin')],
     loadComponent: () => import('./pages/execute-command.page').then((m) => m.ExecuteCommandPage),
   },
+  {
+    path: 'tasks',
+    canActivate: [authGuard, roleGuard('operator')],
+    loadComponent: () => import('./pages/tasks.page').then((m) => m.TasksPage),
+  },
   { path: '**', redirectTo: 'inventory' },
 ];
