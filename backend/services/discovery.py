@@ -214,7 +214,10 @@ def scan_subnet(
         reachable_q = reachable_q.filter(
             cast(Pi.current_ip, Text).notin_(discovered_ips)
         )
-    reachable_q.update({"status": "unreachable"}, synchronize_session=False)
+    reachable_q.update(
+        {"status": "unreachable", "cpu_1m": None, "cpu_5m": None, "cpu_15m": None, "mem_percent": None, "temp_c": None},
+        synchronize_session=False,
+    )
     db.commit()
 
     duration_ms = int((time.monotonic() - start) * 1000)

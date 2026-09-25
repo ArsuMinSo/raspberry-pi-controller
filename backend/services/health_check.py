@@ -265,6 +265,11 @@ def health_job(db, entry, ssh: SSHSettings) -> None:
             pi.temp_c      = d.result.temp_c
         else:
             pi.status = "unreachable"
+            pi.cpu_1m = None
+            pi.cpu_5m = None
+            pi.cpu_15m = None
+            pi.mem_percent = None
+            pi.temp_c = None
 
     db.commit()
 
