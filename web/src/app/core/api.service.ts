@@ -122,4 +122,11 @@ export class ApiService {
   testSSH(ip: string): Observable<SSHTestResult> {
     return this.http.post<SSHTestResult>(`${API}/settings/test`, { ip });
   }
+
+  // ── Execute Command (admin) ────────────────────────────────────────────────
+  executeCommand(positions: string[], command: string, ssh_username?: string, ssh_password?: string): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/command/execute`, {
+      pis: positions, command, ssh_username, ssh_password,
+    });
+  }
 }
