@@ -226,3 +226,4 @@ web-releases/
 web-current
 .claude/worktrees/
 .angular/
+.PROGRESS.md
