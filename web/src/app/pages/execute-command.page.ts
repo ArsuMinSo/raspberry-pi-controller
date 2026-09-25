@@ -61,6 +61,11 @@ import { comparePositions } from '../core/sort';
               <ion-button (click)="selectNone()" size="small" fill="outline" [disabled]="selected().size === 0">
                 Clear
               </ion-button>
+ 
+              <!-- Submit -->
+              <ion-button type="submit" [disabled]="!command || selected().size === 0 || submitting()">
+                {{ submitting() ? 'Executing…' : 'Execute' }}
+              </ion-button>
             </ion-card-content>
           </ion-card>
 
@@ -96,11 +101,7 @@ import { comparePositions } from '../core/sort';
             </div>
           }
 
-          <!-- Submit -->
-          <ion-button type="submit" [disabled]="!command || selected().size === 0 || submitting()">
-            {{ submitting() ? 'Executing…' : 'Execute' }}
-          </ion-button>
-        </form>
+       </form>
       </div>
     </ion-content>
   `,
