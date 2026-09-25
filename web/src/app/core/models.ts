@@ -140,3 +140,37 @@ export interface FleetSummary {
   highest_mem: FleetPiValue[];
   last_health_check_at: string | null;
 }
+
+// ── Settings ─────────────────────────────────────────────────────────────────
+
+export interface SSHSettings {
+  key_path: string;
+  username: string;
+  timeout_s: number;
+  retry_count: number;
+  retry_delay_s: number;
+  parallel_limit: number;
+}
+
+export interface NetworkSettings {
+  subnet: string;
+  probe_ssh: boolean;
+  probe_timeout_s: number;
+  probe_username: string;
+  probe_auth: 'key' | 'password';
+  probe_deploy_key: boolean;
+}
+
+export interface Settings {
+  ssh: SSHSettings;
+  network: NetworkSettings;
+}
+
+export interface SSHTestResult {
+  ip: string;
+  success: boolean;
+  settings_used: SSHSettings;
+  error: string | null;
+  error_type: string | null;
+  stdout: string | null;
+}

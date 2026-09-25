@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  ActionProgress, ActionQueued, AuditEvent, FleetSummary, LogEntry, Me, PiDetail, PiSummary, Role, SessionInfo, User,
+  ActionProgress, ActionQueued, AuditEvent, FleetSummary, LogEntry, Me, PiDetail, PiSummary, Role, SessionInfo, Settings, SSHTestResult, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -108,5 +108,18 @@ export class ApiService {
 
   events(filter: { user?: string; event?: string; limit?: number }): Observable<AuditEvent[]> {
     return this.http.get<AuditEvent[]>(`${API}/logs/events`, { params: params({ limit: 100, ...filter }) });
+  }
+
+  // ── Settings (admin) ───────────────────────────────────────────────────────
+  getSettings(): Observable<Settings> {
+    return this.http.get<Settings>(`${API}/settings`);
+  }
+
+  patchSettings(body: Partial<Settings>): Observable<Settings> {
+    return this.http.patch<Settings>(`${API}/settings`, body);
+  }
+
+  testSSH(ip: string): Observable<SSHTestResult> {
+    return this.http.post<SSHTestResult>(`${API}/settings/test`, { ip });
   }
 }

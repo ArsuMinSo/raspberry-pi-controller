@@ -19,6 +19,7 @@ class SSHResult:
     error: str | None
     duration_ms: int
     retry_count: int
+    sudo_used: bool = False
 
 
 def execute(

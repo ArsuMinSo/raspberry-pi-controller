@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, SmallInteger, String, Text
 from sqlalchemy.dialects.postgresql import ARRAY, INET, JSONB
 from sqlalchemy.orm import mapped_column, MappedColumn
@@ -120,3 +122,18 @@ class ActionResult(Base):
     details = mapped_column(JSONB)
     duration_ms = mapped_column(Integer)
     finished_at = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+
+class HealthSample(Base):
+    """Time-series health metrics per Pi (migration 006), one row per health check."""
+    __tablename__ = "health_samples"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    mac: MappedColumn[str] = mapped_column(String(17), ForeignKey("raspberries.mac", ondelete="CASCADE"), nullable=False)
+    timestamp: MappedColumn[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    cpu_1m: MappedColumn[float | None] = mapped_column(Float)
+    cpu_5m: MappedColumn[float | None] = mapped_column(Float)
+    cpu_15m: MappedColumn[float | None] = mapped_column(Float)
+    mem_percent: MappedColumn[float | None] = mapped_column(Float)
+    temp_c: MappedColumn[float | None] = mapped_column(Float)
+    uptime_s: MappedColumn[int | None] = mapped_column(Integer)

@@ -7,7 +7,7 @@ import {
 import { addIcons } from 'ionicons';
 import {
   chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, peopleOutline, personCircleOutline, pinOutline,
-  pulseOutline, refreshOutline,
+  pulseOutline, refreshOutline, settingsOutline,
 } from 'ionicons/icons';
 
 import { AuthService } from './core/auth.service';
@@ -128,13 +128,14 @@ export class AppComponent {
     { title: 'Inventory', url: '/inventory', icon: 'grid-outline' },
     { title: 'Activity log', url: '/logs', icon: 'document-text-outline', role: 'operator' },
     { title: 'Users', url: '/users', icon: 'people-outline', role: 'admin' },
+    { title: 'Settings', url: '/settings', icon: 'settings-outline', role: 'admin' },
     { title: 'Account', url: '/account', icon: 'person-circle-outline' },
   ];
 
   constructor() {
     addIcons({
       chevronBackOutline, documentTextOutline, gridOutline, logOutOutline, peopleOutline, personCircleOutline,
-      pinOutline, pulseOutline, refreshOutline,
+      pinOutline, pulseOutline, refreshOutline, settingsOutline,
     });
   }
 
