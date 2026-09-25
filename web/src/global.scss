@@ -47,6 +47,7 @@ table.data {
   width: 100%;
   border-collapse: collapse;
   font-size: 0.9rem;
+  table-layout: fixed;
 
   th,
   td {
@@ -54,11 +55,14 @@ table.data {
     padding: 6px 8px;
     border-bottom: 1px solid var(--ion-border-color, #565c66);
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   th {
     font-weight: 600;
     color: var(--ion-color-medium);
+    position: relative;
   }
 
   tr.clickable {
@@ -74,8 +78,29 @@ table.data {
   }
 }
 
+/* Drag-to-resize handle at a column header's right edge. Shared by every sortable/resizable table. */
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.resize-handle:hover,
+.resize-handle.dragging {
+  background: var(--ion-color-secondary);
+}
+
 .table-scroll {
   overflow-x: auto;
+}
+
+/* Checkbox/action columns that never resize or hide. */
+.col-check {
+  width: 40px;
 }
 
 pre.output {

@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from backend.auth import (
-    Actor, check_new_password, check_username, hash_password, record_event, require_role, revoke_user_sessions,
+    Actor, check_new_password, check_username, extend_user_sessions, hash_password, record_event, require_role,
+    revoke_user_sessions,
 )
 from backend.database import get_db
 from backend.models import User
@@ -81,6 +82,16 @@ def revoke_sessions(user_id: int, actor: Actor = Depends(require_role("admin")),
     user = _get_or_404(db, user_id)
     revoked = revoke_user_sessions(db, user.id)
     record_event(db, actor, "session_revoked", target=user.username, details={"sessions_revoked": revoked})
+
+
+@router.post("/{user_id}/extend-session", status_code=204)
+def extend_session(user_id: int, actor: Actor = Depends(require_role("admin")), db: Session = Depends(get_db)):
+    """Push a viewer account's active session(s) out to a long expiry (kiosk displays that shouldn't re-login)."""
+    user = _get_or_404(db, user_id)
+    if user.role != "viewer":
+        raise HTTPException(status_code=400, detail="Only viewer accounts can have sessions extended")
+    extended = extend_user_sessions(db, user.id)
+    record_event(db, actor, "session_extended", target=user.username, details={"sessions_extended": extended})
 
 
 def _get_or_404(db: Session, user_id: int) -> User:

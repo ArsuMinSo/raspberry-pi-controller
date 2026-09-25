@@ -11,13 +11,28 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
+import { ColumnMenuComponent } from '../core/column-menu.component';
 import { errorMessage } from '../core/errors';
 import { dateTime } from '../core/format';
 import { ScheduledTask, TaskType } from '../core/models';
 import { TableSort, compareDates, compareStrings } from '../core/table-sort';
+import { ColumnDef, TableColumns } from '../core/table-columns';
 
 const TASK_TYPES: TaskType[] = ['command', 'health', 'discovery'];
 type SortColumn = 'name' | 'cron' | 'type' | 'enabled' | 'last_run' | 'last_status' | 'created_by' | 'last_edited_by';
+type Col = SortColumn | 'pis';
+
+const COLUMNS: ColumnDef<Col>[] = [
+  { key: 'name', label: 'Name', defaultWidth: 140 },
+  { key: 'cron', label: 'Cron', defaultWidth: 110 },
+  { key: 'type', label: 'Type', defaultWidth: 100 },
+  { key: 'pis', label: 'Pis', defaultWidth: 140 },
+  { key: 'enabled', label: 'Enabled', defaultWidth: 90 },
+  { key: 'last_run', label: 'Last run', defaultWidth: 150 },
+  { key: 'last_status', label: 'Last status', defaultWidth: 110 },
+  { key: 'created_by', label: 'Created by', defaultWidth: 110 },
+  { key: 'last_edited_by', label: 'Last edit by', defaultWidth: 110 },
+];
 
 @Component({
   selector: 'app-tasks',
@@ -27,6 +42,7 @@ type SortColumn = 'name' | 'cron' | 'type' | 'enabled' | 'last_run' | 'last_stat
         <ion-buttons slot="start"><ion-menu-button></ion-menu-button></ion-buttons>
         <ion-title>Scheduled tasks</ion-title>
         <ion-buttons slot="end">
+          <app-column-menu [cols]="cols" triggerId="tasks-cols"></app-column-menu>
           <ion-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
             <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
           </ion-button>
@@ -44,42 +60,82 @@ type SortColumn = 'name' | 'cron' | 'type' | 'enabled' | 'last_run' | 'last_stat
             <table class="data">
               <thead>
                 <tr>
-                  <th (click)="sort.sortBy('name')" class="sortable">Name{{ sort.indicator('name') }}</th>
-                  <th (click)="sort.sortBy('cron')" class="sortable">Cron{{ sort.indicator('cron') }}</th>
-                  <th (click)="sort.sortBy('type')" class="sortable">Type{{ sort.indicator('type') }}</th>
-                  <th>Pis</th>
-                  <th (click)="sort.sortBy('enabled')" class="sortable">Enabled{{ sort.indicator('enabled') }}</th>
-                  <th (click)="sort.sortBy('last_run')" class="sortable">Last run{{ sort.indicator('last_run') }}</th>
-                  <th (click)="sort.sortBy('last_status')" class="sortable">Last status{{ sort.indicator('last_status') }}</th>
-                  <th (click)="sort.sortBy('created_by')" class="sortable">Created by{{ sort.indicator('created_by') }}</th>
-                  <th (click)="sort.sortBy('last_edited_by')" class="sortable">Last edit by{{ sort.indicator('last_edited_by') }}</th>
-                  @if (canManage) { <th></th> }
+                  @if (cols.isVisible('name')) {
+                    <th (click)="sort.sortBy('name')" class="sortable" [style.width.px]="cols.width('name')">
+                      Name{{ sort.indicator('name') }}<span class="resize-handle" (pointerdown)="cols.startResize('name', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('cron')) {
+                    <th (click)="sort.sortBy('cron')" class="sortable" [style.width.px]="cols.width('cron')">
+                      Cron{{ sort.indicator('cron') }}<span class="resize-handle" (pointerdown)="cols.startResize('cron', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('type')) {
+                    <th (click)="sort.sortBy('type')" class="sortable" [style.width.px]="cols.width('type')">
+                      Type{{ sort.indicator('type') }}<span class="resize-handle" (pointerdown)="cols.startResize('type', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('pis')) {
+                    <th [style.width.px]="cols.width('pis')">
+                      Pis<span class="resize-handle" (pointerdown)="cols.startResize('pis', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('enabled')) {
+                    <th (click)="sort.sortBy('enabled')" class="sortable" [style.width.px]="cols.width('enabled')">
+                      Enabled{{ sort.indicator('enabled') }}<span class="resize-handle" (pointerdown)="cols.startResize('enabled', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('last_run')) {
+                    <th (click)="sort.sortBy('last_run')" class="sortable" [style.width.px]="cols.width('last_run')">
+                      Last run{{ sort.indicator('last_run') }}<span class="resize-handle" (pointerdown)="cols.startResize('last_run', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('last_status')) {
+                    <th (click)="sort.sortBy('last_status')" class="sortable" [style.width.px]="cols.width('last_status')">
+                      Last status{{ sort.indicator('last_status') }}<span class="resize-handle" (pointerdown)="cols.startResize('last_status', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('created_by')) {
+                    <th (click)="sort.sortBy('created_by')" class="sortable" [style.width.px]="cols.width('created_by')">
+                      Created by{{ sort.indicator('created_by') }}<span class="resize-handle" (pointerdown)="cols.startResize('created_by', $event)"></span>
+                    </th>
+                  }
+                  @if (cols.isVisible('last_edited_by')) {
+                    <th (click)="sort.sortBy('last_edited_by')" class="sortable" [style.width.px]="cols.width('last_edited_by')">
+                      Last edit by{{ sort.indicator('last_edited_by') }}<span class="resize-handle" (pointerdown)="cols.startResize('last_edited_by', $event)"></span>
+                    </th>
+                  }
+                  @if (canManage) { <th class="col-check"></th> }
                 </tr>
               </thead>
               <tbody>
                 @for (t of sortedTasks(); track t.id) {
                   <tr [class.disabled]="!t.enabled">
-                    <td><strong>{{ t.name }}</strong></td>
-                    <td><code>{{ t.cron }}</code></td>
-                    <td>{{ t.task_type }}</td>
-                    <td class="wrap">{{ t.pis.length ? t.pis.join(', ') : 'all' }}</td>
-                    <td>
-                      @if (canManage) {
-                        <ion-checkbox [checked]="t.enabled" (ionChange)="toggleEnabled(t)" [disabled]="busy()"></ion-checkbox>
-                      } @else {
-                        <ion-badge [color]="t.enabled ? 'success' : 'medium'">{{ t.enabled ? 'yes' : 'no' }}</ion-badge>
-                      }
-                    </td>
-                    <td>{{ dateTime(t.last_run) }}</td>
-                    <td>
-                      @if (t.last_status) {
-                        <ion-badge [color]="t.last_status === 'success' ? 'success' : t.last_status === 'fail' ? 'danger' : 'warning'">
-                          {{ t.last_status }}
-                        </ion-badge>
-                      } @else { — }
-                    </td>
-                    <td>{{ t.created_by ?? '—' }}</td>
-                    <td>{{ t.last_edited_by ?? '—' }}</td>
+                    @if (cols.isVisible('name')) { <td><strong>{{ t.name }}</strong></td> }
+                    @if (cols.isVisible('cron')) { <td><code>{{ t.cron }}</code></td> }
+                    @if (cols.isVisible('type')) { <td>{{ t.task_type }}</td> }
+                    @if (cols.isVisible('pis')) { <td class="wrap">{{ t.pis.length ? t.pis.join(', ') : 'all' }}</td> }
+                    @if (cols.isVisible('enabled')) {
+                      <td>
+                        @if (canManage) {
+                          <ion-checkbox [checked]="t.enabled" (ionChange)="toggleEnabled(t)" [disabled]="busy()"></ion-checkbox>
+                        } @else {
+                          <ion-badge [color]="t.enabled ? 'success' : 'medium'">{{ t.enabled ? 'yes' : 'no' }}</ion-badge>
+                        }
+                      </td>
+                    }
+                    @if (cols.isVisible('last_run')) { <td>{{ dateTime(t.last_run) }}</td> }
+                    @if (cols.isVisible('last_status')) {
+                      <td>
+                        @if (t.last_status) {
+                          <ion-badge [color]="t.last_status === 'success' ? 'success' : t.last_status === 'fail' ? 'danger' : 'warning'">
+                            {{ t.last_status }}
+                          </ion-badge>
+                        } @else { — }
+                      </td>
+                    }
+                    @if (cols.isVisible('created_by')) { <td>{{ t.created_by ?? '—' }}</td> }
+                    @if (cols.isVisible('last_edited_by')) { <td>{{ t.last_edited_by ?? '—' }}</td> }
                     @if (canManage) {
                       <td class="actions">
                         <ion-button size="small" fill="outline" (click)="startEdit(t)" [disabled]="busy()">Edit</ion-button>
@@ -151,7 +207,7 @@ type SortColumn = 'name' | 'cron' | 'type' | 'enabled' | 'last_run' | 'last_stat
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonContent, IonText,
     IonCard, IonCardHeader, IonCardTitle, IonCardContent, IonList, IonItem, IonInput, IonSelect, IonSelectOption,
-    IonCheckbox, IonBadge,
+    IonCheckbox, IonBadge, ColumnMenuComponent,
   ],
 })
 export class TasksPage {
@@ -180,6 +236,7 @@ export class TasksPage {
     created_by: (a, b) => compareStrings(a.created_by, b.created_by),
     last_edited_by: (a, b) => compareStrings(a.last_edited_by, b.last_edited_by),
   }, 'name');
+  readonly cols = new TableColumns<Col>(COLUMNS, 'tasks');
   readonly sortedTasks = computed(() => this.sort.apply(this.tasks()));
 
   name = '';

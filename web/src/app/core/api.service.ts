@@ -102,6 +102,11 @@ export class ApiService {
     return this.http.post<void>(`${API}/users/${id}/revoke-sessions`, {});
   }
 
+  /** Viewer accounts only — pushes their active session(s) out to a long expiry (kiosk displays). */
+  extendSession(id: number): Observable<void> {
+    return this.http.post<void>(`${API}/users/${id}/extend-session`, {});
+  }
+
   // ── Logs ──────────────────────────────────────────────────────────────────
   logs(filter: { pi?: string; user?: string; limit?: number }): Observable<LogEntry[]> {
     return this.http.get<LogEntry[]>(`${API}/logs`, { params: params({ limit: 100, ...filter }) });

@@ -12,12 +12,28 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, pct, statusColor, temp } from '../core/format';
+import { ColumnMenuComponent } from '../core/column-menu.component';
 import { ActionQueued, FleetSummary, PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
 import { TableSort, compareDates, compareIps, compareStrings } from '../core/table-sort';
+import { ColumnDef, TableColumns } from '../core/table-columns';
 
 type StatusFilter = 'all' | 'reachable' | 'unreachable';
 type SortColumn = 'position' | 'hostname' | 'ip' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'seen';
+type Col = SortColumn | 'tags';
+
+const COLUMNS: ColumnDef<Col>[] = [
+  { key: 'position', label: 'Position', defaultWidth: 100 },
+  { key: 'hostname', label: 'Hostname', defaultWidth: 140 },
+  { key: 'ip', label: 'IP', defaultWidth: 120 },
+  { key: 'status', label: 'Status', defaultWidth: 110 },
+  { key: 'cpu', label: 'CPU 1m', defaultWidth: 90 },
+  { key: 'ram', label: 'RAM', defaultWidth: 90 },
+  { key: 'temp', label: 'Temp', defaultWidth: 90 },
+  { key: 'pi', label: 'Pi', defaultWidth: 70 },
+  { key: 'tags', label: 'Tags', defaultWidth: 160 },
+  { key: 'seen', label: 'Last seen', defaultWidth: 160 },
+];
 
 /** Case-insensitive match on position, hostname, IP, MAC and tags. */
 export function matchesSearch(pi: PiSummary, query: string): boolean {
@@ -54,7 +70,7 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
         </ion-segment>
       </ion-toolbar>
       <ion-toolbar>
-        <ion-buttons>
+        <ion-buttons slot="start">
           <ion-button fill="outline" (click)="showFilters = !showFilters">
             <ion-icon slot="start" name="funnel-outline"></ion-icon>
             Filters
@@ -65,6 +81,9 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
           @if (filterTags().size + filterVersions().size > 0 || filterStale() || filterMinTemp() > 0 || filterMinCpu() > 0 || filterMinRam() > 0) {
             <ion-button fill="outline" (click)="clearFilters()">Clear</ion-button>
           }
+        </ion-buttons>
+        <ion-buttons slot="end">
+          <app-column-menu [cols]="cols" triggerId="inventory-cols"></app-column-menu>
         </ion-buttons>
       </ion-toolbar>
       @if (showFilters) {
@@ -164,17 +183,67 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
           <table class="data">
             <thead>
               <tr>
-                @if (canAct) { <th></th> }
-                <th (click)="sort.sortBy('position')" class="sortable">Position{{ sort.indicator('position') }}</th>
-                <th (click)="sort.sortBy('hostname')" class="sortable">Hostname{{ sort.indicator('hostname') }}</th>
-                <th (click)="sort.sortBy('ip')" class="sortable">IP{{ sort.indicator('ip') }}</th>
-                <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
-                <th (click)="sort.sortBy('cpu')" class="sortable">CPU 1m{{ sort.indicator('cpu') }}</th>
-                <th (click)="sort.sortBy('ram')" class="sortable">RAM{{ sort.indicator('ram') }}</th>
-                <th (click)="sort.sortBy('temp')" class="sortable">Temp{{ sort.indicator('temp') }}</th>
-                <th (click)="sort.sortBy('pi')" class="sortable">Pi{{ sort.indicator('pi') }}</th>
-                <th>Tags</th>
-                <th (click)="sort.sortBy('seen')" class="sortable">Last seen{{ sort.indicator('seen') }}</th>
+                @if (canAct) { <th class="col-check"></th> }
+                @if (cols.isVisible('position')) {
+                  <th (click)="sort.sortBy('position')" class="sortable" [style.width.px]="cols.width('position')">
+                    Position{{ sort.indicator('position') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('position', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('hostname')) {
+                  <th (click)="sort.sortBy('hostname')" class="sortable" [style.width.px]="cols.width('hostname')">
+                    Hostname{{ sort.indicator('hostname') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('hostname', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('ip')) {
+                  <th (click)="sort.sortBy('ip')" class="sortable" [style.width.px]="cols.width('ip')">
+                    IP{{ sort.indicator('ip') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('ip', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('status')) {
+                  <th (click)="sort.sortBy('status')" class="sortable" [style.width.px]="cols.width('status')">
+                    Status{{ sort.indicator('status') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('status', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('cpu')) {
+                  <th (click)="sort.sortBy('cpu')" class="sortable" [style.width.px]="cols.width('cpu')">
+                    CPU 1m{{ sort.indicator('cpu') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('cpu', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('ram')) {
+                  <th (click)="sort.sortBy('ram')" class="sortable" [style.width.px]="cols.width('ram')">
+                    RAM{{ sort.indicator('ram') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('ram', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('temp')) {
+                  <th (click)="sort.sortBy('temp')" class="sortable" [style.width.px]="cols.width('temp')">
+                    Temp{{ sort.indicator('temp') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('temp', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('pi')) {
+                  <th (click)="sort.sortBy('pi')" class="sortable" [style.width.px]="cols.width('pi')">
+                    Pi{{ sort.indicator('pi') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('pi', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('tags')) {
+                  <th [style.width.px]="cols.width('tags')">
+                    Tags
+                    <span class="resize-handle" (pointerdown)="cols.startResize('tags', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('seen')) {
+                  <th (click)="sort.sortBy('seen')" class="sortable" [style.width.px]="cols.width('seen')">
+                    Last seen{{ sort.indicator('seen') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('seen', $event)"></span>
+                  </th>
+                }
               </tr>
             </thead>
             <tbody>
@@ -186,16 +255,16 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
                                     [attr.aria-label]="'Select ' + pi.position"></ion-checkbox>
                     </td>
                   }
-                  <td><strong>{{ pi.position }}</strong></td>
-                  <td>{{ pi.hostname ?? '—' }}</td>
-                  <td>{{ pi.ip ?? '—' }}</td>
-                  <td><ion-badge [color]="statusColor(pi.status)">{{ pi.status }}</ion-badge></td>
-                  <td>{{ pct(pi.cpu_1m) }}</td>
-                  <td>{{ pct(pi.mem_percent) }}</td>
-                  <td>{{ temp(pi.temp_c) }}</td>
-                  <td>{{ pi.pi_version ?? '—' }}</td>
-                  <td class="wrap">{{ pi.tags.join(', ') }}</td>
-                  <td>{{ dateTime(pi.last_seen) }}</td>
+                  @if (cols.isVisible('position')) { <td><strong>{{ pi.position }}</strong></td> }
+                  @if (cols.isVisible('hostname')) { <td>{{ pi.hostname ?? '—' }}</td> }
+                  @if (cols.isVisible('ip')) { <td>{{ pi.ip ?? '—' }}</td> }
+                  @if (cols.isVisible('status')) { <td><ion-badge [color]="statusColor(pi.status)">{{ pi.status }}</ion-badge></td> }
+                  @if (cols.isVisible('cpu')) { <td>{{ pct(pi.cpu_1m) }}</td> }
+                  @if (cols.isVisible('ram')) { <td>{{ pct(pi.mem_percent) }}</td> }
+                  @if (cols.isVisible('temp')) { <td>{{ temp(pi.temp_c) }}</td> }
+                  @if (cols.isVisible('pi')) { <td>{{ pi.pi_version ?? '—' }}</td> }
+                  @if (cols.isVisible('tags')) { <td class="wrap">{{ pi.tags.join(', ') }}</td> }
+                  @if (cols.isVisible('seen')) { <td>{{ dateTime(pi.last_seen) }}</td> }
                 </tr>
               }
             </tbody>
@@ -215,7 +284,7 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonSearchbar,
     IonSegment, IonSegmentButton, IonLabel, IonContent, IonRefresher, IonRefresherContent, IonText, IonSpinner,
-    IonCheckbox, IonBadge, IonCard, IonCardContent, IonChip, IonItem, IonRange,
+    IonCheckbox, IonBadge, IonCard, IonCardContent, IonChip, IonItem, IonRange, ColumnMenuComponent,
   ],
 })
 export class InventoryPage {
@@ -238,6 +307,7 @@ export class InventoryPage {
   readonly statusFilter = signal<StatusFilter>('all');
   readonly search = signal('');
   readonly selected = signal<Set<string>>(new Set());
+  readonly cols = new TableColumns<Col>(COLUMNS, 'inventory');
   readonly sort = new TableSort<PiSummary, SortColumn>({
     position: (a, b) => comparePositions(a.position, b.position),
     hostname: (a, b) => compareStrings(a.hostname, b.hostname),

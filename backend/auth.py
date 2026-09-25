@@ -106,6 +106,21 @@ def revoke_user_sessions(db: Session, user_id: int, except_session_id: int | Non
     return count
 
 
+EXTENDED_SESSION_LIFETIME = timedelta(days=365)
+
+
+def extend_user_sessions(db: Session, user_id: int) -> int:
+    """Push out expires_at on a user's active sessions (kiosk/viewer accounts that shouldn't be forced to re-login)."""
+    new_expiry = utcnow() + EXTENDED_SESSION_LIFETIME
+    count = (
+        db.query(UserSession)
+        .filter(UserSession.user_id == user_id, UserSession.revoked_at.is_(None))
+        .update({"expires_at": new_expiry}, synchronize_session=False)
+    )
+    db.commit()
+    return count
+
+
 def is_locked_out(db: Session, username: str, ip: str | None) -> bool:
     since = utcnow() - LOCKOUT_WINDOW
     failures = (

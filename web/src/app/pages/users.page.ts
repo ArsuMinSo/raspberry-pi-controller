@@ -13,12 +13,22 @@ import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime } from '../core/format';
+import { ColumnMenuComponent } from '../core/column-menu.component';
 import { Role, User } from '../core/models';
 import { ROLES, usernameProblem } from '../core/roles';
 import { TableSort, compareDates, compareStrings } from '../core/table-sort';
+import { ColumnDef, TableColumns } from '../core/table-columns';
 import { newPasswordProblem } from './account.page';
 
 type SortColumn = 'username' | 'role' | 'status' | 'last_login' | 'created';
+
+const COLUMNS: ColumnDef<SortColumn>[] = [
+  { key: 'username', label: 'User', defaultWidth: 140 },
+  { key: 'role', label: 'Role', defaultWidth: 130 },
+  { key: 'status', label: 'Status', defaultWidth: 100 },
+  { key: 'last_login', label: 'Last login', defaultWidth: 150 },
+  { key: 'created', label: 'Created', defaultWidth: 150 },
+];
 
 /** Admin: create users, change roles, disable, reset passwords, end sessions. Users are never deleted. */
 @Component({
@@ -29,6 +39,7 @@ type SortColumn = 'username' | 'role' | 'status' | 'last_login' | 'created';
         <ion-buttons slot="start"><ion-menu-button></ion-menu-button></ion-buttons>
         <ion-title>Users</ion-title>
         <ion-buttons slot="end">
+          <app-column-menu [cols]="cols" triggerId="users-cols"></app-column-menu>
           <ion-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
             <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
           </ion-button>
@@ -43,36 +54,68 @@ type SortColumn = 'username' | 'role' | 'status' | 'last_login' | 'created';
           <table class="data">
             <thead>
               <tr>
-                <th (click)="sort.sortBy('username')" class="sortable">User{{ sort.indicator('username') }}</th>
-                <th (click)="sort.sortBy('role')" class="sortable">Role{{ sort.indicator('role') }}</th>
-                <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
-                <th (click)="sort.sortBy('last_login')" class="sortable">Last login{{ sort.indicator('last_login') }}</th>
-                <th (click)="sort.sortBy('created')" class="sortable">Created{{ sort.indicator('created') }}</th>
-                <th></th>
+                @if (cols.isVisible('username')) {
+                  <th (click)="sort.sortBy('username')" class="sortable" [style.width.px]="cols.width('username')">
+                    User{{ sort.indicator('username') }}<span class="resize-handle" (pointerdown)="cols.startResize('username', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('role')) {
+                  <th (click)="sort.sortBy('role')" class="sortable" [style.width.px]="cols.width('role')">
+                    Role{{ sort.indicator('role') }}<span class="resize-handle" (pointerdown)="cols.startResize('role', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('status')) {
+                  <th (click)="sort.sortBy('status')" class="sortable" [style.width.px]="cols.width('status')">
+                    Status{{ sort.indicator('status') }}<span class="resize-handle" (pointerdown)="cols.startResize('status', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('last_login')) {
+                  <th (click)="sort.sortBy('last_login')" class="sortable" [style.width.px]="cols.width('last_login')">
+                    Last login{{ sort.indicator('last_login') }}<span class="resize-handle" (pointerdown)="cols.startResize('last_login', $event)"></span>
+                  </th>
+                }
+                @if (cols.isVisible('created')) {
+                  <th (click)="sort.sortBy('created')" class="sortable" [style.width.px]="cols.width('created')">
+                    Created{{ sort.indicator('created') }}<span class="resize-handle" (pointerdown)="cols.startResize('created', $event)"></span>
+                  </th>
+                }
+                <th class="col-check"></th>
               </tr>
             </thead>
             <tbody>
               @for (u of sortedUsers(); track u.id) {
                 <tr [class.disabled]="!u.is_active">
-                  <td>
-                    {{ u.username }}
-                    @if (u.id === me()) { <ion-badge color="medium">you</ion-badge> }
-                    @if (u.must_change_password) { <ion-badge color="warning">must change password</ion-badge> }
-                  </td>
-                  <td>
-                    <ion-select interface="popover" [value]="u.role" (ionChange)="changeRole(u, $event.detail.value)"
-                                [disabled]="busy()" aria-label="Role">
-                      @for (r of roles; track r) { <ion-select-option [value]="r">{{ r }}</ion-select-option> }
-                    </ion-select>
-                  </td>
-                  <td>
-                    <ion-badge [color]="u.is_active ? 'success' : 'danger'">{{ u.is_active ? 'active' : 'disabled' }}</ion-badge>
-                  </td>
-                  <td>{{ dateTime(u.last_login_at) }}</td>
-                  <td>{{ dateTime(u.created_at) }}</td>
+                  @if (cols.isVisible('username')) {
+                    <td>
+                      {{ u.username }}
+                      @if (u.id === me()) { <ion-badge color="medium">you</ion-badge> }
+                      @if (u.must_change_password) { <ion-badge color="warning">must change password</ion-badge> }
+                    </td>
+                  }
+                  @if (cols.isVisible('role')) {
+                    <td>
+                      <ion-select interface="popover" [value]="u.role" (ionChange)="changeRole(u, $event.detail.value)"
+                                  [disabled]="busy()" aria-label="Role">
+                        @for (r of roles; track r) { <ion-select-option [value]="r">{{ r }}</ion-select-option> }
+                      </ion-select>
+                    </td>
+                  }
+                  @if (cols.isVisible('status')) {
+                    <td>
+                      <ion-badge [color]="u.is_active ? 'success' : 'danger'">{{ u.is_active ? 'active' : 'disabled' }}</ion-badge>
+                    </td>
+                  }
+                  @if (cols.isVisible('last_login')) { <td>{{ dateTime(u.last_login_at) }}</td> }
+                  @if (cols.isVisible('created')) { <td>{{ dateTime(u.created_at) }}</td> }
                   <td class="actions">
                     <ion-button size="small" fill="outline" (click)="resetPassword(u)" [disabled]="busy()">Reset password</ion-button>
                     <ion-button size="small" fill="outline" (click)="endSessions(u)" [disabled]="busy()">End sessions</ion-button>
+                    @if (u.role === 'viewer') {
+                      <ion-button size="small" fill="outline" color="tertiary" (click)="extendSession(u)" [disabled]="busy()"
+                                  title="Extends this account's active session to 1 year — for kiosk displays that shouldn't be forced to re-login">
+                        Never forget this session
+                      </ion-button>
+                    }
                     <ion-button size="small" fill="outline" [color]="u.is_active ? 'danger' : 'success'"
                                 (click)="toggleActive(u)" [disabled]="busy()">
                       {{ u.is_active ? 'Disable' : 'Enable' }}
@@ -133,7 +176,7 @@ type SortColumn = 'username' | 'role' | 'status' | 'last_login' | 'created';
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonContent,
     IonText, IonBadge, IonSelect, IonSelectOption, IonCard, IonCardHeader, IonCardTitle, IonCardContent, IonList,
-    IonItem, IonInput, IonCheckbox,
+    IonItem, IonInput, IonCheckbox, ColumnMenuComponent,
   ],
 })
 export class UsersPage implements OnInit {
@@ -156,6 +199,7 @@ export class UsersPage implements OnInit {
     last_login: (a, b) => compareDates(a.last_login_at, b.last_login_at),
     created: (a, b) => compareDates(a.created_at, b.created_at),
   }, 'username');
+  readonly cols = new TableColumns<SortColumn>(COLUMNS, 'users');
   readonly sortedUsers = computed(() => this.sort.apply(this.users()));
 
   username = '';
@@ -248,6 +292,18 @@ export class UsersPage implements OnInit {
     await this.run(async () => {
       await firstValueFrom(this.api.revokeUserSessions(u.id));
       await this.toast(`Sessions of ${u.username} ended`);
+    });
+  }
+
+  async extendSession(u: User): Promise<void> {
+    if (!(await this.confirmAlert(`Extend ${u.username}'s session to 1 year?`,
+      "Their active session won't expire for a year — only use this for kiosk displays, not personal accounts.",
+      'Extend'))) {
+      return;
+    }
+    await this.run(async () => {
+      await firstValueFrom(this.api.extendSession(u.id));
+      await this.toast(`${u.username}'s session extended to 1 year`);
     });
   }
 

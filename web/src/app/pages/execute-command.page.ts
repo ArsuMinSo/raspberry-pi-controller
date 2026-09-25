@@ -8,12 +8,21 @@ import {
 import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
+import { ColumnMenuComponent } from '../core/column-menu.component';
 import { errorMessage } from '../core/errors';
 import { PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
 import { TableSort, compareIps, compareStrings } from '../core/table-sort';
+import { ColumnDef, TableColumns } from '../core/table-columns';
 
 type SortColumn = 'position' | 'hostname' | 'ip' | 'status';
+
+const COLUMNS: ColumnDef<SortColumn>[] = [
+  { key: 'position', label: 'Position', defaultWidth: 100 },
+  { key: 'hostname', label: 'Hostname', defaultWidth: 140 },
+  { key: 'ip', label: 'IP', defaultWidth: 120 },
+  { key: 'status', label: 'Status', defaultWidth: 110 },
+];
 
 @Component({
   selector: 'app-execute-command',
@@ -58,17 +67,21 @@ type SortColumn = 'position' | 'hostname' | 'ip' | 'status';
               <ion-label><strong>Select Pis ({{ selected().size }} of {{ pis().length }})</strong></ion-label>
             </ion-card-header>
             <ion-card-content>
-              <ion-button (click)="selectAll()" size="small" fill="outline" [disabled]="pis().length === 0">
-                Select all
-              </ion-button>
-              <ion-button (click)="selectNone()" size="small" fill="outline" [disabled]="selected().size === 0">
-                Clear
-              </ion-button>
- 
-              <!-- Submit -->
-              <ion-button type="submit" [disabled]="!command || selected().size === 0 || submitting()">
-                {{ submitting() ? 'Executing…' : 'Execute' }}
-              </ion-button>
+              <div class="selection-row">
+                <div class="selection-actions">
+                  <ion-button (click)="selectAll()" size="small" fill="outline" [disabled]="pis().length === 0">
+                    Select all
+                  </ion-button>
+                  <ion-button (click)="selectNone()" size="small" fill="outline" [disabled]="selected().size === 0">
+                    Clear
+                  </ion-button>
+                  <app-column-menu [cols]="cols" triggerId="execute-cols"></app-column-menu>
+                </div>
+                <ion-button type="submit" fill="solid" color="primary"
+                            [disabled]="!command || selected().size === 0 || submitting()">
+                  {{ submitting() ? 'Executing…' : 'Execute' }}
+                </ion-button>
+              </div>
             </ion-card-content>
           </ion-card>
 
@@ -79,11 +92,31 @@ type SortColumn = 'position' | 'hostname' | 'ip' | 'status';
               <table class="data">
                 <thead>
                   <tr>
-                    <th></th>
-                    <th (click)="sort.sortBy('position')" class="sortable">Position{{ sort.indicator('position') }}</th>
-                    <th (click)="sort.sortBy('hostname')" class="sortable">Hostname{{ sort.indicator('hostname') }}</th>
-                    <th (click)="sort.sortBy('ip')" class="sortable">IP{{ sort.indicator('ip') }}</th>
-                    <th (click)="sort.sortBy('status')" class="sortable">Status{{ sort.indicator('status') }}</th>
+                    <th class="col-check"></th>
+                    @if (cols.isVisible('position')) {
+                      <th (click)="sort.sortBy('position')" class="sortable" [style.width.px]="cols.width('position')">
+                        Position{{ sort.indicator('position') }}
+                        <span class="resize-handle" (pointerdown)="cols.startResize('position', $event)"></span>
+                      </th>
+                    }
+                    @if (cols.isVisible('hostname')) {
+                      <th (click)="sort.sortBy('hostname')" class="sortable" [style.width.px]="cols.width('hostname')">
+                        Hostname{{ sort.indicator('hostname') }}
+                        <span class="resize-handle" (pointerdown)="cols.startResize('hostname', $event)"></span>
+                      </th>
+                    }
+                    @if (cols.isVisible('ip')) {
+                      <th (click)="sort.sortBy('ip')" class="sortable" [style.width.px]="cols.width('ip')">
+                        IP{{ sort.indicator('ip') }}
+                        <span class="resize-handle" (pointerdown)="cols.startResize('ip', $event)"></span>
+                      </th>
+                    }
+                    @if (cols.isVisible('status')) {
+                      <th (click)="sort.sortBy('status')" class="sortable" [style.width.px]="cols.width('status')">
+                        Status{{ sort.indicator('status') }}
+                        <span class="resize-handle" (pointerdown)="cols.startResize('status', $event)"></span>
+                      </th>
+                    }
                   </tr>
                 </thead>
                 <tbody>
@@ -93,10 +126,10 @@ type SortColumn = 'position' | 'hostname' | 'ip' | 'status';
                         <ion-checkbox [checked]="selected().has(pi.position)" (ionChange)="toggle(pi.position)"
                                       [attr.aria-label]="'Select ' + pi.position"></ion-checkbox>
                       </td>
-                      <td><strong>{{ pi.position }}</strong></td>
-                      <td>{{ pi.hostname ?? '—' }}</td>
-                      <td>{{ pi.ip ?? '—' }}</td>
-                      <td>{{ pi.status }}</td>
+                      @if (cols.isVisible('position')) { <td><strong>{{ pi.position }}</strong></td> }
+                      @if (cols.isVisible('hostname')) { <td>{{ pi.hostname ?? '—' }}</td> }
+                      @if (cols.isVisible('ip')) { <td>{{ pi.ip ?? '—' }}</td> }
+                      @if (cols.isVisible('status')) { <td>{{ pi.status }}</td> }
                     </tr>
                   }
                 </tbody>
@@ -116,10 +149,22 @@ type SortColumn = 'position' | 'hostname' | 'ip' | 'status';
     .muted { color: var(--ion-color-medium); font-size: 0.9rem; }
     th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     th.sortable:hover { opacity: 0.7; }
+    .selection-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .selection-actions {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
   `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonContent, IonCard, IonCardContent,
-    IonCardHeader, IonList, IonItem, IonInput, IonLabel, IonCheckbox, IonButton, IonNote, IonText,
+    IonCardHeader, IonList, IonItem, IonInput, IonLabel, IonCheckbox, IonButton, IonNote, IonText, ColumnMenuComponent,
   ],
 })
 export class ExecuteCommandPage {
@@ -136,6 +181,7 @@ export class ExecuteCommandPage {
     ip: (a, b) => compareIps(a.ip, b.ip),
     status: (a, b) => a.status.localeCompare(b.status),
   }, 'position');
+  readonly cols = new TableColumns<SortColumn>(COLUMNS, 'execute');
   readonly sortedPis = computed(() => this.sort.apply(this.pis()));
 
   command = '';
