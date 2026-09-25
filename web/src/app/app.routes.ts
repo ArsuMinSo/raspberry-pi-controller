@@ -3,11 +3,16 @@ import { Routes } from '@angular/router';
 import { authGuard, guestGuard, roleGuard } from './core/guards';
 
 export const routes: Routes = [
-  { path: '', pathMatch: 'full', redirectTo: 'inventory' },
+  { path: '', pathMatch: 'full', redirectTo: 'dashboard' },
   {
     path: 'login',
     canActivate: [guestGuard],
     loadComponent: () => import('./pages/login.page').then((m) => m.LoginPage),
+  },
+  {
+    path: 'dashboard',
+    canActivate: [authGuard],
+    loadComponent: () => import('./pages/dashboard.page').then((m) => m.DashboardPage),
   },
   {
     path: 'inventory',
@@ -59,5 +64,5 @@ export const routes: Routes = [
     canActivate: [authGuard],
     loadComponent: () => import('./pages/changelog.page').then((m) => m.ChangelogPage),
   },
-  { path: '**', redirectTo: 'inventory' },
+  { path: '**', redirectTo: 'dashboard' },
 ];

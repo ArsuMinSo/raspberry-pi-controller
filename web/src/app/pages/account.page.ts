@@ -182,7 +182,7 @@ export class AccountPage implements OnInit {
       await this.loadSessions();
       if (this.forced()) {
         this.forced.set(false);
-        await this.router.navigate(['/inventory']);
+        await this.router.navigate(['/dashboard']);
       }
     } catch (err) {
       this.passwordError.set(

@@ -1,6 +1,6 @@
 import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import {
   AlertController, IonBadge, IonButton, IonButtons, IonCard, IonCardContent, IonCheckbox, IonChip, IonContent,
   IonHeader, IonIcon, IonItem, IonLabel, IonMenuButton, IonRange, IonRefresher, IonRefresherContent, IonSearchbar,
@@ -290,6 +290,7 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
 export class InventoryPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
   private readonly auth = inject(AuthService);
   private readonly alerts = inject(AlertController);
 
@@ -352,6 +353,16 @@ export class InventoryPage {
 
   constructor() {
     void this.load();
+    // Deep-link from the dashboard: ?status=reachable|unreachable, ?select=pos1,pos2,...
+    const params = this.route.snapshot.queryParamMap;
+    const status = params.get('status');
+    if (status === 'reachable' || status === 'unreachable') {
+      this.statusFilter.set(status);
+    }
+    const select = params.get('select');
+    if (select) {
+      this.selected.set(new Set(select.split(',').filter((p) => p.length > 0)));
+    }
   }
 
   toggleTag(tag: string): void {

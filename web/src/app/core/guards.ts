@@ -20,13 +20,13 @@ export const authGuard: CanActivateFn = (_route, state) => {
 /** Login page only when logged out. */
 export const guestGuard: CanActivateFn = () => {
   const auth = inject(AuthService);
-  return auth.loggedIn() ? inject(Router).createUrlTree(['/inventory']) : true;
+  return auth.loggedIn() ? inject(Router).createUrlTree(['/dashboard']) : true;
 };
 
-/** Page needs at least `role` (the server enforces it too); others go to the inventory. */
+/** Page needs at least `role` (the server enforces it too); others go to the dashboard. */
 export function roleGuard(role: Role): CanActivateFn {
   return () => {
     const auth = inject(AuthService);
-    return auth.can(role) ? true : inject(Router).createUrlTree(['/inventory']);
+    return auth.can(role) ? true : inject(Router).createUrlTree(['/dashboard']);
   };
 }

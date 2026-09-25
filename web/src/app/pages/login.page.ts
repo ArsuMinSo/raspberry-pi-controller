@@ -72,7 +72,7 @@ export class LoginPage {
     try {
       const user = await this.auth.login(this.username.trim(), this.password);
       this.password = '';
-      await this.router.navigate(user.must_change_password ? ['/account'] : ['/inventory'],
+      await this.router.navigate(user.must_change_password ? ['/account'] : ['/dashboard'],
         user.must_change_password ? { queryParams: { force: 1 } } : {});
     } catch (err) {
       if (err instanceof HttpErrorResponse && err.status === 401) {
