@@ -16,6 +16,7 @@ import { ActionQueued, FleetSummary, PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
 
 type StatusFilter = 'all' | 'reachable' | 'unreachable';
+type SortColumn = 'position' | 'hostname' | 'ip' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'seen';
 
 /** Case-insensitive match on position, hostname, IP, MAC and tags. */
 export function matchesSearch(pi: PiSummary, query: string): boolean {
@@ -109,8 +110,16 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
             <thead>
               <tr>
                 @if (canAct) { <th></th> }
-                <th>Position</th><th>Hostname</th><th>IP</th><th>Status</th>
-                <th>CPU 1m</th><th>RAM</th><th>Temp</th><th>Pi</th><th>Tags</th><th>Last seen</th>
+                <th (click)="sortBy('position')" class="sortable">Position{{ sortIndicator('position') }}</th>
+                <th (click)="sortBy('hostname')" class="sortable">Hostname{{ sortIndicator('hostname') }}</th>
+                <th (click)="sortBy('ip')" class="sortable">IP{{ sortIndicator('ip') }}</th>
+                <th (click)="sortBy('status')" class="sortable">Status{{ sortIndicator('status') }}</th>
+                <th (click)="sortBy('cpu')" class="sortable">CPU 1m{{ sortIndicator('cpu') }}</th>
+                <th (click)="sortBy('ram')" class="sortable">RAM{{ sortIndicator('ram') }}</th>
+                <th (click)="sortBy('temp')" class="sortable">Temp{{ sortIndicator('temp') }}</th>
+                <th (click)="sortBy('pi')" class="sortable">Pi{{ sortIndicator('pi') }}</th>
+                <th>Tags</th>
+                <th (click)="sortBy('seen')" class="sortable">Last seen{{ sortIndicator('seen') }}</th>
               </tr>
             </thead>
             <tbody>
@@ -140,6 +149,10 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
       }
     </ion-content>
   `,
+  styles: [`
+    th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+    th.sortable:hover { opacity: 0.7; }
+  `],
   imports: [
     FormsModule, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonButton, IonIcon, IonSearchbar,
     IonSegment, IonSegmentButton, IonLabel, IonContent, IonRefresher, IonRefresherContent, IonText, IonSpinner,
@@ -166,19 +179,65 @@ export class InventoryPage {
   readonly statusFilter = signal<StatusFilter>('all');
   readonly search = signal('');
   readonly selected = signal<Set<string>>(new Set());
+  readonly sortColumn = signal<SortColumn>('position');
+  readonly sortDir = signal<'asc' | 'desc'>('asc');
   query = '';
 
   readonly visible = computed(() => {
     const status = this.statusFilter();
     const q = this.search();
-    return this.pis()
+    const col = this.sortColumn();
+    const dir = this.sortDir();
+    const filtered = this.pis()
       .filter((pi) => status === 'all' || pi.status === status)
-      .filter((pi) => matchesSearch(pi, q))
-      .sort((a, b) => comparePositions(a.position, b.position));
+      .filter((pi) => matchesSearch(pi, q));
+    filtered.sort((a, b) => this.compare(a, b, col) * (dir === 'desc' ? -1 : 1));
+    return filtered;
   });
 
   constructor() {
     void this.load();
+  }
+
+  private compare(a: PiSummary, b: PiSummary, col: SortColumn): number {
+    switch (col) {
+      case 'position': return comparePositions(a.position, b.position);
+      case 'hostname': return (a.hostname ?? '').localeCompare(b.hostname ?? '');
+      case 'ip': return this.compareIps(a.ip, b.ip);
+      case 'status': return a.status.localeCompare(b.status);
+      case 'cpu': return (a.cpu_1m ?? 0) - (b.cpu_1m ?? 0);
+      case 'ram': return (a.mem_percent ?? 0) - (b.mem_percent ?? 0);
+      case 'temp': return (a.temp_c ?? 0) - (b.temp_c ?? 0);
+      case 'pi': return (a.pi_version ?? 0) - (b.pi_version ?? 0);
+      case 'seen': return new Date(a.last_seen ?? 0).getTime() - new Date(b.last_seen ?? 0).getTime();
+      default: return 0;
+    }
+  }
+
+  private compareIps(a: string | null, b: string | null): number {
+    if (!a && !b) return 0;
+    if (!a) return -1;
+    if (!b) return 1;
+    const aParts = a.split('.').map((x) => parseInt(x, 10));
+    const bParts = b.split('.').map((x) => parseInt(x, 10));
+    for (let i = 0; i < 4; i++) {
+      if (aParts[i] !== bParts[i]) return aParts[i] - bParts[i];
+    }
+    return 0;
+  }
+
+  sortBy(col: SortColumn): void {
+    if (this.sortColumn() === col) {
+      this.sortDir.set(this.sortDir() === 'asc' ? 'desc' : 'asc');
+    } else {
+      this.sortColumn.set(col);
+      this.sortDir.set('asc');
+    }
+  }
+
+  sortIndicator(col: SortColumn): string {
+    if (this.sortColumn() !== col) return '';
+    return this.sortDir() === 'asc' ? ' ▲' : ' ▼';
   }
 
   emptySet(): Set<string> {
