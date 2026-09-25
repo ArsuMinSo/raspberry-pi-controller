@@ -1,10 +1,11 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Router, RouterLink } from '@angular/router';
 import {
   IonBadge, IonButton, IonButtons, IonCard, IonCardContent, IonCardHeader, IonCardTitle, IonContent, IonHeader,
   IonIcon, IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
-import { firstValueFrom } from 'rxjs';
+import { firstValueFrom, switchMap, timer } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
@@ -12,6 +13,9 @@ import { errorMessage } from '../core/errors';
 import { dateTime, pct, statusColor, temp } from '../core/format';
 import { FleetSummary, LogEntry, PiSummary, ScheduledTask } from '../core/models';
 import { comparePositions } from '../core/sort';
+
+/** Background refresh so results of a health check (or anything else) show up without a manual click. */
+const AUTO_REFRESH_MS = 10_000;
 
 @Component({
   selector: 'app-dashboard',
@@ -21,19 +25,42 @@ import { comparePositions } from '../core/sort';
         <ion-buttons slot="start"><ion-menu-button></ion-menu-button></ion-buttons>
         <ion-title>Dashboard</ion-title>
         <ion-buttons slot="end">
+          <ion-button (click)="reactorMode.set(!reactorMode())" [color]="reactorMode() ? 'danger' : undefined"
+                      aria-label="Toggle reactor view">
+            <span slot="icon-only" class="reactor-toggle-icon" aria-hidden="true">☢</span>
+          </ion-button>
           <ion-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
             <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
           </ion-button>
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content class="ion-padding">
+    <ion-content class="ion-padding" [class.reactor-bg]="reactorMode()">
       @if (error()) { <ion-text color="danger"><p>{{ error() }}</p></ion-text> }
       @if (loading() && !summary()) {
         <div class="ion-text-center"><ion-spinner></ion-spinner></div>
       }
 
-      @if (summary(); as f) {
+      @if (reactorMode()) {
+        <div class="reactor">
+          <div class="reactor-core" [title]="reactorStatusLabel()">
+            <div class="reactor-core-value">{{ pis().length }}</div>
+            <div class="reactor-core-label">Pis</div>
+          </div>
+          @for (r of reactorPis(); track r.pi.mac) {
+            <div class="rod-wrap" [style.left.%]="r.left" [style.top.%]="r.top"
+                 [routerLink]="['/pi', r.pi.position]"
+                 [title]="r.pi.position + ' — ' + (r.pi.hostname ?? 'no hostname') + ' — ' + r.pi.status">
+              <div class="rod" [class]="'rod-' + statusColor(r.pi.status)" [class.rod-hot]="isHot(r.pi)">
+                <div class="rod-fill" [style.height.%]="fillPercent(r.pi)"></div>
+              </div>
+              <div class="rod-label">{{ r.pi.position }}</div>
+            </div>
+          }
+        </div>
+      }
+
+      @if (!reactorMode() && summary(); as f) {
         <!-- Stat tiles -->
         <div class="tiles">
           <div class="tile" [class]="'tile-primary'">
@@ -111,7 +138,7 @@ import { comparePositions } from '../core/sort';
         </div>
       }
 
-      @if (canSeeOps) {
+      @if (!reactorMode() && canSeeOps) {
         <div class="ops-row">
           <ion-card>
             <ion-card-header><ion-card-title>Recent activity</ion-card-title></ion-card-header>
@@ -230,6 +257,77 @@ import { comparePositions } from '../core/sort';
       .flame { animation: none; }
     }
 
+    .reactor-toggle-icon { font-size: 1.2rem; line-height: 1; }
+
+    ion-content.reactor-bg { --background: radial-gradient(circle at center, #10231a 0%, #050807 75%); }
+
+    .reactor {
+      position: relative;
+      width: min(90vw, 640px);
+      height: min(90vw, 640px);
+      margin: 24px auto;
+    }
+    .reactor-core {
+      position: absolute;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: 25%; height: 25%;
+      min-width: 5rem; min-height: 5rem;
+      border-radius: 50%;
+      background: radial-gradient(circle, #2fff9e 0%, #0f7a4f 60%, #062f1e 100%);
+      box-shadow: 0 0 24px 6px rgba(60, 255, 160, 0.5);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #04140c;
+      animation: core-pulse 2.4s ease-in-out infinite;
+    }
+    .reactor-core-value { font-size: 1.6rem; font-weight: 700; line-height: 1; }
+    .reactor-core-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    @keyframes core-pulse {
+      0%, 100% { box-shadow: 0 0 18px 4px rgba(60, 255, 160, 0.45); }
+      50% { box-shadow: 0 0 30px 10px rgba(60, 255, 160, 0.75); }
+    }
+
+    .rod-wrap {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      cursor: pointer;
+    }
+    .rod {
+      width: 1.4rem;
+      height: 3.2rem;
+      border-radius: 5px;
+      border: 2px solid var(--ion-color-medium);
+      background: var(--ion-color-step-100, #1a1a1f);
+      overflow: hidden;
+      display: flex;
+      align-items: flex-end;
+    }
+    .rod-fill {
+      width: 100%;
+      background: linear-gradient(180deg, #ffd25a, #ff7b1a);
+      transition: height 0.4s ease;
+    }
+    .rod-success { border-color: var(--ion-color-success); }
+    .rod-success .rod-fill { background: linear-gradient(180deg, #7bffb0, #17c76b); }
+    .rod-danger { border-color: var(--ion-color-danger); opacity: 0.55; }
+    .rod-danger .rod-fill { background: var(--ion-color-danger); }
+    .rod-warning { border-color: var(--ion-color-warning); }
+    .rod-medium { border-color: var(--ion-color-medium); }
+    .rod-hot {
+      border-color: #ff4d1a;
+      animation: rod-danger-glow 1s ease-in-out infinite;
+    }
+    @keyframes rod-danger-glow {
+      0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 26, 0.6); }
+      50% { box-shadow: 0 0 12px 4px rgba(255, 77, 26, 0.95); }
+    }
+    .rod-label { font-size: 0.65rem; color: var(--ion-color-medium); white-space: nowrap; }
+    @media (prefers-reduced-motion: reduce) {
+      .reactor-core { animation: none; }
+      .rod-hot { animation: none; box-shadow: 0 0 8px 3px rgba(255, 77, 26, 0.8); }
+    }
+
     .top5-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
     .top5-row ion-card { flex: 1 1 16rem; margin: 0; }
 
@@ -258,6 +356,7 @@ export class DashboardPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   private readonly auth = inject(AuthService);
+  private readonly destroyRef = inject(DestroyRef);
 
   readonly canSeeOps = this.auth.can('operator');
   readonly statusColor = statusColor;
@@ -271,13 +370,32 @@ export class DashboardPage {
   readonly tasks = signal<ScheduledTask[]>([]);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
+  readonly reactorMode = signal(false);
 
   readonly sortedPis = computed(() => [...this.pis()].sort((a, b) => comparePositions(a.position, b.position)));
   readonly enabledTaskCount = computed(() => this.tasks().filter((t) => t.enabled).length);
   readonly failedTasks = computed(() => this.tasks().filter((t) => t.last_status === 'fail'));
+  /** Positions each Pi around the reactor ring, as a % of the container, starting at 12 o'clock. */
+  readonly reactorPis = computed(() => {
+    const pis = this.sortedPis();
+    const n = pis.length;
+    const RING_RADIUS_PCT = 38;
+    return pis.map((pi, i) => {
+      const rad = ((360 / n) * i - 90) * (Math.PI / 180);
+      return {
+        pi,
+        left: 50 + RING_RADIUS_PCT * Math.cos(rad),
+        top: 50 + RING_RADIUS_PCT * Math.sin(rad),
+      };
+    });
+  });
 
   constructor() {
     void this.load();
+    // Auto-refresh in the background so results (e.g. a health check triggered elsewhere) show up without a manual click.
+    timer(AUTO_REFRESH_MS, AUTO_REFRESH_MS)
+      .pipe(switchMap(() => this.load()), takeUntilDestroyed(this.destroyRef))
+      .subscribe();
   }
 
   async load(): Promise<void> {
@@ -315,6 +433,18 @@ export class DashboardPage {
 
   isHot(pi: PiSummary): boolean {
     return pi.temp_c !== null && pi.temp_c > this.HOT_THRESHOLD_C;
+  }
+
+  /** Rod fill height: temperature if known, else CPU load, else a low idle level. */
+  fillPercent(pi: PiSummary): number {
+    if (pi.temp_c !== null) return Math.max(6, Math.min(100, (pi.temp_c / 85) * 100));
+    if (pi.cpu_1m !== null) return Math.max(6, Math.min(100, pi.cpu_1m));
+    return 6;
+  }
+
+  reactorStatusLabel(): string {
+    const s = this.summary();
+    return s ? `${s.reachable} reachable / ${s.unreachable} unreachable` : '';
   }
 
   async filterAndGo(status: 'reachable' | 'unreachable'): Promise<void> {
