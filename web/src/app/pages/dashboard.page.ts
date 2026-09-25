@@ -264,15 +264,21 @@ const AUTO_REFRESH_MS = 10_000;
 
     .reactor-toggle-icon { font-size: 1.2rem; line-height: 1; }
 
-    ion-content.reactor-bg { --background: radial-gradient(circle at center, #061014 0%, #020403 78%); }
+    ion-content.reactor-bg {
+      --background: radial-gradient(circle at center, #061014 0%, #020403 78%);
+      --padding-start: 4px;
+      --padding-end: 4px;
+      --padding-top: 4px;
+    }
 
     .hud-font { font-family: 'Courier New', ui-monospace, monospace; letter-spacing: 0.06em; }
 
     .reactor {
       position: relative;
-      width: min(92vw, 680px);
-      height: min(92vw, 680px);
-      margin: 24px auto;
+      width: min(98vw, 96vh, 1400px);
+      height: min(98vw, 96vh, 1400px);
+      max-width: 100%;
+      margin: 8px auto;
       font-family: 'Courier New', ui-monospace, monospace;
     }
 
