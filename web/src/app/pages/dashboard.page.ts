@@ -43,18 +43,23 @@ const AUTO_REFRESH_MS = 10_000;
 
       @if (reactorMode()) {
         <div class="reactor">
+          <div class="reactor-ticks" aria-hidden="true"></div>
           <div class="reactor-core" [title]="reactorStatusLabel()">
-            <div class="reactor-core-value">{{ pis().length }}</div>
-            <div class="reactor-core-label">Pis</div>
+            <div class="reactor-core-inner">
+              <div class="reactor-core-value">{{ pis().length }}</div>
+              <div class="reactor-core-label">UNITS</div>
+              <div class="reactor-core-sub">{{ summary()?.reachable ?? 0 }} UP · {{ summary()?.unreachable ?? 0 }} DOWN</div>
+            </div>
           </div>
           @for (r of reactorPis(); track r.pi.mac) {
-            <div class="rod-wrap" [style.left.%]="r.left" [style.top.%]="r.top"
+            <div class="wedge-wrap" [style.left.%]="r.left" [style.top.%]="r.top"
+                 [style.transform]="'translate(-50%, -50%) rotate(' + r.rotate + 'deg)'"
                  [routerLink]="['/pi', r.pi.position]"
                  [title]="r.pi.position + ' — ' + (r.pi.hostname ?? 'no hostname') + ' — ' + r.pi.status">
-              <div class="rod" [class]="'rod-' + statusColor(r.pi.status)" [class.rod-hot]="isHot(r.pi)">
-                <div class="rod-fill" [style.height.%]="fillPercent(r.pi)"></div>
+              <div class="wedge" [class]="'wedge-' + statusColor(r.pi.status)" [class.wedge-hot]="isHot(r.pi)">
+                <div class="wedge-fill" [style.height.%]="fillPercent(r.pi)"></div>
               </div>
-              <div class="rod-label">{{ r.pi.position }}</div>
+              <div class="wedge-label" [style.transform]="'rotate(' + (-r.rotate) + 'deg)'">{{ r.pi.position }}</div>
             </div>
           }
         </div>
@@ -259,73 +264,124 @@ const AUTO_REFRESH_MS = 10_000;
 
     .reactor-toggle-icon { font-size: 1.2rem; line-height: 1; }
 
-    ion-content.reactor-bg { --background: radial-gradient(circle at center, #10231a 0%, #050807 75%); }
+    ion-content.reactor-bg { --background: radial-gradient(circle at center, #061014 0%, #020403 78%); }
+
+    .hud-font { font-family: 'Courier New', ui-monospace, monospace; letter-spacing: 0.06em; }
 
     .reactor {
       position: relative;
-      width: min(90vw, 640px);
-      height: min(90vw, 640px);
+      width: min(92vw, 680px);
+      height: min(92vw, 680px);
       margin: 24px auto;
+      font-family: 'Courier New', ui-monospace, monospace;
     }
+
+    /* Decorative outer tick ring, echoing a HUD dial's minor-tick scale */
+    .reactor-ticks {
+      position: absolute;
+      inset: 2%;
+      border-radius: 50%;
+      background: repeating-conic-gradient(
+        rgba(64, 220, 220, 0.55) 0deg 0.6deg,
+        transparent 0.6deg 3.6deg
+      );
+      -webkit-mask: radial-gradient(circle, transparent 96%, #000 97%, #000 99%, transparent 100%);
+      mask: radial-gradient(circle, transparent 96%, #000 97%, #000 99%, transparent 100%);
+      pointer-events: none;
+    }
+
     .reactor-core {
       position: absolute;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      width: 25%; height: 25%;
-      min-width: 5rem; min-height: 5rem;
+      width: 46%; height: 46%;
+      min-width: 8rem; min-height: 8rem;
       border-radius: 50%;
-      background: radial-gradient(circle, #2fff9e 0%, #0f7a4f 60%, #062f1e 100%);
-      box-shadow: 0 0 24px 6px rgba(60, 255, 160, 0.5);
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      color: #04140c;
+      display: flex; align-items: center; justify-content: center;
+      background:
+        radial-gradient(circle, #ff8a3d 0%, #c8431a 42%, #3a0f06 75%, #150502 100%),
+        repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 1px, transparent 1px 8px),
+        repeating-linear-gradient(60deg, rgba(0,0,0,0.2) 0 1px, transparent 1px 8px),
+        repeating-linear-gradient(120deg, rgba(0,0,0,0.2) 0 1px, transparent 1px 8px);
+      box-shadow: 0 0 30px 8px rgba(255, 110, 30, 0.45), inset 0 0 40px 10px rgba(0, 0, 0, 0.55);
       animation: core-pulse 2.4s ease-in-out infinite;
     }
+    .reactor-core::before {
+      content: '';
+      position: absolute;
+      inset: 10%;
+      border-radius: 50%;
+      border: 1px dashed rgba(64, 220, 220, 0.6);
+    }
+    .reactor-core-inner {
+      position: relative;
+      width: 62%; height: 62%;
+      border-radius: 50%;
+      background: rgba(2, 6, 6, 0.72);
+      border: 1px solid rgba(120, 240, 240, 0.5);
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: #7bfcf5;
+      text-shadow: 0 0 6px rgba(90, 250, 240, 0.7);
+    }
     .reactor-core-value { font-size: 1.6rem; font-weight: 700; line-height: 1; }
-    .reactor-core-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .reactor-core-label { font-size: 0.6rem; letter-spacing: 0.15em; opacity: 0.8; }
+    .reactor-core-sub { font-size: 0.55rem; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; white-space: nowrap; }
     @keyframes core-pulse {
-      0%, 100% { box-shadow: 0 0 18px 4px rgba(60, 255, 160, 0.45); }
-      50% { box-shadow: 0 0 30px 10px rgba(60, 255, 160, 0.75); }
+      0%, 100% { box-shadow: 0 0 22px 5px rgba(255, 110, 30, 0.4), inset 0 0 40px 10px rgba(0, 0, 0, 0.55); }
+      50% { box-shadow: 0 0 38px 12px rgba(255, 140, 40, 0.7), inset 0 0 40px 10px rgba(0, 0, 0, 0.55); }
     }
 
-    .rod-wrap {
+    .wedge-wrap {
       position: absolute;
-      transform: translate(-50%, -50%);
-      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      display: flex; flex-direction: column; align-items: center;
       cursor: pointer;
     }
-    .rod {
-      width: 1.4rem;
-      height: 3.2rem;
-      border-radius: 5px;
-      border: 2px solid var(--ion-color-medium);
-      background: var(--ion-color-step-100, #1a1a1f);
+    .wedge {
+      width: 2.1rem;
+      height: 2.6rem;
+      clip-path: polygon(32% 0%, 68% 0%, 100% 100%, 0% 100%);
+      border: 1px solid rgba(64, 220, 220, 0.65);
+      background:
+        repeating-linear-gradient(0deg, rgba(0,0,0,0.25) 0 1px, transparent 1px 6px),
+        rgba(4, 14, 16, 0.85);
+      box-shadow: 0 0 6px 1px rgba(64, 220, 220, 0.35);
       overflow: hidden;
       display: flex;
       align-items: flex-end;
+      transition: box-shadow 0.3s ease;
     }
-    .rod-fill {
+    .wedge-wrap:hover .wedge { box-shadow: 0 0 12px 3px rgba(64, 220, 220, 0.7); }
+    .wedge-fill {
       width: 100%;
-      background: linear-gradient(180deg, #ffd25a, #ff7b1a);
+      background: linear-gradient(180deg, #8affea, #17b8b0);
       transition: height 0.4s ease;
     }
-    .rod-success { border-color: var(--ion-color-success); }
-    .rod-success .rod-fill { background: linear-gradient(180deg, #7bffb0, #17c76b); }
-    .rod-danger { border-color: var(--ion-color-danger); opacity: 0.55; }
-    .rod-danger .rod-fill { background: var(--ion-color-danger); }
-    .rod-warning { border-color: var(--ion-color-warning); }
-    .rod-medium { border-color: var(--ion-color-medium); }
-    .rod-hot {
-      border-color: #ff4d1a;
-      animation: rod-danger-glow 1s ease-in-out infinite;
+    .wedge-success { border-color: rgba(64, 220, 220, 0.65); }
+    .wedge-danger { border-color: rgba(255, 70, 70, 0.6); opacity: 0.5; }
+    .wedge-danger .wedge-fill { background: #7a1f1f; }
+    .wedge-warning { border-color: rgba(255, 190, 60, 0.7); }
+    .wedge-medium { border-color: rgba(150, 160, 165, 0.6); }
+    .wedge-hot .wedge-fill {
+      background: linear-gradient(180deg, #ffd25a, #ff4d1a);
     }
-    @keyframes rod-danger-glow {
-      0%, 100% { box-shadow: 0 0 4px 1px rgba(255, 77, 26, 0.6); }
-      50% { box-shadow: 0 0 12px 4px rgba(255, 77, 26, 0.95); }
+    .wedge-hot {
+      border-color: #ff6a2a;
+      animation: wedge-danger-glow 1s ease-in-out infinite;
     }
-    .rod-label { font-size: 0.65rem; color: var(--ion-color-medium); white-space: nowrap; }
+    @keyframes wedge-danger-glow {
+      0%, 100% { box-shadow: 0 0 5px 1px rgba(255, 90, 26, 0.6); }
+      50% { box-shadow: 0 0 14px 4px rgba(255, 110, 26, 0.95); }
+    }
+    .wedge-label {
+      font-size: 0.6rem;
+      color: #8ff2ec;
+      white-space: nowrap;
+      margin-top: 2px;
+      text-shadow: 0 0 4px rgba(90, 250, 240, 0.5);
+    }
     @media (prefers-reduced-motion: reduce) {
       .reactor-core { animation: none; }
-      .rod-hot { animation: none; box-shadow: 0 0 8px 3px rgba(255, 77, 26, 0.8); }
+      .wedge-hot { animation: none; box-shadow: 0 0 9px 3px rgba(255, 90, 26, 0.85); }
     }
 
     .top5-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 12px; }
@@ -375,17 +431,19 @@ export class DashboardPage {
   readonly sortedPis = computed(() => [...this.pis()].sort((a, b) => comparePositions(a.position, b.position)));
   readonly enabledTaskCount = computed(() => this.tasks().filter((t) => t.enabled).length);
   readonly failedTasks = computed(() => this.tasks().filter((t) => t.last_status === 'fail'));
-  /** Positions each Pi around the reactor ring, as a % of the container, starting at 12 o'clock. */
+  /** Positions each Pi as a wedge around the reactor ring, as a % of the container, starting at 12 o'clock. */
   readonly reactorPis = computed(() => {
     const pis = this.sortedPis();
     const n = pis.length;
     const RING_RADIUS_PCT = 38;
     return pis.map((pi, i) => {
-      const rad = ((360 / n) * i - 90) * (Math.PI / 180);
+      const angleDeg = (360 / n) * i;
+      const rad = (angleDeg - 90) * (Math.PI / 180);
       return {
         pi,
         left: 50 + RING_RADIUS_PCT * Math.cos(rad),
         top: 50 + RING_RADIUS_PCT * Math.sin(rad),
+        rotate: angleDeg,
       };
     });
   });
