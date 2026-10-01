@@ -46,12 +46,6 @@ BLE_SCAN_CMD = (
 
 SCAN_LOOKBACK = timedelta(minutes=5)
 
-# The fleet's own SSID — the floor map only tracks a Pi's position relative to these APs, so a
-# scan keeps only readings for this network, dropping neighboring/guest networks picked up by
-# the radio. How many of those get drawn as links is a frontend-only concern (SSID text filter +
-# the links-per-Pi slider on the floor map page) — scan ingestion keeps all of them.
-TARGET_SSID = "OMNIKA-VYROBA"
-
 # bluetoothctl wraps colored lines in SOH/STX control bytes around an ANSI SGR code
 _BLUETOOTHCTL_WRAPPER_RE = re.compile(r"\x01\x1b\[[0-9;]*m\x02")
 _BLE_NEW_RE = re.compile(r"\[NEW\] Device ([0-9A-Fa-f:]{17}) (.+)")
@@ -104,12 +98,6 @@ def parse_wifi_scan(raw: str) -> list[WifiReading]:
             ssid = m.group(1).strip() or None
     flush()
     return readings
-
-
-def filter_target_ssid(readings: list[WifiReading]) -> list[WifiReading]:
-    """Keep only `TARGET_SSID` readings (prefix match — the same AP can broadcast a per-band
-    variant like "OMNIKA-VYROBA-5G"). No count limit — see module docstring."""
-    return [r for r in readings if r.ssid is not None and r.ssid.startswith(TARGET_SSID)]
 
 
 def parse_ble_scan(raw: str) -> list[BleReading]:
@@ -231,14 +219,13 @@ def wifi_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
                               stdout=result.stdout, stderr=result.stderr)
                 continue
             readings = parse_wifi_scan(result.stdout)
-            kept = filter_target_ssid(readings)
-            all_readings.extend(kept)
+            all_readings.extend(readings)
             mac = mac_by_position[position]
             now = datetime.now(timezone.utc)
-            for r in kept:
+            for r in readings:
                 db.add(WifiScan(mac=mac, bssid=r.bssid, rssi=r.rssi, timestamp=now))
             al.add_result(db, entry.id, position,
-                          details={"aps_seen": len(readings), "aps_kept": len(kept), "preview": _first_lines(result.stdout)})
+                          details={"aps_seen": len(readings), "preview": _first_lines(result.stdout)})
 
     _upsert_access_points(db, all_readings)
     db.commit()

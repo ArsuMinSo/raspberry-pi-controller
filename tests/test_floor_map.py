@@ -3,8 +3,8 @@ from unittest.mock import patch
 
 from backend.models import AccessPoint, BleScan, Pi, WifiScan
 from backend.services.floor_map import (
-    WifiReading, compute_pi_position, compute_pi_position_via_ble, filter_target_ssid, get_pi_ble_edges,
-    parse_ble_controller_mac, parse_ble_scan, parse_wifi_scan,
+    compute_pi_position, compute_pi_position_via_ble, get_pi_ble_edges, parse_ble_controller_mac, parse_ble_scan,
+    parse_wifi_scan,
 )
 from backend.services.ssh_executor import SSHResult
 from tests.conftest import API
@@ -50,17 +50,6 @@ def test_parse_wifi_scan_empty():
     assert parse_wifi_scan("") == []
 
 
-def test_filter_target_ssid_keeps_all_fleet_ssid_variants():
-    readings = [
-        WifiReading(bssid="aa:bb:cc:dd:ee:01", rssi=-70, ssid="OMNIKA-VYROBA"),
-        WifiReading(bssid="aa:bb:cc:dd:ee:02", rssi=-40, ssid="OMNIKA-VYROBA-5G"),
-        WifiReading(bssid="aa:bb:cc:dd:ee:03", rssi=-55, ssid="OMNIKA-VYROBA"),
-        WifiReading(bssid="aa:bb:cc:dd:ee:04", rssi=-30, ssid="OtherAP"),  # wrong SSID, dropped
-    ]
-    kept = filter_target_ssid(readings)
-    assert {r.bssid for r in kept} == {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"}
-
-
 def test_parse_ble_scan_joins_rssi_and_name_by_mac():
     readings = parse_ble_scan(BLE_SCAN_OUTPUT)
     by_mac = {r.device_mac: r for r in readings}
@@ -96,13 +85,16 @@ def test_wifi_scan_trigger_registers_ap_unplaced(client, sample_pi, db):
     assert ap is not None and ap.x is None and ap.y is None and ap.ssid == "OMNIKA-VYROBA"
     assert ap.ssids == ["OMNIKA-VYROBA"]
 
-    # Non-fleet SSID ("OtherAP") is dropped entirely — never scanned/stored, never auto-registered.
-    assert db.get(AccessPoint, "aa:bb:cc:dd:ee:02") is None
+    # Every SSID seen is scanned/stored — filtering to a specific network is a frontend-only
+    # concern now (the floor map's SSID text filter + links-per-Pi slider).
+    other = db.get(AccessPoint, "aa:bb:cc:dd:ee:02")
+    assert other is not None and other.ssid == "OtherAP"
     scans = db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).all()
-    assert {s.bssid for s in scans} == {"aa:bb:cc:dd:ee:01"}
+    assert {s.bssid for s in scans} == {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}
 
     db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
-    db.query(AccessPoint).filter(AccessPoint.bssid == "aa:bb:cc:dd:ee:01").delete()
+    db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])).delete(
+        synchronize_session=False)
     db.commit()
 
 
