@@ -363,6 +363,7 @@ export class FloorMapPage implements OnDestroy {
     const SPRING_LEN = 120;
     const DAMPING = 0.82;
     const CENTER_PULL = 0.0003;
+    const CENTER_PULL_CAP_DIST = 150; // distance beyond which the center pull stops growing
     const MAX_SPEED = 25; // per-tick speed cap — stops any force spike from snapping a node across the map
     const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
     const AP_AP_SHARED_PI_MULT = 0.45; // ...unless they both serve the same Pi — let those sit closer
@@ -468,9 +469,16 @@ export class FloorMapPage implements OnDestroy {
         this.simVel.set(n.id, { x: 0, y: 0 });
         continue;
       }
+      // Pull toward center is capped (not scaled by raw distance) — it grows linearly while
+      // repulsion decays with distance squared, so left uncapped it wins over repulsion for any
+      // widely-spaced pair and drags the whole graph inward instead of letting it spread out.
       const f = forces.get(n.id)!;
-      f.x += (VIEW_W / 2 - pos.x) * CENTER_PULL;
-      f.y += (VIEW_H / 2 - pos.y) * CENTER_PULL;
+      const toCenterX = VIEW_W / 2 - pos.x;
+      const toCenterY = VIEW_H / 2 - pos.y;
+      const centerDist = Math.max(Math.hypot(toCenterX, toCenterY), 1);
+      const centerPullMag = Math.min(centerDist, CENTER_PULL_CAP_DIST) * CENTER_PULL;
+      f.x += (toCenterX / centerDist) * centerPullMag;
+      f.y += (toCenterY / centerDist) * centerPullMag;
       const vel = this.simVel.get(n.id)!;
       vel.x = (vel.x + f.x) * DAMPING;
       vel.y = (vel.y + f.y) * DAMPING;
