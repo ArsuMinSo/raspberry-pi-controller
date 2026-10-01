@@ -32,7 +32,17 @@ from backend.utils.helpers import is_valid_mac
 log = logging.getLogger(__name__)
 
 WIFI_SCAN_CMD = "/usr/sbin/iw dev wlan0 scan"
-BLE_SCAN_CMD = "bluetoothctl --timeout 10 scan on"
+# `scan on` alone only puts this Pi into scanning/observer mode — it does NOT make this Pi's
+# own controller discoverable to other Pis scanning at the same time (discoverable/advertising
+# and scanning are separate adapter states). Toggle discoverable on for the scan window so
+# Pi<->Pi BLE sightings actually happen, then back off; `rc=$?; ...; exit $rc` keeps the
+# overall exit code tied to the scan step, not the cleanup "discoverable off" step.
+BLE_SCAN_CMD = (
+    "bluetoothctl discoverable on; "
+    "bluetoothctl --timeout 10 scan on; rc=$?; "
+    "bluetoothctl discoverable off; "
+    "exit $rc"
+)
 
 SCAN_LOOKBACK = timedelta(minutes=5)
 

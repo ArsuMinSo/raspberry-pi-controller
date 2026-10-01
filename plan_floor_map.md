@@ -61,7 +61,7 @@ Only latest scan per Pi matters for the live map — query `DISTINCT ON (bssid) 
 Same model as health checks: server SSHes in, runs a one-shot script, parses stdout. No new agent on the Pi.
 
 - WiFi: `iw dev wlan0 scan | awk '/BSS/{bssid=$2} /SSID:/{ssid=$2} /signal:/{print bssid, $2, ssid}'` — confirmed working unprivileged after `setcap cap_net_raw,cap_net_admin+eip /usr/sbin/iw` (see §Provisioning). `nmcli` dropped — NetworkManager not running on kiosk image, no reason to depend on it.
-- BLE: `bluetoothctl --timeout 10 scan on` — confirmed working unprivileged (bluez D-Bus scan doesn't need root/sudo/capabilities at all, unlike `iw`).
+- BLE: `bluetoothctl discoverable on; bluetoothctl --timeout 10 scan on; rc=$?; bluetoothctl discoverable off; exit $rc` — confirmed working unprivileged (bluez D-Bus scan doesn't need root/sudo/capabilities at all, unlike `iw`). `scan on` alone only makes the Pi scan for others — it doesn't make the Pi itself discoverable, so Pi<->Pi BLE sightings (§ Pi<->Pi BLE triangulation) never happened until `discoverable on`/`off` were added around it.
 - Both wrapped as one script `scan_floor.sh` (or two), output as `bssid,rssi,ssid` / `mac,rssi,name` lines → parsed server-side into `wifi_scans` / `ble_scans` rows.
 
 **Real output format (observed on `00-006`), parser must handle:**
