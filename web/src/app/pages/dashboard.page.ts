@@ -329,9 +329,9 @@ const AUTO_REFRESH_MS = 10_000;
       color: #7bfcf5;
       text-shadow: 0 0 6px rgba(90, 250, 240, 0.7);
     }
-    .reactor-core-value { font-size: 1.6rem; font-weight: 700; line-height: 1; }
-    .reactor-core-label { font-size: 0.6rem; letter-spacing: 0.15em; opacity: 0.8; }
-    .reactor-core-sub { font-size: 0.55rem; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; white-space: nowrap; }
+    .reactor-core-value { font-size: 2.4rem; font-weight: 700; line-height: 1; }
+    .reactor-core-label { font-size: 0.85rem; letter-spacing: 0.15em; opacity: 0.8; }
+    .reactor-core-sub { font-size: 0.75rem; letter-spacing: 0.06em; margin-top: 4px; opacity: 0.75; white-space: nowrap; }
     @keyframes core-pulse {
       0%, 100% { box-shadow: 0 0 22px 5px rgba(255, 110, 30, 0.4), inset 0 0 40px 10px rgba(0, 0, 0, 0.55); }
       50% { box-shadow: 0 0 38px 12px rgba(255, 140, 40, 0.7), inset 0 0 40px 10px rgba(0, 0, 0, 0.55); }
@@ -379,7 +379,7 @@ const AUTO_REFRESH_MS = 10_000;
       50% { box-shadow: 0 0 14px 4px rgba(255, 110, 26, 0.95); }
     }
     .wedge-label {
-      font-size: 0.6rem;
+      font-size: 0.8rem;
       color: #8ff2ec;
       white-space: nowrap;
       margin-top: 2px;
