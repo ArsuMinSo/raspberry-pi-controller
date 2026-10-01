@@ -358,11 +358,11 @@ export class FloorMapPage implements OnDestroy {
       springs.push({ a: `pi:${e.position_a}`, b: `pi:${e.position_b}`, weight: this.rssiStrength(e.rssi), kMult: BLE_SPRING_MULT });
     }
 
-    const REPULSION = 400;
-    const SPRING_K = 0.02;
+    const REPULSION = 2400;
+    const SPRING_K = 0.2;
     const SPRING_LEN = 240;
-    const DAMPING = 0.82;
-    const CENTER_PULL = 0.00012;
+    const DAMPING = 0.2;
+    const CENTER_PULL = 0.000012;
     const CENTER_PULL_CAP_DIST = 100; // distance beyond which the center pull stops growing
     const MAX_SPEED = 2; // per-tick speed cap — stops any force spike from snapping a node across the map
     const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
