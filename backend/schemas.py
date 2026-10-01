@@ -482,6 +482,11 @@ class FloorMapResponse(BaseModel):
     pis: list[FloorMapPiNode]
     edges: list[FloorMapEdge]
     pi_ble_edges: list[PiBleEdge]
+    plan_visible: bool
+
+
+class FloorMapSettingsUpdate(BaseModel):
+    plan_visible: bool
 
 
 class BleDeviceSeen(BaseModel):

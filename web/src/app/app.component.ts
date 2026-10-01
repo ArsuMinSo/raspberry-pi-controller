@@ -7,8 +7,8 @@ import {
 import { addIcons } from 'ionicons';
 import {
   alarmOutline, chevronBackOutline, codeOutline, documentTextOutline, funnelOutline, gridOutline, listOutline,
-  logOutOutline, peopleOutline, personCircleOutline, pinOutline, pulseOutline, refreshOutline, settingsOutline,
-  speedometerOutline,
+  logOutOutline, mapOutline, peopleOutline, personCircleOutline, pinOutline, pulseOutline, refreshOutline,
+  settingsOutline, speedometerOutline,
 } from 'ionicons/icons';
 
 import { AuthService } from './core/auth.service';
@@ -128,6 +128,7 @@ export class AppComponent {
   readonly menu: { title: string; url: string; icon: string; role?: Role }[] = [
     { title: 'Dashboard', url: '/dashboard', icon: 'speedometer-outline' },
     { title: 'Inventory', url: '/inventory', icon: 'grid-outline' },
+    { title: 'Floor Map', url: '/mapplan', icon: 'map-outline' },
     { title: 'Execute command', url: '/execute', icon: 'code-outline', role: 'admin' },
     { title: 'Scheduled tasks', url: '/tasks', icon: 'alarm-outline', role: 'operator' },
     { title: 'Activity log', url: '/logs', icon: 'document-text-outline', role: 'operator' },
@@ -140,8 +141,8 @@ export class AppComponent {
   constructor() {
     addIcons({
       alarmOutline, chevronBackOutline, codeOutline, documentTextOutline, funnelOutline, gridOutline, listOutline,
-      logOutOutline, peopleOutline, personCircleOutline, pinOutline, pulseOutline, refreshOutline, settingsOutline,
-      speedometerOutline,
+      logOutOutline, mapOutline, peopleOutline, personCircleOutline, pinOutline, pulseOutline, refreshOutline,
+      settingsOutline, speedometerOutline,
     });
   }
 

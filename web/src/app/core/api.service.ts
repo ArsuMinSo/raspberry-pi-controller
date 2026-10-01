@@ -249,4 +249,12 @@ export class ApiService {
   bleDevicesForPi(position: string): Observable<BleDeviceSeen[]> {
     return this.http.get<BleDeviceSeen[]>(`${API}/floor-map/pi/${encodeURIComponent(position)}/ble`);
   }
+
+  clearAllLinks(): Observable<{ cleared: number }> {
+    return this.http.delete<{ cleared: number }>(`${API}/floor-map/links`);
+  }
+
+  setFloorPlanVisible(visible: boolean): Observable<{ plan_visible: boolean }> {
+    return this.http.patch<{ plan_visible: boolean }>(`${API}/floor-map/settings`, { plan_visible: visible });
+  }
 }

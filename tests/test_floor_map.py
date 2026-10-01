@@ -284,6 +284,18 @@ def test_pin_and_unpin_pi(client, db, sample_pi):
     assert res.json()["pinned"] is False
 
 
+def test_floor_plan_visibility_is_shared_not_per_browser(client, db):
+    """One "user" (client session) toggling it is reflected for everyone — not a per-browser
+    local setting — since GET /floor-map always re-reads the one shared settings row."""
+    assert client.get(f"{API}/floor-map").json()["plan_visible"] is True
+
+    res = client.patch(f"{API}/floor-map/settings", json={"plan_visible": False})
+    assert res.status_code == 200 and res.json()["plan_visible"] is False
+    assert client.get(f"{API}/floor-map").json()["plan_visible"] is False
+
+    client.patch(f"{API}/floor-map/settings", json={"plan_visible": True})
+
+
 def test_pin_unknown_pi_404(client):
     res = client.patch(f"{API}/floor-map/pi/99-999/pin", json={"x": 1, "y": 1})
     assert res.status_code == 404

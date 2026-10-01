@@ -252,6 +252,8 @@ export interface FloorMapResponse {
   pis: FloorMapPiNode[];
   edges: FloorMapEdge[];
   pi_ble_edges: PiBleEdge[];
+  /** Shared across every user, not a per-browser preference — see backend FloorMapSettings. */
+  plan_visible: boolean;
 }
 
 export interface BleDeviceSeen {

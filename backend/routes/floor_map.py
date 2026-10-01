@@ -7,10 +7,11 @@ from backend.database import get_db
 from backend.models import AccessPoint, Pi, WifiScan
 from backend.schemas import (
     AccessPointGroupUpdate, AccessPointOut, AccessPointPositionUpdate, ActionQueued, BleDeviceSeen,
-    FloorMapPiNode, FloorMapResponse, HealthTriggerRequest, PiPinUpdate,
+    FloorMapPiNode, FloorMapResponse, FloorMapSettingsUpdate, HealthTriggerRequest, PiPinUpdate,
 )
 from backend.services.floor_map import (
-    compute_pi_position, get_ble_devices_for_position, get_floor_map, start_ble_scan, start_wifi_scan,
+    clear_all_links, compute_pi_position, get_ble_devices_for_position, get_floor_map, set_plan_visible,
+    start_ble_scan, start_wifi_scan,
 )
 
 router = APIRouter()
@@ -105,3 +106,15 @@ def pin_pi(position: str, body: PiPinUpdate, actor: Actor = Depends(require_role
 @router.get("/pi/{position}/ble", response_model=list[BleDeviceSeen], dependencies=[Depends(require_role("viewer"))])
 def read_ble_devices(position: str, db: Session = Depends(get_db)):
     return get_ble_devices_for_position(db, position)
+
+
+@router.delete("/links")
+def delete_all_links(actor: Actor = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    cleared = clear_all_links(db)
+    return {"cleared": cleared}
+
+
+@router.patch("/settings")
+def patch_floor_map_settings(body: FloorMapSettingsUpdate, actor: Actor = Depends(require_role("viewer")),
+                              db: Session = Depends(get_db)):
+    return {"plan_visible": set_plan_visible(db, body.plan_visible)}

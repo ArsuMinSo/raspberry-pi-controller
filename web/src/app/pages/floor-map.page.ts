@@ -7,6 +7,7 @@ import {
 import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
+import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { AccessPointOut, FloorMapEdge, FloorMapPiNode, FloorMapResponse, PiBleEdge } from '../core/models';
 
@@ -49,8 +50,10 @@ interface ApGroup {
         <ion-buttons slot="start"><ion-menu-button></ion-menu-button></ion-buttons>
         <ion-title>Floor Map</ion-title>
         <ion-buttons slot="end">
-          <ion-button (click)="scanWifi()" [disabled]="scanning()">WiFi scan</ion-button>
-          <ion-button (click)="scanBle()" [disabled]="scanning()">BLE scan</ion-button>
+          @if (canOperate) {
+            <ion-button (click)="scanWifi()" [disabled]="scanning()">WiFi scan</ion-button>
+            <ion-button (click)="scanBle()" [disabled]="scanning()">BLE scan</ion-button>
+          }
           <ion-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
             <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
           </ion-button>
@@ -84,16 +87,21 @@ interface ApGroup {
           <ion-button fill="outline" size="small" [color]="showBleLinks() ? 'primary' : 'medium'"
                       (click)="showBleLinks.set(!showBleLinks())">BLE links</ion-button>
           <ion-button fill="outline" size="small" [color]="showFloorPlan() ? 'primary' : 'medium'"
-                      (click)="showFloorPlan.set(!showFloorPlan())">Floor plan</ion-button>
+                      (click)="toggleFloorPlan()">Floor plan</ion-button>
           <ion-button fill="outline" size="small" (click)="toggleFullscreen()">
             <ion-icon slot="icon-only" [name]="fullscreen() ? 'contract-outline' : 'expand-outline'"></ion-icon>
           </ion-button>
           <ion-button fill="outline" size="small" (click)="resetZoom()" [disabled]="zoom().scale === 1 && zoom().x === 0 && zoom().y === 0">
             Reset zoom
           </ion-button>
-          <ion-button fill="outline" size="small" (click)="untangle()" [disabled]="untangling()">
-            {{ untangling() ? 'Untangling…' : 'Automatic untangle' }}
-          </ion-button>
+          @if (canOperate) {
+            <ion-button fill="outline" size="small" (click)="untangle()" [disabled]="untangling()">
+              {{ untangling() ? 'Untangling…' : 'Automatic untangle' }}
+            </ion-button>
+            <ion-button fill="outline" size="small" color="danger" (click)="confirmClearLinks()">
+              Clear links
+            </ion-button>
+          }
           <ion-input class="ssid-filter" fill="outline" placeholder="wifi1, wifi2, ..."
                      [(ngModel)]="apFilterInput" (keyup.enter)="applyApFilter()"></ion-input>
           <ion-button fill="outline" size="small" (click)="applyApFilter()">Filter</ion-button>
@@ -187,10 +195,10 @@ interface ApGroup {
 
     .map-wrap {
       width: 100%;
-      max-width: 1400px;
+      max-width: 2100px;
       margin: 0 auto;
       aspect-ratio: 1000 / 700;
-      max-height: 82vh;
+      max-height: 95vh;
     }
     .map-wrap.fullscreen {
       max-width: none;
@@ -215,7 +223,7 @@ interface ApGroup {
     .floor-plan-bg { opacity: 0.35; pointer-events: none; }
 
     .edge { stroke: #7fd8d0; stroke-linecap: round; transition: opacity 0.3s ease; }
-    .ble-edge { stroke: #c78bff; stroke-linecap: round; stroke-dasharray: 6 4; transition: opacity 0.3s ease; }
+    .ble-edge { stroke: #c78bff; stroke-linecap: round; transition: opacity 0.3s ease; }
 
     .pi-node circle {
       fill: #5b8cff;
@@ -253,6 +261,7 @@ interface ApGroup {
 })
 export class FloorMapPage {
   private readonly api = inject(ApiService);
+  readonly canOperate = inject(AuthService).can('operator');
 
   readonly viewW = VIEW_W;
   readonly viewH = VIEW_H;
@@ -416,6 +425,7 @@ export class FloorMapPage {
       this.edges.set(m.edges);
       this.bleEdges.set(m.pi_ble_edges);
       this.apNodes.set(this.groupAccessPoints(m.access_points));
+      this.showFloorPlan.set(m.plan_visible);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
@@ -506,6 +516,43 @@ export class FloorMapPage {
     }
   }
 
+  /** Shared across every user (not a per-browser preference) — toggling it here changes what
+   * everyone else sees next time they load the page, via the `plan_visible` setting row. */
+  async toggleFloorPlan(): Promise<void> {
+    const next = !this.showFloorPlan();
+    this.showFloorPlan.set(next); // optimistic — feels instant, load() will correct it on failure
+    try {
+      await firstValueFrom(this.api.setFloorPlanVisible(next));
+    } catch (e) {
+      this.error.set(errorMessage(e));
+      await this.load();
+    }
+  }
+
+  /** Permanently deletes every stored WiFi/BLE scan reading (all Pi<->AP and Pi<->Pi links,
+   * fleet-wide) — AP placements/groups and Pi pins are untouched. Confirm first, it can't be undone. */
+  async confirmClearLinks(): Promise<void> {
+    const alert = await this.alerts.create({
+      header: 'Clear all links?',
+      message: 'Deletes every stored WiFi and BLE scan reading for the whole fleet. Links reappear after the '
+        + 'next scan. This cannot be undone.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Clear links', role: 'destructive', handler: () => void this.clearLinks() },
+      ],
+    });
+    await alert.present();
+  }
+
+  private async clearLinks(): Promise<void> {
+    try {
+      await firstValueFrom(this.api.clearAllLinks());
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
   async scanWifi(): Promise<void> {
     await this.runScan(() => this.api.floorMapWifiScanAll(), 'WiFi scan queued');
   }
@@ -571,7 +618,7 @@ export class FloorMapPage {
 
   /** Node size reflects its connection count, like Obsidian's graph view. */
   nodeRadius(degree: number): number {
-    return Math.min(6 + degree * 1.5, 16);
+    return Math.min(3 + degree * 0.75, 8);
   }
 
   /** Radius in viewBox user-units, shrunk as you zoom in — since the viewBox itself shrinks
@@ -651,6 +698,7 @@ export class FloorMapPage {
 
   onPointerDown(event: PointerEvent, ap: ApGroup): void {
     event.stopPropagation(); // don't also start a background pan
+    if (!this.canOperate) return; // viewers can look, not move/group APs
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
@@ -662,6 +710,7 @@ export class FloorMapPage {
 
   onPiPointerDown(event: PointerEvent, pi: FloorMapPiNode): void {
     event.stopPropagation(); // don't also start a background pan
+    if (!this.canOperate) return; // viewers can look, not move/pin Pis
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt || pi.x === null || pi.y === null) return;

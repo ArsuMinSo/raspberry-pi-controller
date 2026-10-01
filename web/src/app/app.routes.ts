@@ -65,9 +65,8 @@ export const routes: Routes = [
     loadComponent: () => import('./pages/changelog.page').then((m) => m.ChangelogPage),
   },
   {
-    // Not linked in the side menu on purpose — reachable only by typing the URL.
     path: 'mapplan',
-    canActivate: [authGuard, roleGuard('operator')],
+    canActivate: [authGuard, roleGuard('viewer')],
     loadComponent: () => import('./pages/floor-map.page').then((m) => m.FloorMapPage),
   },
   { path: '**', redirectTo: 'dashboard' },

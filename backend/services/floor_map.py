@@ -22,7 +22,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.config import SSHSettings, effective_ssh_settings
-from backend.models import AccessPoint, BleScan, Pi, WifiScan
+from backend.models import AccessPoint, BleScan, FloorMapSettings, Pi, WifiScan
 from backend.schemas import AccessPointOut, BleDeviceSeen, FloorMapEdge, FloorMapPiNode, FloorMapResponse, PiBleEdge
 from backend.services import audit_log as al
 from backend.services import jobs
@@ -457,8 +457,26 @@ def get_floor_map(db: Session) -> FloorMapResponse:
 
     return FloorMapResponse(
         access_points=aps, pis=pi_nodes, edges=get_latest_wifi_edges(db),
-        pi_ble_edges=get_pi_ble_edges(db, ble_mac_to_position),
+        pi_ble_edges=get_pi_ble_edges(db, ble_mac_to_position), plan_visible=get_plan_visible(db),
     )
+
+
+def get_plan_visible(db: Session) -> bool:
+    row = db.get(FloorMapSettings, 1)
+    return row.plan_visible if row else True
+
+
+def set_plan_visible(db: Session, visible: bool) -> bool:
+    """Shared, not per-browser — see `FloorMapSettings`. Upserts the singleton row since a fresh
+    install has none yet (migration 014 only seeds it going forward)."""
+    row = db.get(FloorMapSettings, 1)
+    if row is None:
+        row = FloorMapSettings(id=1, plan_visible=visible)
+        db.add(row)
+    else:
+        row.plan_visible = visible
+    db.commit()
+    return visible
 
 
 def get_ble_devices_for_position(db: Session, position: str) -> list[BleDeviceSeen]:
@@ -476,3 +494,13 @@ def get_ble_devices_for_position(db: Session, position: str) -> list[BleDeviceSe
         BleDeviceSeen(device_mac=r.device_mac, device_name=r.device_name, rssi=r.rssi, timestamp=r.timestamp)
         for r in rows
     ]
+
+
+def clear_all_links(db: Session) -> int:
+    """Wipe every stored WiFi and BLE scan reading — the map's edges (Pi<->AP and Pi<->Pi)
+    disappear until the next scan repopulates them. AP placements, groups and Pi pins are
+    untouched; only the scan-derived link data is cleared."""
+    wifi_deleted = db.query(WifiScan).delete()
+    ble_deleted = db.query(BleScan).delete()
+    db.commit()
+    return wifi_deleted + ble_deleted

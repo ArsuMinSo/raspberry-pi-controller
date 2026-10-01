@@ -181,3 +181,13 @@ class BleScan(Base):
     device_name = mapped_column(String(255))
     rssi = mapped_column(SmallInteger)
     timestamp: MappedColumn[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class FloorMapSettings(Base):
+    """Singleton row (id is always 1) of floor-map view settings shared across every user —
+    e.g. whether the factory floor plan background is shown — so one user's toggle is reflected
+    for everyone instead of being a per-browser preference (migration 014)."""
+    __tablename__ = "floor_map_settings"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True, default=1)
+    plan_visible: MappedColumn[bool] = mapped_column(Boolean, nullable=False, default=True)
