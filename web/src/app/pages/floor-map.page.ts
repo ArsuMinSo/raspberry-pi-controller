@@ -1,8 +1,8 @@
 import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
-  IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonMenuButton, IonSpinner, IonText, IonTitle,
-  IonToolbar,
+  ActionSheetController, AlertController, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput,
+  IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
 
@@ -19,7 +19,7 @@ const UNPLACED_ROW_Y = 40;
 const RSSI_STRONG = -30;
 const RSSI_WEAK = -90;
 
-/** One physical AP box — may represent several BSSIDs (one per SSID) grouped by connection signature. */
+/** One physical AP box — may represent several BSSIDs manually grouped together (click an AP to manage). */
 interface ApGroup {
   key: string;
   bssids: string[];
@@ -55,10 +55,10 @@ interface ApGroup {
 
       @if (map(); as m) {
         <p class="hint">
-          Drag an access point to place/reposition it (one box may cover several SSIDs broadcast by the same
-          router). Unplaced APs (seen in a scan, never placed) sit in the staging row at the top. Pi position is
-          estimated from the latest WiFi scan and isn't draggable. Scroll to zoom. Line thickness/brightness =
-          signal strength; node size = number of connections.
+          Drag an access point to place/reposition it; click (without dragging) to group it with other APs that
+          are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
+          top. Pi position is estimated from the latest WiFi scan and isn't draggable. Scroll to zoom. Line
+          thickness/brightness = signal strength; node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -93,8 +93,8 @@ interface ApGroup {
             preserveAspectRatio="xMidYMid meet"
             (pointerdown)="onBackgroundPointerDown($event)"
             (pointermove)="onPointerMove($event)"
-            (pointerup)="onPointerUp()"
-            (pointerleave)="onPointerUp()"
+            (pointerup)="onPointerUp($event)"
+            (pointerleave)="onPointerUp($event)"
             (wheel)="onWheel($event)"
           >
             <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
@@ -248,7 +248,8 @@ export class FloorMapPage {
 
   readonly panning = signal(false);
 
-  private dragging: { key: string; bssids: string[]; x: number; y: number } | null = null;
+  private dragging: { key: string; bssids: string[]; x: number; y: number; startScreen: { x: number; y: number } } | null = null;
+  private static readonly CLICK_THRESHOLD_PX = 4;
   private panStart: { clientX: number; clientY: number; zoom: { scale: number; x: number; y: number } } | null = null;
   private svgEl: SVGSVGElement | null = null;
 
@@ -367,7 +368,7 @@ export class FloorMapPage {
       this.map.set(m);
       this.piNodes.set(m.pis);
       this.edges.set(m.edges);
-      this.apNodes.set(this.groupAccessPoints(m.access_points, m.edges));
+      this.apNodes.set(this.groupAccessPoints(m.access_points));
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
@@ -375,104 +376,87 @@ export class FloorMapPage {
     }
   }
 
-  /** bssid → resolved ApGroup.key, rebuilt on every `groupAccessPoints` call — lets edge lookups
-   * (apDegree, visibleEdges, untangle) resolve a raw BSSID to its merged box. */
+  /** bssid → ApGroup.key. Lets apDegree/visibleEdges/untangle resolve a raw BSSID to its box. */
   private bssidToKey = new Map<string, string>();
 
-  /** Groups BSSIDs into one physical-AP box purely by connection signature — BSSIDs seeing
-   * the exact same set of Pis at matching signal strength (rounded to 5 dBm buckets) are
-   * almost certainly virtual radios off the same router, regardless of their MAC (not
-   * grouped by MAC prefix — virtual SSIDs aren't guaranteed to be a simple last-octet offset).
-   * Unplaced boxes get staged along the top row so they don't overlap. */
-  private groupAccessPoints(aps: AccessPointOut[], edges: FloorMapEdge[]): ApGroup[] {
-    interface Cluster { bssids: string[]; ssids: string[]; x: number | null; y: number | null; placed: boolean }
-    const clusters = new Map<string, Cluster>();
-    for (const ap of aps) {
-      const key = ap.bssid;
-      const c = clusters.get(key) ?? { bssids: [], ssids: [], x: null, y: null, placed: false };
-      c.bssids.push(ap.bssid);
-      for (const s of ap.ssid ? [...ap.ssids, ap.ssid] : ap.ssids) {
-        if (!c.ssids.includes(s)) c.ssids.push(s);
-      }
-      if (!c.placed && ap.x !== null && ap.y !== null) {
-        c.x = ap.x;
-        c.y = ap.y;
-        c.placed = true;
-      }
-      clusters.set(key, c);
-    }
-
-    // Signature = best RSSI per Pi position seen by any BSSID in the cluster.
-    const clusterKeys = [...clusters.keys()];
-    const SIMILARITY_RSSI_TOLERANCE = 10; // dBm — positions within this count as "same strength"
-    const SIMILARITY_THRESHOLD = 0.7; // fraction of the union of positions that must match
-    const signatureOf = (key: string): Map<string, number> => {
-      const members = new Set(clusters.get(key)!.bssids);
-      const best = new Map<string, number>();
-      for (const e of edges) {
-        if (!members.has(e.bssid)) continue;
-        const prev = best.get(e.position);
-        if (prev === undefined || e.rssi > prev) best.set(e.position, e.rssi);
-      }
-      return best;
-    };
-    const signatures = new Map(clusterKeys.map((k) => [k, signatureOf(k)]));
-
-    // Fuzzy match, not exact: same (or near-identical) set of Pis seeing it, at similar strength.
-    const similar = (a: Map<string, number>, b: Map<string, number>): boolean => {
-      const positions = new Set([...a.keys(), ...b.keys()]);
-      if (positions.size === 0) return false;
-      let matches = 0;
-      for (const p of positions) {
-        const ra = a.get(p);
-        const rb = b.get(p);
-        if (ra !== undefined && rb !== undefined && Math.abs(ra - rb) <= SIMILARITY_RSSI_TOLERANCE) matches++;
-      }
-      return matches > 0 && matches / positions.size >= SIMILARITY_THRESHOLD;
-    };
-
-    const parent = new Map(clusterKeys.map((k) => [k, k]));
-    const find = (k: string): string => {
-      while (parent.get(k) !== k) k = parent.get(k)!;
-      return k;
-    };
-    const union = (a: string, b: string) => {
-      const ra = find(a);
-      const rb = find(b);
-      if (ra !== rb) parent.set(ra, rb);
-    };
-    for (let i = 0; i < clusterKeys.length; i++) {
-      for (let j = i + 1; j < clusterKeys.length; j++) {
-        if (similar(signatures.get(clusterKeys[i])!, signatures.get(clusterKeys[j])!)) {
-          union(clusterKeys[i], clusterKeys[j]);
-        }
-      }
-    }
-
+  /** One box per `group_name` (several BSSIDs manually grouped — see `openApMenu`), or per
+   * BSSID when ungrouped. Unplaced boxes get staged along the top row so they don't overlap. */
+  private groupAccessPoints(aps: AccessPointOut[]): ApGroup[] {
     this.bssidToKey = new Map();
-    const merged = new Map<string, ApGroup>();
-    for (const key of clusterKeys) {
-      const root = find(key);
-      const c = clusters.get(key)!;
-      const g = merged.get(root) ?? { key: root, bssids: [], ssids: [], x: null, y: null, placed: false };
-      g.bssids.push(...c.bssids);
-      for (const s of c.ssids) {
+    const groups = new Map<string, ApGroup>();
+    for (const ap of aps) {
+      const key = ap.group_name ?? ap.bssid;
+      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, placed: false };
+      g.bssids.push(ap.bssid);
+      const ssidsToAdd = ap.ssid ? [...ap.ssids, ap.ssid] : ap.ssids;
+      for (const s of ssidsToAdd) {
         if (!g.ssids.includes(s)) g.ssids.push(s);
       }
-      if (!g.placed && c.placed) {
-        g.x = c.x;
-        g.y = c.y;
+      if (!g.placed && ap.x !== null && ap.y !== null) {
+        g.x = ap.x;
+        g.y = ap.y;
         g.placed = true;
       }
-      merged.set(root, g);
-      for (const b of c.bssids) this.bssidToKey.set(b, root);
+      groups.set(key, g);
+      this.bssidToKey.set(ap.bssid, key);
     }
 
-    const all = [...merged.values()];
+    const all = [...groups.values()];
     const placed = all.filter((g) => g.placed);
     const unplaced = all.filter((g) => !g.placed);
     const staged = unplaced.map((g, i) => ({ ...g, x: 40 + i * 60, y: UNPLACED_ROW_Y }));
     return [...placed, ...staged];
+  }
+
+  /** Click (without dragging) an AP box to assign it to a manual group — "Group to:" with a
+   * "New group…" option and every existing group name listed. BSSIDs sharing a group render
+   * as one box. */
+  private readonly actionSheets = inject(ActionSheetController);
+  private readonly alerts = inject(AlertController);
+
+  async openApMenu(ap: ApGroup): Promise<void> {
+    let groups: string[] = [];
+    try {
+      groups = await firstValueFrom(this.api.listAccessPointGroups());
+    } catch {
+      // non-fatal — menu still works with just "New group…"
+    }
+    const currentlyGrouped = groups.includes(ap.key);
+
+    const buttons: Array<{ text: string; role?: string; handler?: () => void }> = [
+      { text: 'New group…', handler: () => void this.promptNewGroup(ap) },
+      ...groups.filter((g) => g !== ap.key).map((g) => ({ text: g, handler: () => void this.assignGroup(ap, g) })),
+    ];
+    if (currentlyGrouped) {
+      buttons.push({ text: 'Remove from group', role: 'destructive', handler: () => void this.assignGroup(ap, null) });
+    }
+    buttons.push({ text: 'Cancel', role: 'cancel' });
+
+    const sheet = await this.actionSheets.create({ header: `Group "${this.apLabel(ap)}" to:`, buttons });
+    await sheet.present();
+  }
+
+  private async promptNewGroup(ap: ApGroup): Promise<void> {
+    const alert = await this.alerts.create({
+      header: 'New group name',
+      inputs: [{ name: 'name', type: 'text', placeholder: 'e.g. Lobby router' }],
+      buttons: [{ text: 'Cancel', role: 'cancel' }, { text: 'Create', role: 'confirm' }],
+    });
+    await alert.present();
+    const res = await alert.onDidDismiss();
+    const name = (res.data?.values?.name as string | undefined)?.trim();
+    if (res.role === 'confirm' && name) {
+      await this.assignGroup(ap, name);
+    }
+  }
+
+  private async assignGroup(ap: ApGroup, groupName: string | null): Promise<void> {
+    try {
+      await Promise.all(ap.bssids.map((bssid) => firstValueFrom(this.api.setAccessPointGroup(bssid, groupName))));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
   }
 
   async scanWifi(): Promise<void> {
@@ -593,7 +577,7 @@ export class FloorMapPage {
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
-    this.dragging = { key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y };
+    this.dragging = { key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y, startScreen: { x: event.clientX, y: event.clientY } };
   }
 
   /** Pointerdown on empty canvas (not an AP node, which stops propagation) — pan the view. */
@@ -620,12 +604,22 @@ export class FloorMapPage {
     }
   }
 
-  async onPointerUp(): Promise<void> {
+  async onPointerUp(event?: PointerEvent): Promise<void> {
     this.panStart = null;
     this.panning.set(false);
     if (!this.dragging) return;
-    const { bssids, x, y } = this.dragging;
+    const { key, bssids, x, y, startScreen } = this.dragging;
     this.dragging = null;
+
+    const moved = event
+      ? Math.hypot(event.clientX - startScreen.x, event.clientY - startScreen.y)
+      : Infinity;
+    if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
+      const ap = this.apNodes().find((a) => a.key === key) ?? { key, bssids, ssids: [], x: null, y: null, placed: false };
+      await this.openApMenu(ap);
+      return;
+    }
+
     try {
       await Promise.all(bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, x, y))));
       await this.load();

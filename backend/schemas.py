@@ -413,6 +413,7 @@ class AccessPointOut(BaseModel):
     bssid: str
     ssid: str | None
     ssids: list[str]
+    group_name: str | None
     x: float | None
     y: float | None
     updated_at: datetime
@@ -423,6 +424,10 @@ class AccessPointOut(BaseModel):
 class AccessPointPositionUpdate(BaseModel):
     x: float
     y: float
+
+
+class AccessPointGroupUpdate(BaseModel):
+    group_name: str | None = Field(None, max_length=255)
 
 
 class FloorMapPiNode(BaseModel):

@@ -5,7 +5,7 @@ from backend.auth import Actor, require_role
 from backend.database import get_db
 from backend.models import AccessPoint, Pi
 from backend.schemas import (
-    AccessPointOut, AccessPointPositionUpdate, ActionQueued, BleDeviceSeen,
+    AccessPointGroupUpdate, AccessPointOut, AccessPointPositionUpdate, ActionQueued, BleDeviceSeen,
     FloorMapResponse, HealthTriggerRequest,
 )
 from backend.services.floor_map import (
@@ -61,6 +61,24 @@ def place_access_point(bssid: str, body: AccessPointPositionUpdate,
     db.commit()
     db.refresh(ap)
     return AccessPointOut.model_validate(ap)
+
+
+@router.patch("/ap/{bssid}/group", response_model=AccessPointOut)
+def set_access_point_group(bssid: str, body: AccessPointGroupUpdate,
+                            actor: Actor = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    ap = db.get(AccessPoint, bssid.lower())
+    if ap is None:
+        raise HTTPException(status_code=404, detail=f"Access point {bssid} not found")
+    ap.group_name = body.group_name
+    db.commit()
+    db.refresh(ap)
+    return AccessPointOut.model_validate(ap)
+
+
+@router.get("/groups", response_model=list[str], dependencies=[Depends(require_role("viewer"))])
+def list_access_point_groups(db: Session = Depends(get_db)):
+    rows = db.query(AccessPoint.group_name).filter(AccessPoint.group_name.isnot(None)).distinct().all()
+    return sorted({r[0] for r in rows})
 
 
 @router.get("/pi/{position}/ble", response_model=list[BleDeviceSeen], dependencies=[Depends(require_role("viewer"))])

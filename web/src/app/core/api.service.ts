@@ -179,6 +179,14 @@ export class ApiService {
     return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}`, { x, y });
   }
 
+  setAccessPointGroup(bssid: string, groupName: string | null): Observable<AccessPointOut> {
+    return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}/group`, { group_name: groupName });
+  }
+
+  listAccessPointGroups(): Observable<string[]> {
+    return this.http.get<string[]>(`${API}/floor-map/groups`);
+  }
+
   bleDevicesForPi(position: string): Observable<BleDeviceSeen[]> {
     return this.http.get<BleDeviceSeen[]>(`${API}/floor-map/pi/${encodeURIComponent(position)}/ble`);
   }

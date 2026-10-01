@@ -172,6 +172,28 @@ def test_place_unknown_ap_404(client):
     assert res.status_code == 404
 
 
+def test_set_and_list_access_point_group(client, db):
+    db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:30", ssid="Lobby-2.4"))
+    db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:31", ssid="Lobby-5G"))
+    db.commit()
+
+    for bssid in ("aa:bb:cc:dd:ee:30", "aa:bb:cc:dd:ee:31"):
+        res = client.patch(f"{API}/floor-map/ap/{bssid}/group", json={"group_name": "Lobby router"})
+        assert res.status_code == 200
+        assert res.json()["group_name"] == "Lobby router"
+
+    groups = client.get(f"{API}/floor-map/groups").json()
+    assert "Lobby router" in groups
+
+    res = client.patch(f"{API}/floor-map/ap/aa:bb:cc:dd:ee:30/group", json={"group_name": None})
+    assert res.status_code == 200
+    assert res.json()["group_name"] is None
+
+    db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:30", "aa:bb:cc:dd:ee:31"])).delete(
+        synchronize_session=False)
+    db.commit()
+
+
 def test_floor_map_viewer_can_read_but_not_trigger_scan(anon_client, sample_pi, login_as):
     headers = login_as("viewer")
     assert anon_client.get(f"{API}/floor-map", headers=headers).status_code == 200

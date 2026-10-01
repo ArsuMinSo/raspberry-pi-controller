@@ -219,6 +219,7 @@ export interface AccessPointOut {
   bssid: string;
   ssid: string | null;
   ssids: string[];
+  group_name: string | null;
   x: number | null;
   y: number | null;
   updated_at: string;
