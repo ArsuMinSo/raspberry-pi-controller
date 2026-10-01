@@ -59,7 +59,7 @@ import { NetworkSettings, Settings, SSHSettings, SSHTestResult } from '../core/m
                 <div style="display: flex; gap: 8px; margin-top: 16px;">
                   <ion-input label="Test IP" labelPlacement="floating" [(ngModel)]="testIP" name="testIP"
                              [disabled]="savingTest()" style="flex: 1;"></ion-input>
-                  <ion-button (click)="testConnection()" [disabled]="!testIP() || savingTest()" color="secondary">
+                  <ion-button (click)="testConnection()" [disabled]="!testIP || savingTest()" color="secondary">
                     {{ savingTest() ? 'Testing…' : 'Test' }}
                   </ion-button>
                 </div>
@@ -130,7 +130,7 @@ export class SettingsPage implements OnInit {
   readonly saveError = signal<string | null>(null);
   readonly saved = signal(false);
   readonly testResult = signal<SSHTestResult | null>(null);
-  readonly testIP = signal('');
+  testIP = '';
 
   readonly ssh: SSHSettings = { key_path: '', username: '', timeout_s: 0, retry_count: 0, retry_delay_s: 0, parallel_limit: 0 };
   readonly network: NetworkSettings = { subnet: '', probe_ssh: false, probe_timeout_s: 0, probe_username: '', probe_auth: 'key', probe_deploy_key: false };
@@ -189,7 +189,7 @@ export class SettingsPage implements OnInit {
   }
 
   async testConnection(): Promise<void> {
-    const ip = this.testIP().trim();
+    const ip = this.testIP.trim();
     if (!ip) return;
     this.savingTest.set(true);
     this.testResult.set(null);
