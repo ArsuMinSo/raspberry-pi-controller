@@ -1,5 +1,5 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, OnInit, effect, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   IonButton, IonButtons, IonCard, IonCardContent, IonCardHeader, IonCardTitle, IonContent, IonHeader, IonInput,
@@ -136,16 +136,13 @@ export class SettingsPage implements OnInit {
   readonly network: NetworkSettings = { subnet: '', probe_ssh: false, probe_timeout_s: 0, probe_username: '', probe_auth: 'key', probe_deploy_key: false };
   private original: Settings | null = null;
 
-  readonly changed = signal(false);
-
-  constructor() {
-    // Track changes in SSH/network settings
-    effect(() => {
-      if (!this.original) return;
-      const currentSettings: Settings = { ssh: { ...this.ssh }, network: { ...this.network } };
-      const hasChanged = JSON.stringify(this.original) !== JSON.stringify(currentSettings);
-      this.changed.set(hasChanged);
-    });
+  /** Plain method, not a signal+effect — `ssh`/`network` are mutated directly by ngModel,
+   * which an effect() never notices (it only reacts to signals), so this must be recomputed
+   * on every call instead of cached. */
+  changed(): boolean {
+    if (!this.original) return false;
+    const current: Settings = { ssh: { ...this.ssh }, network: { ...this.network } };
+    return JSON.stringify(this.original) !== JSON.stringify(current);
   }
 
   ngOnInit(): void {
@@ -178,7 +175,6 @@ export class SettingsPage implements OnInit {
       };
       const result = await firstValueFrom(this.api.patchSettings(patch));
       this.original = JSON.parse(JSON.stringify(result));
-      this.changed.set(false);
       this.saved.set(true);
       await (await this.toast.create({ message: 'Settings saved', duration: 2000, color: 'success' })).present();
     } catch (err) {
