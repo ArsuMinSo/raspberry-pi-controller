@@ -55,6 +55,11 @@ EXPECTED_ROLES = {
     ("PATCH", "/tasks/{task_id}"): "admin",
     ("DELETE", "/tasks/{task_id}"): "admin",
     ("GET", "/health"): None,
+    ("POST", "/floor-map/wifi-scan"): "operator",
+    ("POST", "/floor-map/ble-scan"): "operator",
+    ("GET", "/floor-map"): "viewer",
+    ("PATCH", "/floor-map/ap/{bssid}"): "operator",
+    ("GET", "/floor-map/pi/{position}/ble"): "viewer",
 }
 
 
