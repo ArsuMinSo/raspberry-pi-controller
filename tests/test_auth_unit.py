@@ -63,6 +63,8 @@ EXPECTED_ROLES = {
     ("GET", "/floor-map/groups"): "viewer",
     ("PATCH", "/floor-map/pi/{position}/pin"): "operator",
     ("GET", "/floor-map/pi/{position}/ble"): "viewer",
+    ("DELETE", "/floor-map/links"): "operator",
+    ("PATCH", "/floor-map/settings"): "viewer",
 }
 
 
