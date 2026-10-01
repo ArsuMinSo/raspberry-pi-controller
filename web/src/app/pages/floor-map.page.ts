@@ -268,6 +268,8 @@ export class FloorMapPage {
   private svgEl: SVGSVGElement | null = null;
 
   constructor() {
+    this.apFilterInput = localStorage.getItem(FloorMapPage.AP_FILTER_STORAGE_KEY) ?? '';
+    this.applyApFilter();
     this.load();
     document.addEventListener('fullscreenchange', () => {
       this.fullscreen.set(document.fullscreenElement === this.mapWrap()?.nativeElement);
@@ -495,14 +497,18 @@ export class FloorMapPage {
     }
   }
 
+  private static readonly AP_FILTER_STORAGE_KEY = 'floorMap.apFilter';
+
   applyApFilter(): void {
     const terms = this.apFilterInput.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
     this.apFilterTerms.set(terms);
+    localStorage.setItem(FloorMapPage.AP_FILTER_STORAGE_KEY, this.apFilterInput);
   }
 
   clearApFilter(): void {
     this.apFilterInput = '';
     this.apFilterTerms.set([]);
+    localStorage.removeItem(FloorMapPage.AP_FILTER_STORAGE_KEY);
   }
 
   /** APs matching the SSID filter (any SSID in the box contains any filter term), or all of
