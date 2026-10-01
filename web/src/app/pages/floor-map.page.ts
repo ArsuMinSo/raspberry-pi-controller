@@ -17,6 +17,24 @@ const UNPLACED_ROW_Y = 40;
 const RSSI_STRONG = -30;
 const RSSI_WEAK = -90;
 
+/** A multi-SSID router broadcasts one BSSID per SSID, differing only in the last octet
+ * (locally-administered virtual radios off one physical base MAC). Grouping by the first
+ * 5 octets treats those as a single box instead of one per SSID. */
+function apGroupKey(bssid: string): string {
+  return bssid.slice(0, 14);
+}
+
+/** One physical AP box — may represent several BSSIDs (one per SSID) grouped by `apGroupKey`. */
+interface ApGroup {
+  key: string;
+  bssids: string[];
+  ssids: string[];
+  x: number | null;
+  y: number | null;
+  /** False once staged with synthetic x/y for the staging row — x/y are non-null either way. */
+  placed: boolean;
+}
+
 @Component({
   selector: 'app-floor-map',
   template: `
@@ -42,9 +60,10 @@ const RSSI_WEAK = -90;
 
       @if (map(); as m) {
         <p class="hint">
-          Drag an access point to place/reposition it. Unplaced APs (seen in a scan, never placed) sit in the
-          staging row at the top. Pi position is estimated from the latest WiFi scan and isn't draggable.
-          Line thickness/brightness = signal strength; node size = number of connections.
+          Drag an access point to place/reposition it (one box may cover several SSIDs broadcast by the same
+          router). Unplaced APs (seen in a scan, never placed) sit in the staging row at the top. Pi position is
+          estimated from the latest WiFi scan and isn't draggable. Scroll to zoom. Line thickness/brightness =
+          signal strength; node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -57,22 +76,29 @@ const RSSI_WEAK = -90;
           <ion-button fill="outline" size="small" (click)="toggleFullscreen()">
             <ion-icon slot="icon-only" [name]="fullscreen() ? 'contract-outline' : 'expand-outline'"></ion-icon>
           </ion-button>
+          <ion-button fill="outline" size="small" (click)="resetZoom()" [disabled]="zoom().scale === 1 && zoom().x === 0 && zoom().y === 0">
+            Reset zoom
+          </ion-button>
+          <ion-button fill="outline" size="small" (click)="untangle()" [disabled]="untangling()">
+            {{ untangling() ? 'Untangling…' : 'Automatic untangle' }}
+          </ion-button>
         </div>
 
         <div class="map-wrap" #mapWrap [class.fullscreen]="fullscreen()">
           <svg
-            [attr.viewBox]="'0 0 ' + viewW + ' ' + viewH"
+            [attr.viewBox]="viewBoxStr()"
             class="map-canvas"
             preserveAspectRatio="xMidYMid meet"
             (pointermove)="onPointerMove($event)"
             (pointerup)="onPointerUp()"
             (pointerleave)="onPointerUp()"
+            (wheel)="onWheel($event)"
           >
             <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
                   class="staging-divider" />
 
             @if (showConnections()) {
-              @for (e of visibleEdges(); track e.position + e.bssid) {
+              @for (e of visibleEdges(); track e.position + e.groupKey) {
                 <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
                       class="edge" [attr.stroke-width]="e.width" [style.opacity]="e.opacity" />
               }
@@ -90,13 +116,13 @@ const RSSI_WEAK = -90;
             }
 
             @if (showAps()) {
-              @for (ap of apNodes(); track ap.bssid) {
+              @for (ap of apNodes(); track ap.key) {
                 <g [attr.transform]="'translate(' + dragPos(ap) + ')'"
-                   class="ap-node" [class.ap-unplaced]="ap.x === null"
+                   class="ap-node" [class.ap-unplaced]="!ap.placed"
                    (pointerdown)="onPointerDown($event, ap)">
                   <title>{{ apTitle(ap) }}</title>
-                  <circle [attr.r]="nodeRadius(apDegree(ap.bssid))" />
-                  <text [attr.y]="-(nodeRadius(apDegree(ap.bssid)) + 6)" text-anchor="middle">{{ apLabel(ap) }}</text>
+                  <circle [attr.r]="nodeRadius(apDegree(ap.key))" />
+                  <text [attr.y]="-(nodeRadius(apDegree(ap.key)) + 6)" text-anchor="middle">{{ apLabel(ap) }}</text>
                 </g>
               }
             }
@@ -105,6 +131,10 @@ const RSSI_WEAK = -90;
 
         @if (unplacedCount() > 0) {
           <p class="hint">{{ unplacedCount() }} access point(s) not yet placed — drag from the staging row above.</p>
+        }
+        @if (hiddenPiCount() > 0) {
+          <p class="hint">{{ hiddenPiCount() }} Pi(s) not shown — no <em>placed</em> AP seen in their latest WiFi
+          scan. Place at least one AP they can see, then re-scan.</p>
         }
       }
     </ion-content>
@@ -187,7 +217,7 @@ export class FloorMapPage {
   readonly statusMsg = signal('');
 
   readonly piNodes = signal<FloorMapPiNode[]>([]);
-  readonly apNodes = signal<AccessPointOut[]>([]);
+  readonly apNodes = signal<ApGroup[]>([]);
   readonly edges = signal<FloorMapEdge[]>([]);
   readonly unplacedCount = signal(0);
 
@@ -195,9 +225,14 @@ export class FloorMapPage {
   readonly showAps = signal(true);
   readonly showPis = signal(true);
   readonly fullscreen = signal(false);
+  readonly untangling = signal(false);
+  /** x/y = viewBox min-corner, scale = zoom factor (viewBox width/height shrink as scale grows). */
+  readonly zoom = signal({ scale: 1, x: 0, y: 0 });
   private readonly mapWrap = viewChild<ElementRef<HTMLDivElement>>('mapWrap');
 
-  private dragging: { bssid: string; x: number; y: number } | null = null;
+  readonly hiddenPiCount = () => this.piNodes().filter((p) => p.x === null || p.y === null).length;
+
+  private dragging: { key: string; bssids: string[]; x: number; y: number } | null = null;
   private svgEl: SVGSVGElement | null = null;
 
   constructor() {
@@ -205,6 +240,95 @@ export class FloorMapPage {
     document.addEventListener('fullscreenchange', () => {
       this.fullscreen.set(document.fullscreenElement === this.mapWrap()?.nativeElement);
     });
+  }
+
+  viewBoxStr(): string {
+    const z = this.zoom();
+    return `${z.x} ${z.y} ${VIEW_W / z.scale} ${VIEW_H / z.scale}`;
+  }
+
+  resetZoom(): void {
+    this.zoom.set({ scale: 1, x: 0, y: 0 });
+  }
+
+  /** Zoom in/out around the cursor, keeping the point under it fixed on screen. */
+  onWheel(event: WheelEvent): void {
+    event.preventDefault();
+    this.svgEl = event.currentTarget as SVGSVGElement;
+    const cursor = this.toViewBox(event);
+    if (!cursor) return;
+    const z = this.zoom();
+    const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
+    const newScale = Math.min(Math.max(z.scale * factor, 0.5), 8);
+    const sizeOldX = VIEW_W / z.scale;
+    const sizeOldY = VIEW_H / z.scale;
+    const fracX = (cursor.x - z.x) / sizeOldX;
+    const fracY = (cursor.y - z.y) / sizeOldY;
+    const sizeNewX = VIEW_W / newScale;
+    const sizeNewY = VIEW_H / newScale;
+    this.zoom.set({ scale: newScale, x: cursor.x - fracX * sizeNewX, y: cursor.y - fracY * sizeNewY });
+  }
+
+  /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
+   * AP boxes repel each other (declutter overlap) and are pulled toward the Pis that see them,
+   * weighted by signal strength. Result is saved per-BSSID via the normal placement endpoint
+   * (every BSSID in a box moves together). */
+  async untangle(): Promise<void> {
+    const pis = this.piNodes().filter((p) => p.x !== null && p.y !== null) as Array<FloorMapPiNode & { x: number; y: number }>;
+    const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
+    for (const e of this.edges()) {
+      const pi = pis.find((p) => p.position === e.position);
+      if (!pi) continue;
+      const key = apGroupKey(e.bssid);
+      const arr = edgesByKey.get(key) ?? [];
+      arr.push({ x: pi.x, y: pi.y, weight: this.rssiStrength(e.rssi) });
+      edgesByKey.set(key, arr);
+    }
+
+    let groups = this.apNodes().map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
+    if (groups.length === 0) return;
+
+    this.untangling.set(true);
+    const REPULSION = 9000;
+    const ATTRACTION = 0.02;
+    const MARGIN = 30;
+    const MIN_Y = UNPLACED_ROW_Y + 40;
+    for (let iter = 0; iter < 250; iter++) {
+      const forces = groups.map(() => ({ fx: 0, fy: 0 }));
+      for (let i = 0; i < groups.length; i++) {
+        for (let j = i + 1; j < groups.length; j++) {
+          const dx = groups[i].x - groups[j].x;
+          const dy = groups[i].y - groups[j].y;
+          const distSq = Math.max(dx * dx + dy * dy, 1);
+          const dist = Math.sqrt(distSq);
+          const f = REPULSION / distSq;
+          const fx = (dx / dist) * f;
+          const fy = (dy / dist) * f;
+          forces[i].fx += fx; forces[i].fy += fy;
+          forces[j].fx -= fx; forces[j].fy -= fy;
+        }
+        for (const edge of edgesByKey.get(groups[i].key) ?? []) {
+          forces[i].fx += (edge.x - groups[i].x) * ATTRACTION * edge.weight;
+          forces[i].fy += (edge.y - groups[i].y) * ATTRACTION * edge.weight;
+        }
+      }
+      groups = groups.map((g, i) => ({
+        key: g.key,
+        bssids: g.bssids,
+        x: Math.min(Math.max(g.x + forces[i].fx, MARGIN), VIEW_W - MARGIN),
+        y: Math.min(Math.max(g.y + forces[i].fy, MIN_Y), VIEW_H - MARGIN),
+      }));
+    }
+
+    try {
+      const writes = groups.flatMap((g) => g.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, g.x, g.y))));
+      await Promise.all(writes);
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    } finally {
+      this.untangling.set(false);
+    }
   }
 
   async toggleFullscreen(): Promise<void> {
@@ -224,18 +348,41 @@ export class FloorMapPage {
       const m = await firstValueFrom(this.api.floorMap());
       this.map.set(m);
       this.piNodes.set(m.pis);
-      const unplaced = m.access_points.filter((a) => a.x === null || a.y === null);
-      const placed = m.access_points.filter((a) => a.x !== null && a.y !== null);
-      // Lay unplaced APs out along the staging row so they don't overlap
-      const staged = unplaced.map((a, i) => ({ ...a, x: 40 + i * 60, y: UNPLACED_ROW_Y }));
-      this.apNodes.set([...placed, ...staged]);
-      this.unplacedCount.set(unplaced.length);
+      this.apNodes.set(this.groupAccessPoints(m.access_points));
+      this.unplacedCount.set(this.apNodes().filter((g) => !g.placed).length);
       this.edges.set(m.edges);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
       this.loading.set(false);
     }
+  }
+
+  /** Groups BSSIDs that are virtual radios of one physical AP (see `apGroupKey`) into one box,
+   * union-ing their SSIDs and taking the first placed coordinate found in the group as its
+   * position. Unplaced groups get staged along the top row so they don't overlap. */
+  private groupAccessPoints(aps: AccessPointOut[]): ApGroup[] {
+    const groups = new Map<string, ApGroup>();
+    for (const ap of aps) {
+      const key = apGroupKey(ap.bssid);
+      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, placed: false };
+      g.bssids.push(ap.bssid);
+      for (const s of ap.ssid ? [...ap.ssids, ap.ssid] : ap.ssids) {
+        if (!g.ssids.includes(s)) g.ssids.push(s);
+      }
+      if (!g.placed && ap.x !== null && ap.y !== null) {
+        g.x = ap.x;
+        g.y = ap.y;
+        g.placed = true;
+      }
+      groups.set(key, g);
+    }
+
+    const all = [...groups.values()];
+    const placed = all.filter((g) => g.placed);
+    const unplaced = all.filter((g) => !g.placed);
+    const staged = unplaced.map((g, i) => ({ ...g, x: 40 + i * 60, y: UNPLACED_ROW_Y }));
+    return [...placed, ...staged];
   }
 
   async scanWifi(): Promise<void> {
@@ -259,8 +406,8 @@ export class FloorMapPage {
     }
   }
 
-  dragPos(ap: AccessPointOut): string {
-    if (this.dragging && this.dragging.bssid === ap.bssid) {
+  dragPos(ap: ApGroup): string {
+    if (this.dragging && this.dragging.key === ap.key) {
       return `${this.dragging.x},${this.dragging.y}`;
     }
     return `${ap.x},${ap.y}`;
@@ -271,38 +418,43 @@ export class FloorMapPage {
     return Math.min(6 + degree * 1.5, 16);
   }
 
-  /** Primary name + "(+N more)" when the BSSID has broadcast more than one SSID across scans. */
-  apLabel(ap: AccessPointOut): string {
-    const name = ap.ssid || ap.bssid;
-    const extra = ap.ssids.length - (ap.ssid ? 1 : 0);
+  /** Primary SSID + "(+N more)" when the box groups more than one SSID (own BSSID, or other
+   * BSSIDs grouped into the same physical AP). */
+  apLabel(ap: ApGroup): string {
+    const name = ap.ssids[0] || ap.bssids[0];
+    const extra = ap.ssids.length - (ap.ssids[0] ? 1 : 0);
     return extra > 0 ? `${name} (+${extra})` : name;
   }
 
-  apTitle(ap: AccessPointOut): string {
-    return ap.ssids.length > 0 ? ap.ssids.join(', ') : ap.bssid;
+  apTitle(ap: ApGroup): string {
+    return ap.ssids.length > 0 ? ap.ssids.join(', ') : ap.bssids.join(', ');
   }
 
   piDegree(position: string): number {
     return this.edges().filter((e) => e.position === position).length;
   }
 
-  apDegree(bssid: string): number {
-    return this.edges().filter((e) => e.bssid === bssid).length;
+  apDegree(key: string): number {
+    return this.edges().filter((e) => apGroupKey(e.bssid) === key).length;
   }
 
   /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity). */
-  visibleEdges(): Array<FloorMapEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
+  visibleEdges(): Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
     const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
-    const apByBssid = new Map(this.apNodes().map((a) => [a.bssid, a]));
-    const out: Array<FloorMapEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    const apByKey = new Map(this.apNodes().map((a) => [a.key, a]));
+    const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const e of this.edges()) {
       const pi = piByPosition.get(e.position);
-      const ap = apByBssid.get(e.bssid);
+      const groupKey = apGroupKey(e.bssid);
+      const ap = apByKey.get(groupKey);
       if (!pi || pi.x === null || pi.y === null || !ap) continue;
       const [ax, ay] = this.dragPos(ap).split(',').map(Number);
-      if (ax === null || ay === null || Number.isNaN(ax) || Number.isNaN(ay)) continue;
+      if (Number.isNaN(ax) || Number.isNaN(ay)) continue;
       const strength = this.rssiStrength(e.rssi);
-      out.push({ ...e, x1: pi.x, y1: pi.y, x2: ax, y2: ay, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
+      out.push({
+        position: e.position, groupKey, x1: pi.x, y1: pi.y, x2: ax, y2: ay,
+        width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
+      });
     }
     return out;
   }
@@ -312,11 +464,11 @@ export class FloorMapPage {
     return (clamped - RSSI_WEAK) / (RSSI_STRONG - RSSI_WEAK);
   }
 
-  onPointerDown(event: PointerEvent, ap: AccessPointOut): void {
+  onPointerDown(event: PointerEvent, ap: ApGroup): void {
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
-    this.dragging = { bssid: ap.bssid, x: pt.x, y: pt.y };
+    this.dragging = { key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y };
   }
 
   onPointerMove(event: PointerEvent): void {
@@ -328,21 +480,27 @@ export class FloorMapPage {
 
   async onPointerUp(): Promise<void> {
     if (!this.dragging) return;
-    const { bssid, x, y } = this.dragging;
+    const { bssids, x, y } = this.dragging;
     this.dragging = null;
     try {
-      await firstValueFrom(this.api.placeAccessPoint(bssid, x, y));
+      await Promise.all(bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, x, y))));
       await this.load();
     } catch (e) {
       this.error.set(errorMessage(e));
     }
   }
 
-  private toViewBox(event: PointerEvent): { x: number; y: number } | null {
+  /** Screen → SVG user-space via the CTM, so dragging tracks correctly regardless of
+   * letterboxing from preserveAspectRatio (plain bounding-box math drifts off when the
+   * container's aspect ratio doesn't exactly match the 1000x700 viewBox). */
+  private toViewBox(event: { clientX: number; clientY: number }): { x: number; y: number } | null {
     if (!this.svgEl) return null;
-    const rect = this.svgEl.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * VIEW_W;
-    const y = ((event.clientY - rect.top) / rect.height) * VIEW_H;
-    return { x: Math.round(x), y: Math.round(y) };
+    const ctm = this.svgEl.getScreenCTM();
+    if (!ctm) return null;
+    const pt = this.svgEl.createSVGPoint();
+    pt.x = event.clientX;
+    pt.y = event.clientY;
+    const p = pt.matrixTransform(ctm.inverse());
+    return { x: Math.round(p.x), y: Math.round(p.y) };
   }
 }
