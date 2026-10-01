@@ -347,14 +347,15 @@ export class FloorMapPage implements OnDestroy {
     ];
     for (const n of nodes) this.ensureSimPos(n.id, n.pinnedX, n.pinnedY);
 
-    interface Spring { a: string; b: string; weight: number }
+    interface Spring { a: string; b: string; weight: number; kMult: number }
+    const BLE_SPRING_MULT = 2.5; // BLE (Pi<->Pi) sightings pull harder than WiFi (Pi<->AP) edges
     const springs: Spring[] = [];
     for (const e of this.edges()) {
       const apKey = this.bssidToKey.get(e.bssid);
-      if (apKey) springs.push({ a: `pi:${e.position}`, b: `ap:${apKey}`, weight: this.rssiStrength(e.rssi) });
+      if (apKey) springs.push({ a: `pi:${e.position}`, b: `ap:${apKey}`, weight: this.rssiStrength(e.rssi), kMult: 1 });
     }
     for (const e of this.bleEdges()) {
-      springs.push({ a: `pi:${e.position_a}`, b: `pi:${e.position_b}`, weight: this.rssiStrength(e.rssi) });
+      springs.push({ a: `pi:${e.position_a}`, b: `pi:${e.position_b}`, weight: this.rssiStrength(e.rssi), kMult: BLE_SPRING_MULT });
     }
 
     const REPULSION = 15000;
@@ -362,24 +363,60 @@ export class FloorMapPage implements OnDestroy {
     const SPRING_LEN = 120;
     const DAMPING = 0.82;
     const CENTER_PULL = 0.0008;
+    const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
+    const AP_AP_SHARED_PI_MULT = 0.45; // ...unless they both serve the same Pi — let those sit closer
+    const PI_AP_ATTRACT = 0.012; // gentle pull drawing every Pi toward every AP, even without a direct edge
+
+    // Two APs "share a Pi" if some Pi has a WiFi edge to both — softens their mutual repulsion.
+    const apsByPi = new Map<string, Set<string>>();
+    for (const s of springs) {
+      if (s.a.startsWith('pi:') && s.b.startsWith('ap:')) {
+        if (!apsByPi.has(s.a)) apsByPi.set(s.a, new Set());
+        apsByPi.get(s.a)!.add(s.b);
+      }
+    }
+    const sharedApPairs = new Set<string>();
+    for (const aps of apsByPi.values()) {
+      const list = [...aps];
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          sharedApPairs.add(`${list[i]}|${list[j]}`);
+          sharedApPairs.add(`${list[j]}|${list[i]}`);
+        }
+      }
+    }
 
     const posById = new Map(nodes.map((n) => [n.id, this.simPos.get(n.id)!]));
     const forces = new Map<string, { x: number; y: number }>(nodes.map((n) => [n.id, { x: 0, y: 0 }]));
 
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
-        const a = posById.get(nodes[i].id)!;
-        const b = posById.get(nodes[j].id)!;
+        const idA = nodes[i].id;
+        const idB = nodes[j].id;
+        const a = posById.get(idA)!;
+        const b = posById.get(idB)!;
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         const distSq = Math.max(dx * dx + dy * dy, 25);
         const dist = Math.sqrt(distSq);
-        const f = REPULSION / distSq;
+
+        const aIsAp = idA.startsWith('ap:');
+        const bIsAp = idB.startsWith('ap:');
+        let f: number;
+        if (aIsAp && bIsAp) {
+          const mult = sharedApPairs.has(`${idA}|${idB}`) ? AP_AP_SHARED_PI_MULT : AP_AP_DRIFT_MULT;
+          f = (REPULSION * mult) / distSq;
+        } else if (aIsAp !== bIsAp) {
+          f = REPULSION / distSq - Math.min(PI_AP_ATTRACT * dist, 40);
+        } else {
+          f = REPULSION / distSq;
+        }
+
         const fx = (dx / dist) * f;
         const fy = (dy / dist) * f;
-        const fa = forces.get(nodes[i].id)!;
+        const fa = forces.get(idA)!;
         fa.x += fx; fa.y += fy;
-        const fb = forces.get(nodes[j].id)!;
+        const fb = forces.get(idB)!;
         fb.x -= fx; fb.y -= fy;
       }
     }
@@ -392,7 +429,7 @@ export class FloorMapPage implements OnDestroy {
       const dy = b.y - a.y;
       const dist = Math.max(Math.hypot(dx, dy), 1);
       const restLen = SPRING_LEN / Math.max(s.weight, 0.1);
-      const k = SPRING_K * (0.3 + s.weight);
+      const k = SPRING_K * (0.3 + s.weight) * s.kMult;
       const stretch = dist - restLen;
       const fx = (dx / dist) * stretch * k;
       const fy = (dy / dist) * stretch * k;
