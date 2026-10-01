@@ -358,7 +358,7 @@ export class FloorMapPage implements OnDestroy {
       springs.push({ a: `pi:${e.position_a}`, b: `pi:${e.position_b}`, weight: this.rssiStrength(e.rssi), kMult: BLE_SPRING_MULT });
     }
 
-    const REPULSION = 24000;
+    const REPULSION = 400;
     const SPRING_K = 0.02;
     const SPRING_LEN = 120;
     const DAMPING = 0.82;
