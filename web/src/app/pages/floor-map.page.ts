@@ -1,6 +1,8 @@
 import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import {
-  IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar,
+  IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonMenuButton, IonSpinner, IonText, IonTitle,
+  IonToolbar,
 } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
 
@@ -75,6 +77,12 @@ interface ApGroup {
           <ion-button fill="outline" size="small" (click)="untangle()" [disabled]="untangling()">
             {{ untangling() ? 'Untangling…' : 'Automatic untangle' }}
           </ion-button>
+          <ion-input class="ssid-filter" fill="outline" placeholder="wifi1, wifi2, ..."
+                     [(ngModel)]="apFilterInput" (keyup.enter)="applyApFilter()"></ion-input>
+          <ion-button fill="outline" size="small" (click)="applyApFilter()">Filter</ion-button>
+          @if (apFilterTerms().length > 0) {
+            <ion-button fill="clear" size="small" (click)="clearApFilter()">Clear filter</ion-button>
+          }
         </div>
 
         <div class="map-wrap" #mapWrap [class.fullscreen]="fullscreen()">
@@ -95,7 +103,7 @@ interface ApGroup {
             @if (showConnections()) {
               @for (e of visibleEdges(); track e.position + e.groupKey) {
                 <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
-                      class="edge" [attr.stroke-width]="e.width" [style.opacity]="e.opacity" />
+                      class="edge" [attr.stroke-width]="e.width / zoom().scale" [style.opacity]="e.opacity" />
               }
             }
 
@@ -112,7 +120,7 @@ interface ApGroup {
             }
 
             @if (showAps()) {
-              @for (ap of apNodes(); track ap.key) {
+              @for (ap of visibleApNodes(); track ap.key) {
                 <g [attr.transform]="'translate(' + dragPos(ap) + ')'"
                    class="ap-node" [class.ap-unplaced]="!ap.placed"
                    (pointerdown)="onPointerDown($event, ap)">
@@ -141,7 +149,8 @@ interface ApGroup {
 
     .graph-bg { --background: #1b1b1f; }
 
-    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 10px; }
+    .ssid-filter { max-width: 220px; }
 
     .map-wrap {
       width: 100%;
@@ -200,7 +209,10 @@ interface ApGroup {
       .pi-node text, .ap-node text { font-size: 13px; }
     }
   `],
-  imports: [IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar],
+  imports: [
+    FormsModule, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonMenuButton, IonSpinner, IonText,
+    IonTitle, IonToolbar,
+  ],
 })
 export class FloorMapPage {
   private readonly api = inject(ApiService);
@@ -218,7 +230,10 @@ export class FloorMapPage {
   readonly piNodes = signal<FloorMapPiNode[]>([]);
   readonly apNodes = signal<ApGroup[]>([]);
   readonly edges = signal<FloorMapEdge[]>([]);
-  readonly unplacedCount = signal(0);
+
+  /** Comma-separated SSID text filter — applied on button click, not live-as-you-type. */
+  apFilterInput = '';
+  readonly apFilterTerms = signal<string[]>([]);
 
   readonly showConnections = signal(true);
   readonly showAps = signal(true);
@@ -353,7 +368,6 @@ export class FloorMapPage {
       this.piNodes.set(m.pis);
       this.edges.set(m.edges);
       this.apNodes.set(this.groupAccessPoints(m.access_points, m.edges));
-      this.unplacedCount.set(this.apNodes().filter((g) => !g.placed).length);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
@@ -388,21 +402,34 @@ export class FloorMapPage {
       clusters.set(key, c);
     }
 
-    // Signature = sorted "position:roundedRssi" pairs seen by any BSSID in the cluster.
+    // Signature = best RSSI per Pi position seen by any BSSID in the cluster.
     const clusterKeys = [...clusters.keys()];
-    const signatureOf = (key: string): string => {
+    const SIMILARITY_RSSI_TOLERANCE = 10; // dBm — positions within this count as "same strength"
+    const SIMILARITY_THRESHOLD = 0.7; // fraction of the union of positions that must match
+    const signatureOf = (key: string): Map<string, number> => {
       const members = new Set(clusters.get(key)!.bssids);
       const best = new Map<string, number>();
       for (const e of edges) {
         if (!members.has(e.bssid)) continue;
-        const bucket = Math.round(e.rssi / 5) * 5;
         const prev = best.get(e.position);
-        if (prev === undefined || bucket > prev) best.set(e.position, bucket);
+        if (prev === undefined || e.rssi > prev) best.set(e.position, e.rssi);
       }
-      if (best.size === 0) return '';
-      return [...best.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([p, r]) => `${p}:${r}`).join('|');
+      return best;
     };
     const signatures = new Map(clusterKeys.map((k) => [k, signatureOf(k)]));
+
+    // Fuzzy match, not exact: same (or near-identical) set of Pis seeing it, at similar strength.
+    const similar = (a: Map<string, number>, b: Map<string, number>): boolean => {
+      const positions = new Set([...a.keys(), ...b.keys()]);
+      if (positions.size === 0) return false;
+      let matches = 0;
+      for (const p of positions) {
+        const ra = a.get(p);
+        const rb = b.get(p);
+        if (ra !== undefined && rb !== undefined && Math.abs(ra - rb) <= SIMILARITY_RSSI_TOLERANCE) matches++;
+      }
+      return matches > 0 && matches / positions.size >= SIMILARITY_THRESHOLD;
+    };
 
     const parent = new Map(clusterKeys.map((k) => [k, k]));
     const find = (k: string): string => {
@@ -415,10 +442,10 @@ export class FloorMapPage {
       if (ra !== rb) parent.set(ra, rb);
     };
     for (let i = 0; i < clusterKeys.length; i++) {
-      const sigI = signatures.get(clusterKeys[i])!;
-      if (!sigI) continue;
       for (let j = i + 1; j < clusterKeys.length; j++) {
-        if (sigI === signatures.get(clusterKeys[j])) union(clusterKeys[i], clusterKeys[j]);
+        if (similar(signatures.get(clusterKeys[i])!, signatures.get(clusterKeys[j])!)) {
+          union(clusterKeys[i], clusterKeys[j]);
+        }
       }
     }
 
@@ -469,6 +496,30 @@ export class FloorMapPage {
     }
   }
 
+  applyApFilter(): void {
+    const terms = this.apFilterInput.split(',').map((t) => t.trim().toLowerCase()).filter(Boolean);
+    this.apFilterTerms.set(terms);
+  }
+
+  clearApFilter(): void {
+    this.apFilterInput = '';
+    this.apFilterTerms.set([]);
+  }
+
+  /** APs matching the SSID filter (any SSID in the box contains any filter term), or all of
+   * them when no filter is applied. Everything else (counts, degree, edges) is derived from
+   * this instead of `apNodes()` so a filtered-out box is excluded everywhere, not just hidden
+   * visually. */
+  visibleApNodes(): ApGroup[] {
+    const terms = this.apFilterTerms();
+    if (terms.length === 0) return this.apNodes();
+    return this.apNodes().filter((g) => g.ssids.some((s) => terms.some((t) => s.toLowerCase().includes(t))));
+  }
+
+  unplacedCount(): number {
+    return this.visibleApNodes().filter((g) => !g.placed).length;
+  }
+
   dragPos(ap: ApGroup): string {
     if (this.dragging && this.dragging.key === ap.key) {
       return `${this.dragging.x},${this.dragging.y}`;
@@ -501,17 +552,19 @@ export class FloorMapPage {
   }
 
   piDegree(position: string): number {
-    return this.edges().filter((e) => e.position === position).length;
+    const visibleKeys = new Set(this.visibleApNodes().map((a) => a.key));
+    return this.edges().filter((e) => e.position === position && visibleKeys.has(this.bssidToKey.get(e.bssid) ?? '')).length;
   }
 
   apDegree(key: string): number {
     return this.edges().filter((e) => this.bssidToKey.get(e.bssid) === key).length;
   }
 
-  /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity). */
+  /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity).
+   * Only to APs that survive the SSID filter — a filtered-out box's connections disappear too. */
   visibleEdges(): Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
     const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
-    const apByKey = new Map(this.apNodes().map((a) => [a.key, a]));
+    const apByKey = new Map(this.visibleApNodes().map((a) => [a.key, a]));
     const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const e of this.edges()) {
       const pi = piByPosition.get(e.position);
