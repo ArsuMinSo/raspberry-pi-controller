@@ -17,14 +17,7 @@ const UNPLACED_ROW_Y = 40;
 const RSSI_STRONG = -30;
 const RSSI_WEAK = -90;
 
-/** A multi-SSID router broadcasts one BSSID per SSID, differing only in the last octet
- * (locally-administered virtual radios off one physical base MAC). Grouping by the first
- * 5 octets treats those as a single box instead of one per SSID. */
-function apGroupKey(bssid: string): string {
-  return bssid.slice(0, 14);
-}
-
-/** One physical AP box — may represent several BSSIDs (one per SSID) grouped by `apGroupKey`. */
+/** One physical AP box — may represent several BSSIDs (one per SSID) grouped by connection signature. */
 interface ApGroup {
   key: string;
   bssids: string[];
@@ -288,7 +281,8 @@ export class FloorMapPage {
     for (const e of this.edges()) {
       const pi = pis.find((p) => p.position === e.position);
       if (!pi) continue;
-      const key = apGroupKey(e.bssid);
+      const key = this.bssidToKey.get(e.bssid);
+      if (!key) continue;
       const arr = edgesByKey.get(key) ?? [];
       arr.push({ x: pi.x, y: pi.y, weight: this.rssiStrength(e.rssi) });
       edgesByKey.set(key, arr);
@@ -357,9 +351,9 @@ export class FloorMapPage {
       const m = await firstValueFrom(this.api.floorMap());
       this.map.set(m);
       this.piNodes.set(m.pis);
-      this.apNodes.set(this.groupAccessPoints(m.access_points));
-      this.unplacedCount.set(this.apNodes().filter((g) => !g.placed).length);
       this.edges.set(m.edges);
+      this.apNodes.set(this.groupAccessPoints(m.access_points, m.edges));
+      this.unplacedCount.set(this.apNodes().filter((g) => !g.placed).length);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
@@ -367,27 +361,87 @@ export class FloorMapPage {
     }
   }
 
-  /** Groups BSSIDs that are virtual radios of one physical AP (see `apGroupKey`) into one box,
-   * union-ing their SSIDs and taking the first placed coordinate found in the group as its
-   * position. Unplaced groups get staged along the top row so they don't overlap. */
-  private groupAccessPoints(aps: AccessPointOut[]): ApGroup[] {
-    const groups = new Map<string, ApGroup>();
+  /** bssid → resolved ApGroup.key, rebuilt on every `groupAccessPoints` call — lets edge lookups
+   * (apDegree, visibleEdges, untangle) resolve a raw BSSID to its merged box. */
+  private bssidToKey = new Map<string, string>();
+
+  /** Groups BSSIDs into one physical-AP box purely by connection signature — BSSIDs seeing
+   * the exact same set of Pis at matching signal strength (rounded to 5 dBm buckets) are
+   * almost certainly virtual radios off the same router, regardless of their MAC (not
+   * grouped by MAC prefix — virtual SSIDs aren't guaranteed to be a simple last-octet offset).
+   * Unplaced boxes get staged along the top row so they don't overlap. */
+  private groupAccessPoints(aps: AccessPointOut[], edges: FloorMapEdge[]): ApGroup[] {
+    interface Cluster { bssids: string[]; ssids: string[]; x: number | null; y: number | null; placed: boolean }
+    const clusters = new Map<string, Cluster>();
     for (const ap of aps) {
-      const key = apGroupKey(ap.bssid);
-      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, placed: false };
-      g.bssids.push(ap.bssid);
+      const key = ap.bssid;
+      const c = clusters.get(key) ?? { bssids: [], ssids: [], x: null, y: null, placed: false };
+      c.bssids.push(ap.bssid);
       for (const s of ap.ssid ? [...ap.ssids, ap.ssid] : ap.ssids) {
-        if (!g.ssids.includes(s)) g.ssids.push(s);
+        if (!c.ssids.includes(s)) c.ssids.push(s);
       }
-      if (!g.placed && ap.x !== null && ap.y !== null) {
-        g.x = ap.x;
-        g.y = ap.y;
-        g.placed = true;
+      if (!c.placed && ap.x !== null && ap.y !== null) {
+        c.x = ap.x;
+        c.y = ap.y;
+        c.placed = true;
       }
-      groups.set(key, g);
+      clusters.set(key, c);
     }
 
-    const all = [...groups.values()];
+    // Signature = sorted "position:roundedRssi" pairs seen by any BSSID in the cluster.
+    const clusterKeys = [...clusters.keys()];
+    const signatureOf = (key: string): string => {
+      const members = new Set(clusters.get(key)!.bssids);
+      const best = new Map<string, number>();
+      for (const e of edges) {
+        if (!members.has(e.bssid)) continue;
+        const bucket = Math.round(e.rssi / 5) * 5;
+        const prev = best.get(e.position);
+        if (prev === undefined || bucket > prev) best.set(e.position, bucket);
+      }
+      if (best.size === 0) return '';
+      return [...best.entries()].sort((a, b) => a[0].localeCompare(b[0])).map(([p, r]) => `${p}:${r}`).join('|');
+    };
+    const signatures = new Map(clusterKeys.map((k) => [k, signatureOf(k)]));
+
+    const parent = new Map(clusterKeys.map((k) => [k, k]));
+    const find = (k: string): string => {
+      while (parent.get(k) !== k) k = parent.get(k)!;
+      return k;
+    };
+    const union = (a: string, b: string) => {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    };
+    for (let i = 0; i < clusterKeys.length; i++) {
+      const sigI = signatures.get(clusterKeys[i])!;
+      if (!sigI) continue;
+      for (let j = i + 1; j < clusterKeys.length; j++) {
+        if (sigI === signatures.get(clusterKeys[j])) union(clusterKeys[i], clusterKeys[j]);
+      }
+    }
+
+    this.bssidToKey = new Map();
+    const merged = new Map<string, ApGroup>();
+    for (const key of clusterKeys) {
+      const root = find(key);
+      const c = clusters.get(key)!;
+      const g = merged.get(root) ?? { key: root, bssids: [], ssids: [], x: null, y: null, placed: false };
+      g.bssids.push(...c.bssids);
+      for (const s of c.ssids) {
+        if (!g.ssids.includes(s)) g.ssids.push(s);
+      }
+      if (!g.placed && c.placed) {
+        g.x = c.x;
+        g.y = c.y;
+        g.placed = true;
+      }
+      merged.set(root, g);
+      for (const b of c.bssids) this.bssidToKey.set(b, root);
+    }
+
+    const all = [...merged.values()];
     const placed = all.filter((g) => g.placed);
     const unplaced = all.filter((g) => !g.placed);
     const staged = unplaced.map((g, i) => ({ ...g, x: 40 + i * 60, y: UNPLACED_ROW_Y }));
@@ -451,7 +505,7 @@ export class FloorMapPage {
   }
 
   apDegree(key: string): number {
-    return this.edges().filter((e) => apGroupKey(e.bssid) === key).length;
+    return this.edges().filter((e) => this.bssidToKey.get(e.bssid) === key).length;
   }
 
   /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity). */
@@ -461,7 +515,8 @@ export class FloorMapPage {
     const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const e of this.edges()) {
       const pi = piByPosition.get(e.position);
-      const groupKey = apGroupKey(e.bssid);
+      const groupKey = this.bssidToKey.get(e.bssid);
+      if (!groupKey) continue;
       const ap = apByKey.get(groupKey);
       if (!pi || pi.x === null || pi.y === null || !ap) continue;
       const [ax, ay] = this.dragPos(ap).split(',').map(Number);
