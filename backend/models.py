@@ -20,6 +20,7 @@ class Pi(Base):
     status: MappedColumn[str] = mapped_column(String(20), nullable=False, default="unreachable")
     last_seen = mapped_column(DateTime)
     tags = mapped_column(ARRAY(Text), nullable=False, default=list)
+    ble_mac: MappedColumn[str | None] = mapped_column(String(17))
     cpu_1m = mapped_column(Float)
     cpu_5m = mapped_column(Float)
     cpu_15m = mapped_column(Float)

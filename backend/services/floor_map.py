@@ -1,10 +1,13 @@
 """Floor map: WiFi/BLE scan capture, AP anchor registration, Pi position estimate.
 
 Access points are fixed anchors, placed manually (drag+save x/y from the UI).
-Pi position is *computed* from the latest wifi scan as a signal-weighted
-centroid of visible, placed APs — an approximation, not calibrated
-trilateration (see plan_floor_map.md). BLE scans are informational only
-(ambient devices have no fixed position) and are never used for positioning.
+Pi position is *computed*, primarily from the latest wifi scan as a signal-weighted
+centroid of visible, placed APs — an approximation, not calibrated trilateration
+(see plan_floor_map.md). Ambient BLE devices (bystanders' phones etc.) have no fixed
+position and are never used for positioning. A Pi seeing *another Pi's own Bluetooth
+controller* over BLE is different — that's our own fleet hardware, not a bystander,
+so it's used as a fallback position signal when a Pi has no WiFi-derived position yet
+(see `compute_pi_position_via_ble`), and drawn on the map as a Pi<->Pi edge.
 """
 import json
 import logging
@@ -20,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import SSHSettings, effective_ssh_settings
 from backend.models import AccessPoint, BleScan, Pi, WifiScan
-from backend.schemas import AccessPointOut, BleDeviceSeen, FloorMapEdge, FloorMapPiNode, FloorMapResponse
+from backend.schemas import AccessPointOut, BleDeviceSeen, FloorMapEdge, FloorMapPiNode, FloorMapResponse, PiBleEdge
 from backend.services import audit_log as al
 from backend.services import jobs
 from backend.services.ssh_executor import execute
@@ -38,6 +41,7 @@ _BLUETOOTHCTL_WRAPPER_RE = re.compile(r"\x01\x1b\[[0-9;]*m\x02")
 _BLE_NEW_RE = re.compile(r"\[NEW\] Device ([0-9A-Fa-f:]{17}) (.+)")
 _BLE_RSSI_RE = re.compile(r"\[CHG\] Device ([0-9A-Fa-f:]{17}) RSSI:\s*(-?\d+)")
 _BLE_NAME_RE = re.compile(r"\[CHG\] Device ([0-9A-Fa-f:]{17}) Name:\s*(.+)")
+_BLE_CONTROLLER_RE = re.compile(r"Controller ([0-9A-Fa-f:]{17})")
 
 _WIFI_BSS_RE = re.compile(r"^BSS ([0-9A-Fa-f:]{17})")
 _WIFI_SIGNAL_RE = re.compile(r"^\s*signal:\s*(-?\d+(?:\.\d+)?)\s*dBm")
@@ -111,6 +115,15 @@ def parse_ble_scan(raw: str) -> list[BleReading]:
             r.device_name = m.group(2).strip()
 
     return list(devices.values())
+
+
+def parse_ble_controller_mac(raw: str) -> str | None:
+    """The scanning Pi's own Bluetooth adapter MAC, from `Controller <mac> ...` lines in its
+    own `bluetoothctl` output — used to recognize another Pi seen over BLE as a Pi<->Pi
+    proximity reading rather than an ambient (bystander) device."""
+    clean = _BLUETOOTHCTL_WRAPPER_RE.sub("", raw)
+    m = _BLE_CONTROLLER_RE.search(clean)
+    return m.group(1).lower() if m else None
 
 
 def _upsert_access_points(db: Session, readings: list[WifiReading]) -> None:
@@ -208,6 +221,7 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
     pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
     mac_by_position = {pi.position: pi.mac for pi in pis}
+    pi_by_position = {pi.position: pi for pi in pis}
 
     workers = min(ssh.parallel_limit, max(1, len(targets)))
     errors = 0
@@ -228,6 +242,11 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
                     continue
                 db.add(BleScan(mac=mac, device_mac=r.device_mac, device_name=r.device_name,
                                rssi=r.rssi, timestamp=now))
+
+            controller_mac = parse_ble_controller_mac(result.stdout)
+            if controller_mac and is_valid_mac(controller_mac):
+                pi_by_position[position].ble_mac = controller_mac
+
             al.add_result(db, entry.id, position, details={"devices_seen": len(readings)})
 
     db.commit()
@@ -282,6 +301,69 @@ def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
     return (wx / total_weight, wy / total_weight)
 
 
+def compute_pi_position_via_ble(
+    db: Session, mac: str, ble_mac_to_position: dict[str, str], wifi_positions: dict[str, tuple[float, float]],
+) -> tuple[float, float] | None:
+    """Fallback for a Pi with no WiFi-derived position: weighted centroid of *other* Pis it
+    sees over BLE (by their own controller MAC, not a bystander device), using only peers
+    that already have a WiFi-derived position. Same 1/rssi^2 weighting as `compute_pi_position`.
+    Single pass, no iterative refinement — peers must already be positioned from WiFi."""
+    rows = (
+        db.query(BleScan.device_mac, BleScan.rssi)
+        .filter(BleScan.mac == mac)
+        .order_by(BleScan.timestamp.desc())
+        .all()
+    )
+    if not rows:
+        return None
+
+    latest_rssi: dict[str, int | None] = {}
+    for device_mac, rssi in rows:
+        latest_rssi.setdefault(device_mac, rssi)
+
+    total_weight = 0.0
+    wx = 0.0
+    wy = 0.0
+    for device_mac, rssi in latest_rssi.items():
+        if rssi is None:
+            continue
+        peer_position = ble_mac_to_position.get(device_mac)
+        if peer_position is None:
+            continue
+        peer_xy = wifi_positions.get(peer_position)
+        if peer_xy is None:
+            continue
+        weight = 1.0 / max(rssi ** 2, 1)
+        total_weight += weight
+        wx += weight * peer_xy[0]
+        wy += weight * peer_xy[1]
+
+    if total_weight == 0.0:
+        return None
+    return (wx / total_weight, wy / total_weight)
+
+
+def get_pi_ble_edges(db: Session, ble_mac_to_position: dict[str, str]) -> list[PiBleEdge]:
+    """Latest BLE reading per Pi-pair where the sighted device is another Pi's own
+    controller MAC — a real proximity reading between our own fleet, not a bystander."""
+    rows = (
+        db.query(Pi.position, BleScan.device_mac, BleScan.rssi)
+        .join(BleScan, BleScan.mac == Pi.mac)
+        .order_by(BleScan.timestamp.desc())
+        .all()
+    )
+    latest: dict[tuple[str, str], int] = {}
+    for position, device_mac, rssi in rows:
+        if rssi is None:
+            continue
+        peer_position = ble_mac_to_position.get(device_mac)
+        if peer_position is None or peer_position == position:
+            continue
+        key = tuple(sorted((position, peer_position)))
+        latest.setdefault(key, rssi)
+    return [PiBleEdge(position_a=a, position_b=b, rssi=rssi) for (a, b), rssi in latest.items()]
+
+
 def get_latest_wifi_edges(db: Session) -> list[FloorMapEdge]:
     """Latest wifi_scans reading per (Pi, AP) pair on record — the graph edges, weighted by
     RSSI on the frontend. Not time-windowed, same reasoning as `compute_pi_position`."""
@@ -300,12 +382,17 @@ def get_latest_wifi_edges(db: Session) -> list[FloorMapEdge]:
 def get_floor_map(db: Session) -> FloorMapResponse:
     aps = [AccessPointOut.model_validate(ap) for ap in db.query(AccessPoint).all()]
 
-    pi_nodes: list[FloorMapPiNode] = []
+    all_pis = db.query(Pi).all()
     last_scan = dict(
         db.query(WifiScan.mac, func.max(WifiScan.timestamp)).group_by(WifiScan.mac).all()
     )
-    for pi in db.query(Pi).all():
+
+    pi_nodes: list[FloorMapPiNode] = []
+    wifi_positions: dict[str, tuple[float, float]] = {}
+    for pi in all_pis:
         pos = compute_pi_position(db, pi.mac)
+        if pos:
+            wifi_positions[pi.position] = pos
         pi_nodes.append(FloorMapPiNode(
             position=pi.position,
             mac=pi.mac,
@@ -314,7 +401,19 @@ def get_floor_map(db: Session) -> FloorMapResponse:
             last_scan_at=last_scan.get(pi.mac),
         ))
 
-    return FloorMapResponse(access_points=aps, pis=pi_nodes, edges=get_latest_wifi_edges(db))
+    # BLE fallback: a Pi with no WiFi position yet, but seen over BLE by a WiFi-positioned peer.
+    ble_mac_to_position = {pi.ble_mac.lower(): pi.position for pi in all_pis if pi.ble_mac}
+    for node in pi_nodes:
+        if node.x is not None:
+            continue
+        pos = compute_pi_position_via_ble(db, node.mac, ble_mac_to_position, wifi_positions)
+        if pos:
+            node.x, node.y = pos
+
+    return FloorMapResponse(
+        access_points=aps, pis=pi_nodes, edges=get_latest_wifi_edges(db),
+        pi_ble_edges=get_pi_ble_edges(db, ble_mac_to_position),
+    )
 
 
 def get_ble_devices_for_position(db: Session, position: str) -> list[BleDeviceSeen]:

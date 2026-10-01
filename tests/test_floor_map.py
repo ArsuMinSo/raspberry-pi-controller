@@ -1,8 +1,11 @@
 """Floor map: wifi/ble scan parsing (no DB) + scan jobs, AP placement, position calc (needs PostgreSQL test DB)."""
 from unittest.mock import patch
 
-from backend.models import AccessPoint, WifiScan
-from backend.services.floor_map import compute_pi_position, parse_ble_scan, parse_wifi_scan
+from backend.models import AccessPoint, BleScan, Pi, WifiScan
+from backend.services.floor_map import (
+    compute_pi_position, compute_pi_position_via_ble, get_pi_ble_edges, parse_ble_controller_mac, parse_ble_scan,
+    parse_wifi_scan,
+)
 from backend.services.ssh_executor import SSHResult
 from tests.conftest import API
 
@@ -59,6 +62,14 @@ def test_parse_ble_scan_joins_rssi_and_name_by_mac():
 def test_parse_ble_scan_ignores_controller_line():
     readings = parse_ble_scan(BLE_SCAN_OUTPUT)
     assert all(r.device_mac != "dc:a6:32:89:1c:5a" for r in readings)
+
+
+def test_parse_ble_controller_mac_reads_own_adapter():
+    assert parse_ble_controller_mac(BLE_SCAN_OUTPUT) == "dc:a6:32:89:1c:5a"
+
+
+def test_parse_ble_controller_mac_none_when_absent():
+    assert parse_ble_controller_mac("no controller line here") is None
 
 
 # ─── Scan job + AP auto-registration ───────────────────────────────────────
@@ -147,6 +158,52 @@ def test_compute_pi_position_none_when_no_placed_ap_visible(db, sample_pi):
 
 def test_compute_pi_position_none_when_no_scans(sample_pi, db):
     assert compute_pi_position(db, sample_pi.mac) is None
+
+
+# ─── Pi<->Pi BLE triangulation (own fleet hardware, not a bystander device) ────
+
+def test_compute_pi_position_via_ble_centroid_of_positioned_peers(db, sample_pi):
+    peer = Pi(mac="bb:bb:bb:bb:bb:bb", hostname="kiosk-02", position="01-002", pi_version=4,
+              current_ip="10.10.20.6", status="reachable", tags=[], ble_mac="11:11:11:11:11:11")
+    db.add(peer)
+    db.add(BleScan(mac=sample_pi.mac, device_mac="11:11:11:11:11:11", device_name=None, rssi=-50))
+    db.commit()
+
+    ble_mac_to_position = {"11:11:11:11:11:11": "01-002"}
+    wifi_positions = {"01-002": (10.0, 20.0)}
+    pos = compute_pi_position_via_ble(db, sample_pi.mac, ble_mac_to_position, wifi_positions)
+    assert pos == (10.0, 20.0)
+
+    db.query(BleScan).filter(BleScan.mac == sample_pi.mac).delete()
+    db.delete(peer)
+    db.commit()
+
+
+def test_compute_pi_position_via_ble_none_without_positioned_peer(db, sample_pi):
+    db.add(BleScan(mac=sample_pi.mac, device_mac="99:99:99:99:99:99", device_name=None, rssi=-50))
+    db.commit()
+    # 99:... isn't any known Pi's ble_mac — just an ambient bystander device, ignored.
+    assert compute_pi_position_via_ble(db, sample_pi.mac, {}, {}) is None
+
+    db.query(BleScan).filter(BleScan.mac == sample_pi.mac).delete()
+    db.commit()
+
+
+def test_get_pi_ble_edges_pairs_by_controller_mac(db, sample_pi):
+    peer = Pi(mac="bb:bb:bb:bb:bb:bb", hostname="kiosk-02", position="01-002", pi_version=4,
+              current_ip="10.10.20.6", status="reachable", tags=[], ble_mac="11:11:11:11:11:11")
+    db.add(peer)
+    db.add(BleScan(mac=sample_pi.mac, device_mac="11:11:11:11:11:11", device_name=None, rssi=-55))
+    db.commit()
+
+    edges = get_pi_ble_edges(db, {"11:11:11:11:11:11": "01-002"})
+    assert len(edges) == 1
+    assert {edges[0].position_a, edges[0].position_b} == {sample_pi.position, "01-002"}
+    assert edges[0].rssi == -55
+
+    db.query(BleScan).filter(BleScan.mac == sample_pi.mac).delete()
+    db.delete(peer)
+    db.commit()
 
 
 # ─── AP placement + floor map read ─────────────────────────────────────────

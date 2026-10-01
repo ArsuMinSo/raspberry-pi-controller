@@ -17,6 +17,10 @@
 - [ ] `setcap cap_net_raw,cap_net_admin+eip /usr/sbin/iw` (provisioning step) grants that capability to
       **any user/process on the kiosk**, not scoped to the controller's SSH session — accepted tradeoff vs.
       passwordless sudo, but worth remembering if a kiosk is ever compromised.
+- [x] Pi<->Pi BLE sightings (a Pi seeing another Pi's own Bluetooth controller MAC, `raspberries.ble_mac`) are
+      exempt from the bystander-privacy concern above — it's our own fleet hardware, not a stranger's device —
+      and are now used as a fallback position signal (`compute_pi_position_via_ble`) when no WiFi position
+      exists yet. Ambient (non-Pi) BLE devices are unaffected, still logged/not-plotted/not-positioned.
 
 ## Review fixes — MAC as primary key (commits 77cd008..0ca4512)
 

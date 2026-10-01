@@ -8,7 +8,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { errorMessage } from '../core/errors';
-import { AccessPointOut, FloorMapEdge, FloorMapPiNode, FloorMapResponse } from '../core/models';
+import { AccessPointOut, FloorMapEdge, FloorMapPiNode, FloorMapResponse, PiBleEdge } from '../core/models';
 
 /** View-box is a fixed logical size; drag positions are stored in these units. */
 const VIEW_W = 1000;
@@ -57,8 +57,9 @@ interface ApGroup {
         <p class="hint">
           Drag an access point to place/reposition it; click (without dragging) to group it with other APs that
           are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
-          top. Pi position is estimated from the latest WiFi scan and isn't draggable. Scroll to zoom. Line
-          thickness/brightness = signal strength; node size = number of connections.
+          top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
+          its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Scroll to zoom.
+          Line thickness/brightness = signal strength; node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -68,6 +69,8 @@ interface ApGroup {
                       (click)="showAps.set(!showAps())">APs</ion-button>
           <ion-button fill="outline" size="small" [color]="showPis() ? 'primary' : 'medium'"
                       (click)="showPis.set(!showPis())">Pis</ion-button>
+          <ion-button fill="outline" size="small" [color]="showBleLinks() ? 'primary' : 'medium'"
+                      (click)="showBleLinks.set(!showBleLinks())">BLE links</ion-button>
           <ion-button fill="outline" size="small" (click)="toggleFullscreen()">
             <ion-icon slot="icon-only" [name]="fullscreen() ? 'contract-outline' : 'expand-outline'"></ion-icon>
           </ion-button>
@@ -107,6 +110,13 @@ interface ApGroup {
               }
             }
 
+            @if (showBleLinks()) {
+              @for (e of visibleBleEdges(); track e.position_a + e.position_b) {
+                <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
+                      class="ble-edge" [attr.stroke-width]="e.width / zoom().scale" [style.opacity]="e.opacity" />
+              }
+            }
+
             @if (showPis()) {
               @for (pi of piNodes(); track pi.mac) {
                 @if (pi.x !== null && pi.y !== null) {
@@ -139,7 +149,8 @@ interface ApGroup {
         }
         @if (hiddenPiCount() > 0) {
           <p class="hint">{{ hiddenPiCount() }} Pi(s) not shown — no <em>placed</em> AP seen in their latest WiFi
-          scan. Place at least one AP they can see, then re-scan.</p>
+          scan, and no BLE sighting of an already-positioned Pi either. Place an AP they can see (or get a
+          neighboring Pi positioned), then re-scan.</p>
         }
       }
     </ion-content>
@@ -181,6 +192,7 @@ interface ApGroup {
     .staging-divider { stroke: #3a3a44; stroke-dasharray: 4 4; }
 
     .edge { stroke: #7fd8d0; stroke-linecap: round; transition: opacity 0.3s ease; }
+    .ble-edge { stroke: #c78bff; stroke-linecap: round; stroke-dasharray: 6 4; transition: opacity 0.3s ease; }
 
     .pi-node circle {
       fill: #5b8cff;
@@ -230,12 +242,14 @@ export class FloorMapPage {
   readonly piNodes = signal<FloorMapPiNode[]>([]);
   readonly apNodes = signal<ApGroup[]>([]);
   readonly edges = signal<FloorMapEdge[]>([]);
+  readonly bleEdges = signal<PiBleEdge[]>([]);
 
   /** Comma-separated SSID text filter — applied on button click, not live-as-you-type. */
   apFilterInput = '';
   readonly apFilterTerms = signal<string[]>([]);
 
   readonly showConnections = signal(true);
+  readonly showBleLinks = signal(true);
   readonly showAps = signal(true);
   readonly showPis = signal(true);
   readonly fullscreen = signal(false);
@@ -368,6 +382,7 @@ export class FloorMapPage {
       this.map.set(m);
       this.piNodes.set(m.pis);
       this.edges.set(m.edges);
+      this.bleEdges.set(m.pi_ble_edges);
       this.apNodes.set(this.groupAccessPoints(m.access_points));
     } catch (e) {
       this.error.set(errorMessage(e));
@@ -563,6 +578,22 @@ export class FloorMapPage {
         position: e.position, groupKey, x1: pi.x, y1: pi.y, x2: ax, y2: ay,
         width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
       });
+    }
+    return out;
+  }
+
+  /** Pi<->Pi BLE sightings with both endpoints resolved to canvas coordinates — only drawable
+   * once at least one end has a (WiFi-derived) position; a link between two still-unpositioned
+   * Pis has nowhere to be drawn. */
+  visibleBleEdges(): Array<PiBleEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
+    const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
+    const out: Array<PiBleEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    for (const e of this.bleEdges()) {
+      const a = piByPosition.get(e.position_a);
+      const b = piByPosition.get(e.position_b);
+      if (!a || !b || a.x === null || a.y === null || b.x === null || b.y === null) continue;
+      const strength = this.rssiStrength(e.rssi);
+      out.push({ ...e, x1: a.x, y1: a.y, x2: b.x, y2: b.y, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
     }
     return out;
   }

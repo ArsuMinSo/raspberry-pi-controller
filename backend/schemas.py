@@ -444,10 +444,19 @@ class FloorMapEdge(BaseModel):
     rssi: int
 
 
+class PiBleEdge(BaseModel):
+    """A Pi seeing another Pi's own Bluetooth controller over BLE — not a bystander device,
+    our own fleet hardware, so safe to use as an extra position signal."""
+    position_a: str
+    position_b: str
+    rssi: int
+
+
 class FloorMapResponse(BaseModel):
     access_points: list[AccessPointOut]
     pis: list[FloorMapPiNode]
     edges: list[FloorMapEdge]
+    pi_ble_edges: list[PiBleEdge]
 
 
 class BleDeviceSeen(BaseModel):

@@ -146,7 +146,8 @@ New page `web/src/app/floor-map/` (matches existing `reactor`-style module, per 
 | Position algorithm v1 | Weighted centroid, not trilateration | No path-loss calibration data yet; ship rough view first |
 | AP placement | Manual drag, not auto-solved | Positions "will be mapped" per user — treat as ground truth anchor, not estimated |
 | Pi placement | Computed, not draggable | Pi position is the thing being measured; dragging it would hide bad signal data instead of surfacing it |
-| BLE devices | Logged, not plotted | No fixed anchor for ambient BLE devices → no valid position math |
+| BLE devices | Logged, not plotted | No fixed anchor for ambient (bystander) BLE devices → no valid position math |
+| Pi<->Pi BLE sighting | Used as fallback position signal + drawn as a dashed edge | Each Pi's own Bluetooth controller MAC is captured from its own scan (`raspberries.ble_mac`) — seeing *that* MAC is our own fleet hardware, not a bystander, so it's exempt from the ambient-device privacy concern. Only used when a Pi has no WiFi-derived position, weighted centroid of WiFi-positioned peers it sees over BLE (`compute_pi_position_via_ble`) |
 | Scan trigger | Server-initiated SSH, manual only (v1) | Matches existing arch; no new Pi-side daemon/push, no scheduler wiring needed yet |
 | Floor scope | Single floor (v1) | No `floor_id` field, no floor switcher — keep schema/UI simple until multi-site need is real |
 | AP registration | Auto, from first scan sighting | AP row created with `x/y = null` the moment any Pi sees its BSSID; admin drags it in later — no manual pre-entry step |

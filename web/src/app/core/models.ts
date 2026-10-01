@@ -239,10 +239,17 @@ export interface FloorMapEdge {
   rssi: number;
 }
 
+export interface PiBleEdge {
+  position_a: string;
+  position_b: string;
+  rssi: number;
+}
+
 export interface FloorMapResponse {
   access_points: AccessPointOut[];
   pis: FloorMapPiNode[];
   edges: FloorMapEdge[];
+  pi_ble_edges: PiBleEdge[];
 }
 
 export interface BleDeviceSeen {
