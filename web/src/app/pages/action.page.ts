@@ -128,6 +128,10 @@ function isFatal(err: unknown): boolean {
                 }
                 @if (r.stdout) { <pre class="output">{{ r.stdout }}</pre> }
                 @if (r.stderr) { <pre class="output error-text">{{ r.stderr }}</pre> }
+                @if (detailsSummary(r.details)) { <span class="muted"> {{ detailsSummary(r.details) }}</span> }
+                @if (detailsPreview(r.details).length) {
+                  <pre class="output">{{ detailsPreview(r.details).join('\n') }}</pre>
+                }
               </div>
             }
           }
@@ -305,6 +309,22 @@ export class ActionPage implements OnInit {
     const disk = r.details?.['disk'] as Record<string, unknown> | undefined;
     const mb = disk?.['free_mb'];
     return typeof mb === 'number' ? mb : -1;
+  }
+
+  /** Generic fallback (wifi_scan/ble_scan etc.) — on success there's no stdout (only kept on
+   * failure, see TODO.md re: BLE privacy/retention), so show whatever count `details` has
+   * instead (e.g. "3 aps_seen", "5 devices_seen"). */
+  detailsSummary(details: Record<string, unknown> | null): string {
+    if (!details) return '';
+    return Object.entries(details)
+      .filter(([key]) => key !== 'preview')
+      .map(([key, value]) => `${value} ${key}`)
+      .join(', ');
+  }
+
+  detailsPreview(details: Record<string, unknown> | null): string[] {
+    const preview = details?.['preview'];
+    return Array.isArray(preview) ? preview.filter((l): l is string => typeof l === 'string') : [];
   }
 
   verdict(r: ActionResult): RebootVerdict {

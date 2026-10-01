@@ -126,6 +126,15 @@ def parse_ble_controller_mac(raw: str) -> str | None:
     return m.group(1).lower() if m else None
 
 
+def _first_lines(raw: str, n: int = 3) -> list[str]:
+    """First few non-blank lines of a command's stdout, for a quick preview in the action
+    log on success — full stdout is only kept on the failure path (see TODO.md re: BLE
+    privacy/retention)."""
+    clean = _BLUETOOTHCTL_WRAPPER_RE.sub("", raw)
+    lines = [line for line in clean.splitlines() if line.strip()]
+    return lines[:n]
+
+
 def _upsert_access_points(db: Session, readings: list[WifiReading]) -> None:
     """Auto-register any BSSID never seen before (unplaced, x/y NULL), and merge in any
     SSID name not seen before for a BSSID already known — the same AP can broadcast
@@ -205,7 +214,8 @@ def wifi_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
             now = datetime.now(timezone.utc)
             for r in readings:
                 db.add(WifiScan(mac=mac, bssid=r.bssid, rssi=r.rssi, timestamp=now))
-            al.add_result(db, entry.id, position, details={"aps_seen": len(readings)})
+            al.add_result(db, entry.id, position,
+                          details={"aps_seen": len(readings), "preview": _first_lines(result.stdout)})
 
     _upsert_access_points(db, all_readings)
     db.commit()
@@ -247,7 +257,8 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
             if controller_mac and is_valid_mac(controller_mac):
                 pi_by_position[position].ble_mac = controller_mac
 
-            al.add_result(db, entry.id, position, details={"devices_seen": len(readings)})
+            al.add_result(db, entry.id, position,
+                          details={"devices_seen": len(readings), "preview": _first_lines(result.stdout)})
 
     db.commit()
 
