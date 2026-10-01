@@ -765,6 +765,11 @@ export class FloorMapPage implements OnDestroy {
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
+    // Capture the pointer so pointerup/move keep routing here even if the cursor ends up over
+    // another element on release — without this a release outside the node could leave
+    // `dragging` stuck set, and every later mouse move (even with no button held) would then
+    // teleport that node — and anything spring-connected to it — to the cursor.
+    (event.currentTarget as Element).setPointerCapture(event.pointerId);
     this.dragging = { id, kind, wasPinned, bssids, position, x: pt.x, y: pt.y, startScreen: { x: event.clientX, y: event.clientY } };
   }
 
@@ -778,6 +783,12 @@ export class FloorMapPage implements OnDestroy {
 
   onPointerMove(event: PointerEvent): void {
     if (this.dragging) {
+      if (event.buttons === 0) {
+        // Button isn't actually held anymore (release was missed) — drop the drag instead of
+        // letting the node keep following the cursor on every subsequent move.
+        this.dragging = null;
+        return;
+      }
       const pt = this.toViewBox(event);
       if (!pt) return;
       this.dragging = { ...this.dragging, x: pt.x, y: pt.y };
