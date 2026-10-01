@@ -1,8 +1,8 @@
 import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
-  ActionSheetController, AlertController, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput,
-  IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar,
+  ActionSheetController, AlertController, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonLabel,
+  IonMenuButton, IonRange, IonSpinner, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
 
@@ -108,6 +108,11 @@ interface ApGroup {
           @if (apFilterTerms().length > 0) {
             <ion-button fill="clear" size="small" (click)="clearApFilter()">Clear filter</ion-button>
           }
+          <div class="links-slider">
+            <ion-label>Links per Pi: {{ topLinksPerPi() === MAX_LINKS_PER_PI ? 'All' : topLinksPerPi() }}</ion-label>
+            <ion-range [min]="1" [max]="MAX_LINKS_PER_PI" [step]="1" [snaps]="true" [ticks]="true"
+                       [value]="topLinksPerPi()" (ionChange)="topLinksPerPi.set($any($event.detail.value))"></ion-range>
+          </div>
         </div>
 
         <div class="map-wrap" #mapWrap [class.fullscreen]="fullscreen()">
@@ -192,6 +197,9 @@ interface ApGroup {
 
     .filter-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 0 0 10px; }
     .ssid-filter { max-width: 220px; }
+    .links-slider { display: flex; align-items: center; gap: 8px; min-width: 220px; }
+    .links-slider ion-label { white-space: nowrap; font-size: 0.85rem; }
+    .links-slider ion-range { flex: 1; min-width: 120px; padding: 0; }
 
     .map-wrap {
       width: 100%;
@@ -255,8 +263,8 @@ interface ApGroup {
     }
   `],
   imports: [
-    FormsModule, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonMenuButton, IonSpinner, IonText,
-    IonTitle, IonToolbar,
+    FormsModule, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonLabel, IonMenuButton, IonRange,
+    IonSpinner, IonText, IonTitle, IonToolbar,
   ],
 })
 export class FloorMapPage {
@@ -281,6 +289,11 @@ export class FloorMapPage {
   /** Comma-separated SSID text filter — applied on button click, not live-as-you-type. */
   apFilterInput = '';
   readonly apFilterTerms = signal<string[]>([]);
+
+  /** Slider: keep only the N strongest Pi->AP WiFi links per Pi (max value = no limit, show all).
+   * Doesn't affect BLE Pi<->Pi links. */
+  readonly MAX_LINKS_PER_PI = 10;
+  readonly topLinksPerPi = signal(this.MAX_LINKS_PER_PI);
 
   readonly showConnections = signal(true);
   readonly showBleLinks = signal(true);
@@ -487,6 +500,7 @@ export class FloorMapPage {
     if (currentlyGrouped) {
       buttons.push({ text: 'Remove from group', role: 'destructive', handler: () => void this.assignGroup(ap, null) });
     }
+    buttons.push({ text: 'Remove access point', role: 'destructive', handler: () => void this.confirmRemoveAp(ap) });
     buttons.push({ text: 'Cancel', role: 'cancel' });
 
     const sheet = await this.actionSheets.create({ header: `Group "${this.apLabel(ap)}" to:`, buttons });
@@ -504,6 +518,32 @@ export class FloorMapPage {
     const name = (res.data?.values?.name as string | undefined)?.trim();
     if (res.role === 'confirm' && name) {
       await this.assignGroup(ap, name);
+    }
+  }
+
+  /** Deletes every BSSID in this box from the map entirely — not just unplacing it. A later WiFi
+   * scan that still sees the BSSID just re-registers it as a fresh unplaced AP. Confirm first,
+   * it can't be undone. */
+  private async confirmRemoveAp(ap: ApGroup): Promise<void> {
+    const alert = await this.alerts.create({
+      header: `Remove "${this.apLabel(ap)}"?`,
+      message: ap.bssids.length > 1
+        ? `Deletes all ${ap.bssids.length} grouped BSSIDs from the map. This cannot be undone.`
+        : 'Deletes this access point from the map. This cannot be undone.',
+      buttons: [
+        { text: 'Cancel', role: 'cancel' },
+        { text: 'Remove', role: 'destructive', handler: () => void this.removeAp(ap) },
+      ],
+    });
+    await alert.present();
+  }
+
+  private async removeAp(ap: ApGroup): Promise<void> {
+    try {
+      await Promise.all(ap.bssids.map((bssid) => firstValueFrom(this.api.deleteAccessPoint(bssid))));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
     }
   }
 
@@ -641,34 +681,47 @@ export class FloorMapPage {
   }
 
   piDegree(position: string): number {
-    const visibleKeys = new Set(this.visibleApNodes().map((a) => a.key));
-    return this.edges().filter((e) => e.position === position && visibleKeys.has(this.bssidToKey.get(e.bssid) ?? '')).length;
+    return this.visibleEdges().filter((e) => e.position === position).length;
   }
 
   apDegree(key: string): number {
-    return this.edges().filter((e) => this.bssidToKey.get(e.bssid) === key).length;
+    return this.visibleEdges().filter((e) => e.groupKey === key).length;
   }
 
   /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity).
-   * Only to APs that survive the SSID filter — a filtered-out box's connections disappear too. */
+   * Only to APs that survive the SSID filter — a filtered-out box's connections disappear too. Also
+   * capped per-Pi at `topLinksPerPi` (strongest RSSI first) by the links-per-Pi slider. */
   visibleEdges(): Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
     const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
     const apByKey = new Map(this.visibleApNodes().map((a) => [a.key, a]));
-    const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    const byPosition = new Map<string, FloorMapEdge[]>();
     for (const e of this.edges()) {
-      const pi = piByPosition.get(e.position);
       const groupKey = this.bssidToKey.get(e.bssid);
-      if (!groupKey) continue;
-      const ap = apByKey.get(groupKey);
-      if (!pi || pi.x === null || pi.y === null || !ap) continue;
-      const [ax, ay] = this.dragPos(ap).split(',').map(Number);
-      const [px, py] = this.piDragPos(pi).split(',').map(Number);
-      if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
-      const strength = this.rssiStrength(e.rssi);
-      out.push({
-        position: e.position, groupKey, x1: px, y1: py, x2: ax, y2: ay,
-        width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
-      });
+      if (!groupKey || !apByKey.has(groupKey)) continue;
+      const pi = piByPosition.get(e.position);
+      if (!pi || pi.x === null || pi.y === null) continue;
+      const arr = byPosition.get(e.position) ?? [];
+      arr.push(e);
+      byPosition.set(e.position, arr);
+    }
+
+    const limit = this.topLinksPerPi() >= this.MAX_LINKS_PER_PI ? Infinity : this.topLinksPerPi();
+    const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    for (const [position, forPi] of byPosition) {
+      const pi = piByPosition.get(position)!;
+      const strongest = [...forPi].sort((a, b) => b.rssi - a.rssi).slice(0, limit);
+      for (const e of strongest) {
+        const groupKey = this.bssidToKey.get(e.bssid)!;
+        const ap = apByKey.get(groupKey)!;
+        const [ax, ay] = this.dragPos(ap).split(',').map(Number);
+        const [px, py] = this.piDragPos(pi).split(',').map(Number);
+        if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
+        const strength = this.rssiStrength(e.rssi);
+        out.push({
+          position, groupKey, x1: px, y1: py, x2: ax, y2: ay,
+          width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
+        });
+      }
     }
     return out;
   }

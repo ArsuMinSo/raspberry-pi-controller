@@ -234,6 +234,10 @@ export class ApiService {
     return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}/group`, { group_name: groupName });
   }
 
+  deleteAccessPoint(bssid: string): Observable<void> {
+    return this.http.delete<void>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}`);
+  }
+
   listAccessPointGroups(): Observable<string[]> {
     return this.http.get<string[]>(`${API}/floor-map/groups`);
   }

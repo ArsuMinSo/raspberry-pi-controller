@@ -246,6 +246,22 @@ def test_place_unknown_ap_404(client):
     assert res.status_code == 404
 
 
+def test_delete_access_point_removes_it_and_its_scans(client, db, sample_pi):
+    db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:23", ssid="TestAP"))
+    db.add(WifiScan(mac=sample_pi.mac, bssid="aa:bb:cc:dd:ee:23", rssi=-50))
+    db.commit()
+
+    res = client.delete(f"{API}/floor-map/ap/aa:bb:cc:dd:ee:23")
+    assert res.status_code == 204
+    assert db.get(AccessPoint, "aa:bb:cc:dd:ee:23") is None
+    assert db.query(WifiScan).filter(WifiScan.bssid == "aa:bb:cc:dd:ee:23").count() == 0
+
+
+def test_delete_unknown_ap_404(client):
+    res = client.delete(f"{API}/floor-map/ap/00:11:22:33:44:66")
+    assert res.status_code == 404
+
+
 def test_unpin_access_point_clears_position(client, db):
     db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:21", ssid="TestAP", x=5.0, y=5.0))
     db.commit()

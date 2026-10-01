@@ -83,6 +83,18 @@ def list_access_point_groups(db: Session = Depends(get_db)):
     return sorted({r[0] for r in rows})
 
 
+@router.delete("/ap/{bssid}", status_code=204)
+def delete_access_point(bssid: str, actor: Actor = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Removes this BSSID entirely — box disappears from the map. A WiFi scan that still sees it
+    re-registers it as unplaced, same as any never-before-seen AP."""
+    ap = db.get(AccessPoint, bssid.lower())
+    if ap is None:
+        raise HTTPException(status_code=404, detail=f"Access point {bssid} not found")
+    db.query(WifiScan).filter(WifiScan.bssid == bssid.lower()).delete()
+    db.delete(ap)
+    db.commit()
+
+
 @router.patch("/pi/{position}/pin", response_model=FloorMapPiNode)
 def pin_pi(position: str, body: PiPinUpdate, actor: Actor = Depends(require_role("operator")),
            db: Session = Depends(get_db)):
