@@ -59,7 +59,7 @@ const AUTO_REFRESH_MS = 10_000;
               <div class="wedge" [class]="'wedge-' + statusColor(r.pi.status)" [class.wedge-hot]="isHot(r.pi)">
                 <div class="wedge-fill" [style.height.%]="fillPercent(r.pi)"></div>
               </div>
-              <div class="wedge-label" [style.transform]="'rotate(' + (-r.rotate) + 'deg)'">{{ r.pi.position }}</div>
+              <div class="wedge-label" [style.transform]="'rotate(' + r.labelRotate + 'deg)'">{{ r.pi.position }}</div>
             </div>
           }
         </div>
@@ -382,7 +382,7 @@ const AUTO_REFRESH_MS = 10_000;
       font-size: 0.8rem;
       color: #8ff2ec;
       white-space: nowrap;
-      margin-top: 2px;
+      margin-top: 12px;
       text-shadow: 0 0 4px rgba(90, 250, 240, 0.5);
     }
     @media (prefers-reduced-motion: reduce) {
@@ -445,11 +445,17 @@ export class DashboardPage {
     return pis.map((pi, i) => {
       const angleDeg = (360 / n) * i;
       const rad = (angleDeg - 90) * (Math.PI / 180);
+      // Tangential (perpendicular-to-bar) label angle, relative to the wedge-wrap's own
+      // rotate(angleDeg) — flipped on the bottom half so text never reads upside-down.
+      let labelRotate = 90;
+      const absoluteTangent = angleDeg + 90;
+      if (absoluteTangent > 90 && absoluteTangent < 270) labelRotate = -90;
       return {
         pi,
         left: 50 + RING_RADIUS_PCT * Math.cos(rad),
         top: 50 + RING_RADIUS_PCT * Math.sin(rad),
         rotate: angleDeg,
+        labelRotate,
       };
     });
   });
