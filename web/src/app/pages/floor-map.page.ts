@@ -88,7 +88,9 @@ interface ApGroup {
           <svg
             [attr.viewBox]="viewBoxStr()"
             class="map-canvas"
+            [class.panning]="panning()"
             preserveAspectRatio="xMidYMid meet"
+            (pointerdown)="onBackgroundPointerDown($event)"
             (pointermove)="onPointerMove($event)"
             (pointerup)="onPointerUp()"
             (pointerleave)="onPointerUp()"
@@ -108,8 +110,9 @@ interface ApGroup {
               @for (pi of piNodes(); track pi.mac) {
                 @if (pi.x !== null && pi.y !== null) {
                   <g [attr.transform]="'translate(' + pi.x + ',' + pi.y + ')'" class="pi-node">
-                    <circle [attr.r]="nodeRadius(piDegree(pi.position))" />
-                    <text [attr.y]="-(nodeRadius(piDegree(pi.position)) + 6)" text-anchor="middle">{{ pi.position }}</text>
+                    <circle [attr.r]="scaledRadius(piDegree(pi.position))" />
+                    <text [attr.y]="-(scaledRadius(piDegree(pi.position)) + 6 / zoom().scale)"
+                          [style.font-size.px]="11 / zoom().scale" text-anchor="middle">{{ pi.position }}</text>
                   </g>
                 }
               }
@@ -121,8 +124,9 @@ interface ApGroup {
                    class="ap-node" [class.ap-unplaced]="!ap.placed"
                    (pointerdown)="onPointerDown($event, ap)">
                   <title>{{ apTitle(ap) }}</title>
-                  <circle [attr.r]="nodeRadius(apDegree(ap.key))" />
-                  <text [attr.y]="-(nodeRadius(apDegree(ap.key)) + 6)" text-anchor="middle">{{ apLabel(ap) }}</text>
+                  <circle [attr.r]="scaledRadius(apDegree(ap.key))" />
+                  <text [attr.y]="-(scaledRadius(apDegree(ap.key)) + 6 / zoom().scale)"
+                        [style.font-size.px]="10 / zoom().scale" text-anchor="middle">{{ apLabel(ap) }}</text>
                 </g>
               }
             }
@@ -168,7 +172,9 @@ interface ApGroup {
       border: 1px solid #33333c;
       border-radius: 10px;
       touch-action: none;
+      cursor: grab;
     }
+    .map-canvas.panning { cursor: grabbing; }
     .map-wrap.fullscreen .map-canvas { border-radius: 0; }
     .staging-divider { stroke: #3a3a44; stroke-dasharray: 4 4; }
 
@@ -232,7 +238,10 @@ export class FloorMapPage {
 
   readonly hiddenPiCount = () => this.piNodes().filter((p) => p.x === null || p.y === null).length;
 
+  readonly panning = signal(false);
+
   private dragging: { key: string; bssids: string[]; x: number; y: number } | null = null;
+  private panStart: { clientX: number; clientY: number; zoom: { scale: number; x: number; y: number } } | null = null;
   private svgEl: SVGSVGElement | null = null;
 
   constructor() {
@@ -418,6 +427,13 @@ export class FloorMapPage {
     return Math.min(6 + degree * 1.5, 16);
   }
 
+  /** Radius in viewBox user-units, shrunk as you zoom in — since the viewBox itself shrinks
+   * on zoom, a radius that didn't shrink would grow on screen and crowd out everything
+   * around it; dividing by scale keeps node footprint from eating the extra detail zoom reveals. */
+  scaledRadius(degree: number): number {
+    return this.nodeRadius(degree) / this.zoom().scale;
+  }
+
   /** Primary SSID + "(+N more)" when the box groups more than one SSID (own BSSID, or other
    * BSSIDs grouped into the same physical AP). */
   apLabel(ap: ApGroup): string {
@@ -465,20 +481,40 @@ export class FloorMapPage {
   }
 
   onPointerDown(event: PointerEvent, ap: ApGroup): void {
+    event.stopPropagation(); // don't also start a background pan
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
     this.dragging = { key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y };
   }
 
+  /** Pointerdown on empty canvas (not an AP node, which stops propagation) — pan the view. */
+  onBackgroundPointerDown(event: PointerEvent): void {
+    if (this.dragging) return;
+    this.svgEl = event.currentTarget as SVGSVGElement;
+    this.panStart = { clientX: event.clientX, clientY: event.clientY, zoom: this.zoom() };
+    this.panning.set(true);
+  }
+
   onPointerMove(event: PointerEvent): void {
-    if (!this.dragging) return;
-    const pt = this.toViewBox(event);
-    if (!pt) return;
-    this.dragging = { ...this.dragging, x: pt.x, y: pt.y };
+    if (this.dragging) {
+      const pt = this.toViewBox(event);
+      if (!pt) return;
+      this.dragging = { ...this.dragging, x: pt.x, y: pt.y };
+      return;
+    }
+    if (this.panStart && this.svgEl) {
+      const ctm = this.svgEl.getScreenCTM();
+      if (!ctm) return;
+      const dxUser = (event.clientX - this.panStart.clientX) / ctm.a;
+      const dyUser = (event.clientY - this.panStart.clientY) / ctm.d;
+      this.zoom.set({ scale: this.panStart.zoom.scale, x: this.panStart.zoom.x - dxUser, y: this.panStart.zoom.y - dyUser });
+    }
   }
 
   async onPointerUp(): Promise<void> {
+    this.panStart = null;
+    this.panning.set(false);
     if (!this.dragging) return;
     const { bssids, x, y } = this.dragging;
     this.dragging = null;
