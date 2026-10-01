@@ -362,11 +362,11 @@ export class FloorMapPage implements OnDestroy {
     const SPRING_K = 0.02;
     const SPRING_LEN = 120;
     const DAMPING = 0.82;
-    const CENTER_PULL = 0.0008;
+    const CENTER_PULL = 0.0003;
     const MAX_SPEED = 25; // per-tick speed cap — stops any force spike from snapping a node across the map
     const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
     const AP_AP_SHARED_PI_MULT = 0.45; // ...unless they both serve the same Pi — let those sit closer
-    const PI_AP_ATTRACT = 0.012; // gentle pull drawing every Pi toward every AP, even without a direct edge
+    const PI_AP_ATTRACT = 0.03; // gentle pull drawing every Pi toward every AP, even without a direct edge
 
     // Two APs "share a Pi" if some Pi has a WiFi edge to both — softens their mutual repulsion.
     const apsByPi = new Map<string, Set<string>>();
