@@ -222,6 +222,7 @@ export interface AccessPointOut {
   group_name: string | null;
   x: number | null;
   y: number | null;
+  pinned: boolean;
   updated_at: string;
 }
 
@@ -230,6 +231,7 @@ export interface FloorMapPiNode {
   mac: string;
   x: number | null;
   y: number | null;
+  pinned: boolean;
   last_scan_at: string | null;
 }
 

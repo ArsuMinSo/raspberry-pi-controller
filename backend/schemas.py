@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 
 # ─── Common ───────────────────────────────────────────────────────────────────
@@ -420,14 +420,38 @@ class AccessPointOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    @computed_field
+    @property
+    def pinned(self) -> bool:
+        return self.x is not None and self.y is not None
+
 
 class AccessPointPositionUpdate(BaseModel):
-    x: float
-    y: float
+    """Both null = unpin (the AP rejoins the live spring layout instead of staying fixed)."""
+    x: float | None = None
+    y: float | None = None
+
+    @model_validator(mode="after")
+    def _both_or_neither(self):
+        if (self.x is None) != (self.y is None):
+            raise ValueError("x and y must both be set, or both null to unpin")
+        return self
 
 
 class AccessPointGroupUpdate(BaseModel):
     group_name: str | None = Field(None, max_length=255)
+
+
+class PiPinUpdate(BaseModel):
+    """Both null = unpin (the Pi goes back to its computed WiFi/BLE-derived position)."""
+    x: float | None = None
+    y: float | None = None
+
+    @model_validator(mode="after")
+    def _both_or_neither(self):
+        if (self.x is None) != (self.y is None):
+            raise ValueError("x and y must both be set, or both null to unpin")
+        return self
 
 
 class FloorMapPiNode(BaseModel):
@@ -435,6 +459,7 @@ class FloorMapPiNode(BaseModel):
     mac: str
     x: float | None
     y: float | None
+    pinned: bool
     last_scan_at: datetime | None
 
 

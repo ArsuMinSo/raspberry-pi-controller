@@ -4,9 +4,9 @@ import { Observable, map } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  AccessPointOut, ActionProgress, ActionQueued, AuditEvent, BleDeviceSeen, FleetSummary, FloorMapResponse, LogEntry,
-  Me, PiDetail, PiSummary, Role, ScheduledTask, ScheduledTaskCreate, ScheduledTaskUpdate, SessionInfo, Settings,
-  SSHTestResult, User,
+  AccessPointOut, ActionProgress, ActionQueued, AuditEvent, BleDeviceSeen, FleetSummary, FloorMapPiNode,
+  FloorMapResponse, LogEntry, Me, PiDetail, PiSummary, Role, ScheduledTask, ScheduledTaskCreate, ScheduledTaskUpdate,
+  SessionInfo, Settings, SSHTestResult, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -226,12 +226,24 @@ export class ApiService {
     return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}`, { x, y });
   }
 
+  unpinAccessPoint(bssid: string): Observable<AccessPointOut> {
+    return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}`, { x: null, y: null });
+  }
+
   setAccessPointGroup(bssid: string, groupName: string | null): Observable<AccessPointOut> {
     return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}/group`, { group_name: groupName });
   }
 
   listAccessPointGroups(): Observable<string[]> {
     return this.http.get<string[]>(`${API}/floor-map/groups`);
+  }
+
+  pinPi(position: string, x: number, y: number): Observable<FloorMapPiNode> {
+    return this.http.patch<FloorMapPiNode>(`${API}/floor-map/pi/${encodeURIComponent(position)}/pin`, { x, y });
+  }
+
+  unpinPi(position: string): Observable<FloorMapPiNode> {
+    return this.http.patch<FloorMapPiNode>(`${API}/floor-map/pi/${encodeURIComponent(position)}/pin`, { x: null, y: null });
   }
 
   bleDevicesForPi(position: string): Observable<BleDeviceSeen[]> {

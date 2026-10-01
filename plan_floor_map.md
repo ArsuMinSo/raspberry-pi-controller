@@ -144,8 +144,9 @@ New page `web/src/app/floor-map/` (matches existing `reactor`-style module, per 
 | Decision | Choice | Reason |
 |----------|--------|--------|
 | Position algorithm v1 | Weighted centroid, not trilateration | No path-loss calibration data yet; ship rough view first |
-| AP placement | Manual drag, not auto-solved | Positions "will be mapped" per user — treat as ground truth anchor, not estimated |
-| Pi placement | Computed, not draggable | Pi position is the thing being measured; dragging it would hide bad signal data instead of surfacing it |
+| Layout model (v2, supersedes the two rows below) | Live spring simulation — everything (Pi and AP) floats on repulsion + signal-weighted spring edges, continuously, unless explicitly **pinned** | User explicitly asked for "drag anything, nothing fixed unless I tell it"; the map stopped being a literal floor plan and became a connectivity graph with an optional ground-truth override per node |
+| ~~AP placement: Manual drag, not auto-solved~~ | Superseded — AP is just another node; pinning it (`AccessPoint.x/y` not null) is the opt-in override | — |
+| ~~Pi placement: Computed, not draggable~~ | Superseded — a Pi can be pinned too (`raspberries.pinned_x/pinned_y`, migration 013), overriding the computed WiFi/BLE estimate | User's call — the computed estimate is still the *default* for an unpinned Pi, just no longer the only option |
 | BLE devices | Logged, not plotted | No fixed anchor for ambient (bystander) BLE devices → no valid position math |
 | Pi<->Pi BLE sighting | Used as fallback position signal + drawn as a dashed edge | Each Pi's own Bluetooth controller MAC is captured from its own scan (`raspberries.ble_mac`) — seeing *that* MAC is our own fleet hardware, not a bystander, so it's exempt from the ambient-device privacy concern. Only used when a Pi has no WiFi-derived position, weighted centroid of WiFi-positioned peers it sees over BLE (`compute_pi_position_via_ble`) |
 | Scan trigger | Server-initiated SSH, manual only (v1) | Matches existing arch; no new Pi-side daemon/push, no scheduler wiring needed yet |

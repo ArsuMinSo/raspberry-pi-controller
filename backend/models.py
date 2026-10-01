@@ -21,6 +21,8 @@ class Pi(Base):
     last_seen = mapped_column(DateTime)
     tags = mapped_column(ARRAY(Text), nullable=False, default=list)
     ble_mac: MappedColumn[str | None] = mapped_column(String(17))
+    pinned_x = mapped_column(Float)
+    pinned_y = mapped_column(Float)
     cpu_1m = mapped_column(Float)
     cpu_5m = mapped_column(Float)
     cpu_15m = mapped_column(Float)

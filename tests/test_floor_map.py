@@ -229,6 +229,49 @@ def test_place_unknown_ap_404(client):
     assert res.status_code == 404
 
 
+def test_unpin_access_point_clears_position(client, db):
+    db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:21", ssid="TestAP", x=5.0, y=5.0))
+    db.commit()
+
+    res = client.patch(f"{API}/floor-map/ap/aa:bb:cc:dd:ee:21", json={"x": None, "y": None})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["x"] is None and body["y"] is None and body["pinned"] is False
+
+    db.query(AccessPoint).filter(AccessPoint.bssid == "aa:bb:cc:dd:ee:21").delete()
+    db.commit()
+
+
+def test_access_point_update_rejects_mismatched_null(client, db):
+    db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:22", ssid="TestAP"))
+    db.commit()
+
+    res = client.patch(f"{API}/floor-map/ap/aa:bb:cc:dd:ee:22", json={"x": 1.0, "y": None})
+    assert res.status_code == 422
+
+    db.query(AccessPoint).filter(AccessPoint.bssid == "aa:bb:cc:dd:ee:22").delete()
+    db.commit()
+
+
+def test_pin_and_unpin_pi(client, db, sample_pi):
+    res = client.patch(f"{API}/floor-map/pi/{sample_pi.position}/pin", json={"x": 7.5, "y": 8.5})
+    assert res.status_code == 200
+    body = res.json()
+    assert body["x"] == 7.5 and body["y"] == 8.5 and body["pinned"] is True
+
+    m = client.get(f"{API}/floor-map").json()
+    assert any(p["position"] == sample_pi.position and p["pinned"] is True for p in m["pis"])
+
+    res = client.patch(f"{API}/floor-map/pi/{sample_pi.position}/pin", json={"x": None, "y": None})
+    assert res.status_code == 200
+    assert res.json()["pinned"] is False
+
+
+def test_pin_unknown_pi_404(client):
+    res = client.patch(f"{API}/floor-map/pi/99-999/pin", json={"x": 1, "y": 1})
+    assert res.status_code == 404
+
+
 def test_set_and_list_access_point_group(client, db):
     db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:30", ssid="Lobby-2.4"))
     db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:31", ssid="Lobby-5G"))

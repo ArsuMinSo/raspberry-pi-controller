@@ -39,7 +39,7 @@ WIFI_SCAN_CMD = "/usr/sbin/iw dev wlan0 scan"
 # overall exit code tied to the scan step, not the cleanup "discoverable off" step.
 BLE_SCAN_CMD = (
     "bluetoothctl discoverable on; "
-    "bluetoothctl --timeout 10 scan on; rc=$?; "
+    "bluetoothctl --timeout 20 scan on; rc=$?; "
     "bluetoothctl discoverable off; "
     "exit $rc"
 )
@@ -411,6 +411,12 @@ def get_floor_map(db: Session) -> FloorMapResponse:
     pi_nodes: list[FloorMapPiNode] = []
     wifi_positions: dict[str, tuple[float, float]] = {}
     for pi in all_pis:
+        if pi.pinned_x is not None and pi.pinned_y is not None:
+            pi_nodes.append(FloorMapPiNode(
+                position=pi.position, mac=pi.mac, x=pi.pinned_x, y=pi.pinned_y,
+                pinned=True, last_scan_at=last_scan.get(pi.mac),
+            ))
+            continue
         pos = compute_pi_position(db, pi.mac)
         if pos:
             wifi_positions[pi.position] = pos
@@ -419,6 +425,7 @@ def get_floor_map(db: Session) -> FloorMapResponse:
             mac=pi.mac,
             x=pos[0] if pos else None,
             y=pos[1] if pos else None,
+            pinned=False,
             last_scan_at=last_scan.get(pi.mac),
         ))
 

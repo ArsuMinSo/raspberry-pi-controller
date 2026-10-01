@@ -1,15 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from backend.auth import Actor, require_role
 from backend.database import get_db
-from backend.models import AccessPoint, Pi
+from backend.models import AccessPoint, Pi, WifiScan
 from backend.schemas import (
     AccessPointGroupUpdate, AccessPointOut, AccessPointPositionUpdate, ActionQueued, BleDeviceSeen,
-    FloorMapResponse, HealthTriggerRequest,
+    FloorMapPiNode, FloorMapResponse, HealthTriggerRequest, PiPinUpdate,
 )
 from backend.services.floor_map import (
-    get_ble_devices_for_position, get_floor_map, start_ble_scan, start_wifi_scan,
+    compute_pi_position, get_ble_devices_for_position, get_floor_map, start_ble_scan, start_wifi_scan,
 )
 
 router = APIRouter()
@@ -79,6 +80,26 @@ def set_access_point_group(bssid: str, body: AccessPointGroupUpdate,
 def list_access_point_groups(db: Session = Depends(get_db)):
     rows = db.query(AccessPoint.group_name).filter(AccessPoint.group_name.isnot(None)).distinct().all()
     return sorted({r[0] for r in rows})
+
+
+@router.patch("/pi/{position}/pin", response_model=FloorMapPiNode)
+def pin_pi(position: str, body: PiPinUpdate, actor: Actor = Depends(require_role("operator")),
+           db: Session = Depends(get_db)):
+    pi = db.query(Pi).filter(Pi.position == position).first()
+    if pi is None:
+        raise HTTPException(status_code=404, detail=f"Pi {position} not found")
+    pi.pinned_x = body.x
+    pi.pinned_y = body.y
+    db.commit()
+    db.refresh(pi)
+
+    last_scan = db.query(func.max(WifiScan.timestamp)).filter(WifiScan.mac == pi.mac).scalar()
+    if pi.pinned_x is not None and pi.pinned_y is not None:
+        x, y, pinned = pi.pinned_x, pi.pinned_y, True
+    else:
+        pos = compute_pi_position(db, pi.mac)
+        x, y, pinned = (pos[0], pos[1], False) if pos else (None, None, False)
+    return FloorMapPiNode(position=pi.position, mac=pi.mac, x=x, y=y, pinned=pinned, last_scan_at=last_scan)
 
 
 @router.get("/pi/{position}/ble", response_model=list[BleDeviceSeen], dependencies=[Depends(require_role("viewer"))])

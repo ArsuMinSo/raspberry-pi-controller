@@ -1,4 +1,4 @@
-import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, OnDestroy, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import {
   ActionSheetController, AlertController, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput,
@@ -10,10 +10,9 @@ import { ApiService } from '../core/api.service';
 import { errorMessage } from '../core/errors';
 import { AccessPointOut, FloorMapEdge, FloorMapPiNode, FloorMapResponse, PiBleEdge } from '../core/models';
 
-/** View-box is a fixed logical size; drag positions are stored in these units. */
+/** View-box is a fixed logical size; node positions live in these units. */
 const VIEW_W = 1000;
 const VIEW_H = 700;
-const UNPLACED_ROW_Y = 40;
 
 /** RSSI range used to turn a signal reading into an edge weight (0..1). Typical indoor WiFi: ~-30 (strong) to ~-90 (weak). */
 const RSSI_STRONG = -30;
@@ -26,8 +25,8 @@ interface ApGroup {
   ssids: string[];
   x: number | null;
   y: number | null;
-  /** False once staged with synthetic x/y for the staging row — x/y are non-null either way. */
-  placed: boolean;
+  /** True = fixed at x/y (saved on the server). False = floating, live-simulated, not persisted. */
+  pinned: boolean;
 }
 
 @Component({
@@ -55,11 +54,10 @@ interface ApGroup {
 
       @if (map(); as m) {
         <p class="hint">
-          Drag an access point to place/reposition it; click (without dragging) to group it with other APs that
-          are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
-          top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
-          its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Scroll to zoom.
-          Line thickness/brightness = signal strength; node size = number of connections.
+          Everything floats on springs (connections pull, nodes repel) unless pinned. Drag anything to nudge it;
+          click (without dragging) to open its menu — "Pin here" fixes it in place (persisted), "Unpin" lets it
+          float again. Scroll to zoom, drag empty space to pan. Line thickness/brightness = signal strength;
+          node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -76,9 +74,6 @@ interface ApGroup {
           </ion-button>
           <ion-button fill="outline" size="small" (click)="resetZoom()" [disabled]="zoom().scale === 1 && zoom().x === 0 && zoom().y === 0">
             Reset zoom
-          </ion-button>
-          <ion-button fill="outline" size="small" (click)="untangle()" [disabled]="untangling()">
-            {{ untangling() ? 'Untangling…' : 'Automatic untangle' }}
           </ion-button>
           <ion-input class="ssid-filter" fill="outline" placeholder="wifi1, wifi2, ..."
                      [(ngModel)]="apFilterInput" (keyup.enter)="applyApFilter()"></ion-input>
@@ -100,17 +95,14 @@ interface ApGroup {
             (pointerleave)="onPointerUp($event)"
             (wheel)="onWheel($event)"
           >
-            <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
-                  class="staging-divider" />
-
-            @if (showConnections()) {
+            @if (showConnections() && showAps()) {
               @for (e of visibleEdges(); track e.position + e.groupKey) {
                 <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
                       class="edge" [attr.stroke-width]="e.width / zoom().scale" [style.opacity]="e.opacity" />
               }
             }
 
-            @if (showBleLinks()) {
+            @if (showBleLinks() && showPis()) {
               @for (e of visibleBleEdges(); track e.position_a + e.position_b) {
                 <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
                       class="ble-edge" [attr.stroke-width]="e.width / zoom().scale" [style.opacity]="e.opacity" />
@@ -119,21 +111,21 @@ interface ApGroup {
 
             @if (showPis()) {
               @for (pi of piNodes(); track pi.mac) {
-                @if (pi.x !== null && pi.y !== null) {
-                  <g [attr.transform]="'translate(' + pi.x + ',' + pi.y + ')'" class="pi-node">
-                    <circle [attr.r]="scaledRadius(piDegree(pi.position))" />
-                    <text [attr.y]="-(scaledRadius(piDegree(pi.position)) + 6 / zoom().scale)"
-                          [style.font-size.px]="11 / zoom().scale" text-anchor="middle">{{ pi.position }}</text>
-                  </g>
-                }
+                <g [attr.transform]="'translate(' + posOf('pi:' + pi.position).x + ',' + posOf('pi:' + pi.position).y + ')'"
+                   class="pi-node" [class.pi-unpinned]="!pi.pinned"
+                   (pointerdown)="onNodePointerDown($event, 'pi', 'pi:' + pi.position, pi.pinned, undefined, pi.position)">
+                  <circle [attr.r]="scaledRadius(piDegree(pi.position))" />
+                  <text [attr.y]="-(scaledRadius(piDegree(pi.position)) + 6 / zoom().scale)"
+                        [style.font-size.px]="11 / zoom().scale" text-anchor="middle">{{ pi.position }}</text>
+                </g>
               }
             }
 
             @if (showAps()) {
               @for (ap of visibleApNodes(); track ap.key) {
-                <g [attr.transform]="'translate(' + dragPos(ap) + ')'"
-                   class="ap-node" [class.ap-unplaced]="!ap.placed"
-                   (pointerdown)="onPointerDown($event, ap)">
+                <g [attr.transform]="'translate(' + posOf('ap:' + ap.key).x + ',' + posOf('ap:' + ap.key).y + ')'"
+                   class="ap-node" [class.ap-unpinned]="!ap.pinned"
+                   (pointerdown)="onNodePointerDown($event, 'ap', 'ap:' + ap.key, ap.pinned, ap.bssids, undefined)">
                   <title>{{ apTitle(ap) }}</title>
                   <circle [attr.r]="scaledRadius(apDegree(ap.key))" />
                   <text [attr.y]="-(scaledRadius(apDegree(ap.key)) + 6 / zoom().scale)"
@@ -144,13 +136,8 @@ interface ApGroup {
           </svg>
         </div>
 
-        @if (unplacedCount() > 0) {
-          <p class="hint">{{ unplacedCount() }} access point(s) not yet placed — drag from the staging row above.</p>
-        }
-        @if (hiddenPiCount() > 0) {
-          <p class="hint">{{ hiddenPiCount() }} Pi(s) not shown — no <em>placed</em> AP seen in their latest WiFi
-          scan, and no BLE sighting of an already-positioned Pi either. Place an AP they can see (or get a
-          neighboring Pi positioned), then re-scan.</p>
+        @if (unpinnedApCount() > 0) {
+          <p class="hint">{{ unpinnedApCount() }} access point(s) not pinned — floating freely until you fix one.</p>
         }
       }
     </ion-content>
@@ -189,10 +176,15 @@ interface ApGroup {
     }
     .map-canvas.panning { cursor: grabbing; }
     .map-wrap.fullscreen .map-canvas { border-radius: 0; }
-    .staging-divider { stroke: #3a3a44; stroke-dasharray: 4 4; }
 
     .edge { stroke: #7fd8d0; stroke-linecap: round; transition: opacity 0.3s ease; }
-    .ble-edge { stroke: #c78bff; stroke-linecap: round; stroke-dasharray: 6 4; transition: opacity 0.3s ease; }
+    .ble-edge {
+      stroke: #e0a8ff;
+      stroke-linecap: round;
+      stroke-dasharray: 6 4;
+      transition: opacity 0.3s ease;
+      filter: drop-shadow(0 0 3px rgba(224, 168, 255, 0.7));
+    }
 
     .pi-node circle {
       fill: #5b8cff;
@@ -200,6 +192,7 @@ interface ApGroup {
       stroke-width: 1.5;
       filter: drop-shadow(0 0 4px rgba(91, 140, 255, 0.65));
     }
+    .pi-node.pi-unpinned circle { opacity: 0.75; filter: none; stroke-dasharray: 2 2; }
     .pi-node text { font-size: 11px; fill: #d6def5; }
 
     .ap-node { cursor: grab; }
@@ -209,7 +202,7 @@ interface ApGroup {
       stroke-width: 1.5;
       filter: drop-shadow(0 0 4px rgba(255, 180, 84, 0.6));
     }
-    .ap-node.ap-unplaced circle {
+    .ap-node.ap-unpinned circle {
       fill: #7d7d88;
       stroke: #a3a3ae;
       filter: none;
@@ -226,12 +219,11 @@ interface ApGroup {
     IonTitle, IonToolbar,
   ],
 })
-export class FloorMapPage {
+export class FloorMapPage implements OnDestroy {
   private readonly api = inject(ApiService);
 
   readonly viewW = VIEW_W;
   readonly viewH = VIEW_H;
-  readonly UNPLACED_ROW_Y = UNPLACED_ROW_Y;
 
   readonly map = signal<FloorMapResponse | null>(null);
   readonly loading = signal(false);
@@ -253,19 +245,29 @@ export class FloorMapPage {
   readonly showAps = signal(true);
   readonly showPis = signal(true);
   readonly fullscreen = signal(false);
-  readonly untangling = signal(false);
   /** x/y = viewBox min-corner, scale = zoom factor (viewBox width/height shrink as scale grows). */
   readonly zoom = signal({ scale: 1, x: 0, y: 0 });
   private readonly mapWrap = viewChild<ElementRef<HTMLDivElement>>('mapWrap');
 
-  readonly hiddenPiCount = () => this.piNodes().filter((p) => p.x === null || p.y === null).length;
-
   readonly panning = signal(false);
 
-  private dragging: { key: string; bssids: string[]; x: number; y: number; startScreen: { x: number; y: number } } | null = null;
+  private dragging: {
+    id: string; kind: 'pi' | 'ap'; wasPinned: boolean; bssids?: string[]; position?: string;
+    x: number; y: number; startScreen: { x: number; y: number };
+  } | null = null;
   private static readonly CLICK_THRESHOLD_PX = 4;
   private panStart: { clientX: number; clientY: number; zoom: { scale: number; x: number; y: number } } | null = null;
   private svgEl: SVGSVGElement | null = null;
+
+  /** Live simulation state — plain mutable maps, not signals. Zone.js patches requestAnimationFrame,
+   * so a normal change-detection pass runs after every tick and the template re-reads `posOf()`;
+   * no need to clone/re-signal a whole Map 60x/sec. */
+  private readonly simPos = new Map<string, { x: number; y: number }>();
+  private readonly simVel = new Map<string, { x: number; y: number }>();
+  private rafId: number | null = null;
+
+  private readonly actionSheets = inject(ActionSheetController);
+  private readonly alerts = inject(AlertController);
 
   constructor() {
     this.apFilterInput = localStorage.getItem(FloorMapPage.AP_FILTER_STORAGE_KEY) ?? '';
@@ -274,6 +276,11 @@ export class FloorMapPage {
     document.addEventListener('fullscreenchange', () => {
       this.fullscreen.set(document.fullscreenElement === this.mapWrap()?.nativeElement);
     });
+    this.rafId = requestAnimationFrame(this.tick);
+  }
+
+  ngOnDestroy(): void {
+    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
   }
 
   viewBoxStr(): string {
@@ -303,68 +310,132 @@ export class FloorMapPage {
     this.zoom.set({ scale: newScale, x: cursor.x - fracX * sizeNewX, y: cursor.y - fracY * sizeNewY });
   }
 
-  /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
-   * AP boxes repel each other (declutter overlap) and are pulled toward the Pis that see them,
-   * weighted by signal strength. Result is saved per-BSSID via the normal placement endpoint
-   * (every BSSID in a box moves together). */
-  async untangle(): Promise<void> {
-    const pis = this.piNodes().filter((p) => p.x !== null && p.y !== null) as Array<FloorMapPiNode & { x: number; y: number }>;
-    const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
-    for (const e of this.edges()) {
-      const pi = pis.find((p) => p.position === e.position);
-      if (!pi) continue;
-      const key = this.bssidToKey.get(e.bssid);
-      if (!key) continue;
-      const arr = edgesByKey.get(key) ?? [];
-      arr.push({ x: pi.x, y: pi.y, weight: this.rssiStrength(e.rssi) });
-      edgesByKey.set(key, arr);
-    }
+  // ─── Live spring simulation ────────────────────────────────────────────────
 
-    let groups = this.apNodes().map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
-    if (groups.length === 0) return;
-
-    this.untangling.set(true);
-    const REPULSION = 9000;
-    const ATTRACTION = 0.02;
-    const MARGIN = 30;
-    const MIN_Y = UNPLACED_ROW_Y + 40;
-    for (let iter = 0; iter < 250; iter++) {
-      const forces = groups.map(() => ({ fx: 0, fy: 0 }));
-      for (let i = 0; i < groups.length; i++) {
-        for (let j = i + 1; j < groups.length; j++) {
-          const dx = groups[i].x - groups[j].x;
-          const dy = groups[i].y - groups[j].y;
-          const distSq = Math.max(dx * dx + dy * dy, 1);
-          const dist = Math.sqrt(distSq);
-          const f = REPULSION / distSq;
-          const fx = (dx / dist) * f;
-          const fy = (dy / dist) * f;
-          forces[i].fx += fx; forces[i].fy += fy;
-          forces[j].fx -= fx; forces[j].fy -= fy;
-        }
-        for (const edge of edgesByKey.get(groups[i].key) ?? []) {
-          forces[i].fx += (edge.x - groups[i].x) * ATTRACTION * edge.weight;
-          forces[i].fy += (edge.y - groups[i].y) * ATTRACTION * edge.weight;
-        }
-      }
-      groups = groups.map((g, i) => ({
-        key: g.key,
-        bssids: g.bssids,
-        x: Math.min(Math.max(g.x + forces[i].fx, MARGIN), VIEW_W - MARGIN),
-        y: Math.min(Math.max(g.y + forces[i].fy, MIN_Y), VIEW_H - MARGIN),
-      }));
-    }
-
-    try {
-      const writes = groups.flatMap((g) => g.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, g.x, g.y))));
-      await Promise.all(writes);
-      await this.load();
-    } catch (e) {
-      this.error.set(errorMessage(e));
-    } finally {
-      this.untangling.set(false);
-    }
+  /** Current rendered position of a node (`pi:<position>` or `ap:<key>`). Falls back to canvas
+   * center before the first simulation tick has run (imperceptible — the loop starts immediately). */
+  posOf(id: string): { x: number; y: number } {
+    return this.simPos.get(id) ?? { x: VIEW_W / 2, y: VIEW_H / 2 };
   }
+
+  private hashStr(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+    return h;
+  }
+
+  private ensureSimPos(id: string, pinnedX: number | null, pinnedY: number | null): void {
+    if (this.simPos.has(id)) return;
+    if (pinnedX !== null && pinnedY !== null) {
+      this.simPos.set(id, { x: pinnedX, y: pinnedY });
+    } else {
+      const h = this.hashStr(id);
+      this.simPos.set(id, { x: 100 + (h % 800), y: 100 + ((h >> 8) % 500) });
+    }
+    this.simVel.set(id, { x: 0, y: 0 });
+  }
+
+  /** One relaxation step: all-pairs repulsion (declutter) + spring attraction along every
+   * WiFi (Pi<->AP) and BLE (Pi<->Pi) edge, weighted by signal strength (stronger = shorter,
+   * stiffer spring). Pinned nodes and whatever's being dragged are frozen each tick — they act
+   * as immovable anchors for everything else's springs, exactly like a real force-directed graph. */
+  private readonly tick = (): void => {
+    interface N { id: string; pinnedX: number | null; pinnedY: number | null }
+    const nodes: N[] = [
+      ...this.piNodes().map((p) => ({ id: `pi:${p.position}`, pinnedX: p.pinned ? p.x : null, pinnedY: p.pinned ? p.y : null })),
+      ...this.apNodes().map((a) => ({ id: `ap:${a.key}`, pinnedX: a.pinned ? a.x : null, pinnedY: a.pinned ? a.y : null })),
+    ];
+    for (const n of nodes) this.ensureSimPos(n.id, n.pinnedX, n.pinnedY);
+
+    interface Spring { a: string; b: string; weight: number }
+    const springs: Spring[] = [];
+    for (const e of this.edges()) {
+      const apKey = this.bssidToKey.get(e.bssid);
+      if (apKey) springs.push({ a: `pi:${e.position}`, b: `ap:${apKey}`, weight: this.rssiStrength(e.rssi) });
+    }
+    for (const e of this.bleEdges()) {
+      springs.push({ a: `pi:${e.position_a}`, b: `pi:${e.position_b}`, weight: this.rssiStrength(e.rssi) });
+    }
+
+    const REPULSION = 15000;
+    const SPRING_K = 0.02;
+    const SPRING_LEN = 120;
+    const DAMPING = 0.82;
+    const CENTER_PULL = 0.0008;
+
+    const posById = new Map(nodes.map((n) => [n.id, this.simPos.get(n.id)!]));
+    const forces = new Map<string, { x: number; y: number }>(nodes.map((n) => [n.id, { x: 0, y: 0 }]));
+
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = posById.get(nodes[i].id)!;
+        const b = posById.get(nodes[j].id)!;
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+        const distSq = Math.max(dx * dx + dy * dy, 25);
+        const dist = Math.sqrt(distSq);
+        const f = REPULSION / distSq;
+        const fx = (dx / dist) * f;
+        const fy = (dy / dist) * f;
+        const fa = forces.get(nodes[i].id)!;
+        fa.x += fx; fa.y += fy;
+        const fb = forces.get(nodes[j].id)!;
+        fb.x -= fx; fb.y -= fy;
+      }
+    }
+
+    for (const s of springs) {
+      const a = posById.get(s.a);
+      const b = posById.get(s.b);
+      if (!a || !b) continue;
+      const dx = b.x - a.x;
+      const dy = b.y - a.y;
+      const dist = Math.max(Math.hypot(dx, dy), 1);
+      const restLen = SPRING_LEN / Math.max(s.weight, 0.1);
+      const k = SPRING_K * (0.3 + s.weight);
+      const stretch = dist - restLen;
+      const fx = (dx / dist) * stretch * k;
+      const fy = (dy / dist) * stretch * k;
+      const fa = forces.get(s.a);
+      if (fa) { fa.x += fx; fa.y += fy; }
+      const fb = forces.get(s.b);
+      if (fb) { fb.x -= fx; fb.y -= fy; }
+    }
+
+    for (const n of nodes) {
+      const pos = this.simPos.get(n.id)!;
+      if (this.dragging?.id === n.id) {
+        pos.x = this.dragging.x;
+        pos.y = this.dragging.y;
+        this.simVel.set(n.id, { x: 0, y: 0 });
+        continue;
+      }
+      if (n.pinnedX !== null && n.pinnedY !== null) {
+        pos.x = n.pinnedX;
+        pos.y = n.pinnedY;
+        this.simVel.set(n.id, { x: 0, y: 0 });
+        continue;
+      }
+      const f = forces.get(n.id)!;
+      f.x += (VIEW_W / 2 - pos.x) * CENTER_PULL;
+      f.y += (VIEW_H / 2 - pos.y) * CENTER_PULL;
+      const vel = this.simVel.get(n.id)!;
+      vel.x = (vel.x + f.x) * DAMPING;
+      vel.y = (vel.y + f.y) * DAMPING;
+      pos.x += vel.x;
+      pos.y += vel.y;
+    }
+
+    const liveIds = new Set(nodes.map((n) => n.id));
+    for (const id of [...this.simPos.keys()]) {
+      if (!liveIds.has(id)) {
+        this.simPos.delete(id);
+        this.simVel.delete(id);
+      }
+    }
+
+    this.rafId = requestAnimationFrame(this.tick);
+  };
 
   async toggleFullscreen(): Promise<void> {
     const el = this.mapWrap()?.nativeElement;
@@ -393,54 +464,49 @@ export class FloorMapPage {
     }
   }
 
-  /** bssid → ApGroup.key. Lets apDegree/visibleEdges/untangle resolve a raw BSSID to its box. */
+  /** bssid → ApGroup.key. Lets apDegree/visibleEdges/the simulation resolve a raw BSSID to its box. */
   private bssidToKey = new Map<string, string>();
 
   /** One box per `group_name` (several BSSIDs manually grouped — see `openApMenu`), or per
-   * BSSID when ungrouped. Unplaced boxes get staged along the top row so they don't overlap. */
+   * BSSID when ungrouped. */
   private groupAccessPoints(aps: AccessPointOut[]): ApGroup[] {
     this.bssidToKey = new Map();
     const groups = new Map<string, ApGroup>();
     for (const ap of aps) {
       const key = ap.group_name ?? ap.bssid;
-      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, placed: false };
+      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, pinned: false };
       g.bssids.push(ap.bssid);
       const ssidsToAdd = ap.ssid ? [...ap.ssids, ap.ssid] : ap.ssids;
       for (const s of ssidsToAdd) {
         if (!g.ssids.includes(s)) g.ssids.push(s);
       }
-      if (!g.placed && ap.x !== null && ap.y !== null) {
+      if (!g.pinned && ap.x !== null && ap.y !== null) {
         g.x = ap.x;
         g.y = ap.y;
-        g.placed = true;
+        g.pinned = true;
       }
       groups.set(key, g);
       this.bssidToKey.set(ap.bssid, key);
     }
-
-    const all = [...groups.values()];
-    const placed = all.filter((g) => g.placed);
-    const unplaced = all.filter((g) => !g.placed);
-    const staged = unplaced.map((g, i) => ({ ...g, x: 40 + i * 60, y: UNPLACED_ROW_Y }));
-    return [...placed, ...staged];
+    return [...groups.values()];
   }
 
-  /** Click (without dragging) an AP box to assign it to a manual group — "Group to:" with a
-   * "New group…" option and every existing group name listed. BSSIDs sharing a group render
-   * as one box. */
-  private readonly actionSheets = inject(ActionSheetController);
-  private readonly alerts = inject(AlertController);
-
+  /** Click (without dragging) an AP box: pin/unpin, or assign it to a manual group — "Group to:"
+   * with a "New group…" option and every existing group name listed. BSSIDs sharing a group
+   * render as one box. */
   async openApMenu(ap: ApGroup): Promise<void> {
     let groups: string[] = [];
     try {
       groups = await firstValueFrom(this.api.listAccessPointGroups());
     } catch {
-      // non-fatal — menu still works with just "New group…"
+      // non-fatal — menu still works without the group list
     }
     const currentlyGrouped = groups.includes(ap.key);
 
     const buttons: Array<{ text: string; role?: string; handler?: () => void }> = [
+      ap.pinned
+        ? { text: 'Unpin', handler: () => void this.unpinAp(ap) }
+        : { text: 'Pin here', handler: () => void this.pinApAtCurrentPos(ap) },
       { text: 'New group…', handler: () => void this.promptNewGroup(ap) },
       ...groups.filter((g) => g !== ap.key).map((g) => ({ text: g, handler: () => void this.assignGroup(ap, g) })),
     ];
@@ -449,8 +515,59 @@ export class FloorMapPage {
     }
     buttons.push({ text: 'Cancel', role: 'cancel' });
 
-    const sheet = await this.actionSheets.create({ header: `Group "${this.apLabel(ap)}" to:`, buttons });
+    const sheet = await this.actionSheets.create({ header: this.apLabel(ap), buttons });
     await sheet.present();
+  }
+
+  async openPiMenu(pi: FloorMapPiNode): Promise<void> {
+    const buttons: Array<{ text: string; role?: string; handler?: () => void }> = [
+      pi.pinned
+        ? { text: 'Unpin', role: 'destructive', handler: () => void this.unpinPi(pi.position) }
+        : { text: 'Pin here', handler: () => void this.pinPiAtCurrentPos(pi.position) },
+      { text: 'Cancel', role: 'cancel' },
+    ];
+    const sheet = await this.actionSheets.create({ header: `Pi ${pi.position}`, buttons });
+    await sheet.present();
+  }
+
+  private async pinApAtCurrentPos(ap: ApGroup): Promise<void> {
+    const pos = this.simPos.get(`ap:${ap.key}`);
+    if (!pos) return;
+    try {
+      await Promise.all(ap.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, pos.x, pos.y))));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
+  private async unpinAp(ap: ApGroup): Promise<void> {
+    try {
+      await Promise.all(ap.bssids.map((bssid) => firstValueFrom(this.api.unpinAccessPoint(bssid))));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
+  private async pinPiAtCurrentPos(position: string): Promise<void> {
+    const pos = this.simPos.get(`pi:${position}`);
+    if (!pos) return;
+    try {
+      await firstValueFrom(this.api.pinPi(position, pos.x, pos.y));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
+  private async unpinPi(position: string): Promise<void> {
+    try {
+      await firstValueFrom(this.api.unpinPi(position));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
   }
 
   private async promptNewGroup(ap: ApGroup): Promise<void> {
@@ -521,15 +638,8 @@ export class FloorMapPage {
     return this.apNodes().filter((g) => g.ssids.some((s) => terms.some((t) => s.toLowerCase().includes(t))));
   }
 
-  unplacedCount(): number {
-    return this.visibleApNodes().filter((g) => !g.placed).length;
-  }
-
-  dragPos(ap: ApGroup): string {
-    if (this.dragging && this.dragging.key === ap.key) {
-      return `${this.dragging.x},${this.dragging.y}`;
-    }
-    return `${ap.x},${ap.y}`;
+  unpinnedApCount(): number {
+    return this.visibleApNodes().filter((g) => !g.pinned).length;
   }
 
   /** Node size reflects its connection count, like Obsidian's graph view. */
@@ -565,41 +675,34 @@ export class FloorMapPage {
     return this.edges().filter((e) => this.bssidToKey.get(e.bssid) === key).length;
   }
 
-  /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity).
-   * Only to APs that survive the SSID filter — a filtered-out box's connections disappear too. */
+  /** Edges with both endpoints resolved to their live simulated position, weighted by RSSI
+   * (stroke width/opacity). Only to APs that survive the SSID filter — a filtered-out box's
+   * connections disappear too. */
   visibleEdges(): Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
-    const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
     const apByKey = new Map(this.visibleApNodes().map((a) => [a.key, a]));
     const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const e of this.edges()) {
-      const pi = piByPosition.get(e.position);
       const groupKey = this.bssidToKey.get(e.bssid);
-      if (!groupKey) continue;
-      const ap = apByKey.get(groupKey);
-      if (!pi || pi.x === null || pi.y === null || !ap) continue;
-      const [ax, ay] = this.dragPos(ap).split(',').map(Number);
-      if (Number.isNaN(ax) || Number.isNaN(ay)) continue;
+      if (!groupKey || !apByKey.has(groupKey)) continue;
+      const piPos = this.posOf(`pi:${e.position}`);
+      const apPos = this.posOf(`ap:${groupKey}`);
       const strength = this.rssiStrength(e.rssi);
       out.push({
-        position: e.position, groupKey, x1: pi.x, y1: pi.y, x2: ax, y2: ay,
+        position: e.position, groupKey, x1: piPos.x, y1: piPos.y, x2: apPos.x, y2: apPos.y,
         width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
       });
     }
     return out;
   }
 
-  /** Pi<->Pi BLE sightings with both endpoints resolved to canvas coordinates — only drawable
-   * once at least one end has a (WiFi-derived) position; a link between two still-unpositioned
-   * Pis has nowhere to be drawn. */
+  /** Pi<->Pi BLE sightings, both endpoints at their live simulated position. */
   visibleBleEdges(): Array<PiBleEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
-    const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
     const out: Array<PiBleEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const e of this.bleEdges()) {
-      const a = piByPosition.get(e.position_a);
-      const b = piByPosition.get(e.position_b);
-      if (!a || !b || a.x === null || a.y === null || b.x === null || b.y === null) continue;
+      const a = this.posOf(`pi:${e.position_a}`);
+      const b = this.posOf(`pi:${e.position_b}`);
       const strength = this.rssiStrength(e.rssi);
-      out.push({ ...e, x1: a.x, y1: a.y, x2: b.x, y2: b.y, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
+      out.push({ ...e, x1: a.x, y1: a.y, x2: b.x, y2: b.y, width: 1.5 + strength * 3.5, opacity: 0.5 + strength * 0.5 });
     }
     return out;
   }
@@ -609,15 +712,17 @@ export class FloorMapPage {
     return (clamped - RSSI_WEAK) / (RSSI_STRONG - RSSI_WEAK);
   }
 
-  onPointerDown(event: PointerEvent, ap: ApGroup): void {
+  onNodePointerDown(
+    event: PointerEvent, kind: 'pi' | 'ap', id: string, wasPinned: boolean, bssids?: string[], position?: string,
+  ): void {
     event.stopPropagation(); // don't also start a background pan
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
-    this.dragging = { key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y, startScreen: { x: event.clientX, y: event.clientY } };
+    this.dragging = { id, kind, wasPinned, bssids, position, x: pt.x, y: pt.y, startScreen: { x: event.clientX, y: event.clientY } };
   }
 
-  /** Pointerdown on empty canvas (not an AP node, which stops propagation) — pan the view. */
+  /** Pointerdown on empty canvas (not a node, which stops propagation) — pan the view. */
   onBackgroundPointerDown(event: PointerEvent): void {
     if (this.dragging) return;
     this.svgEl = event.currentTarget as SVGSVGElement;
@@ -641,24 +746,37 @@ export class FloorMapPage {
     }
   }
 
+  /** Drag release: a near-zero-movement "drag" is treated as a click (opens the pin/group menu).
+   * A real drag only persists (pins) the node if it was *already* pinned before the drag — dragging
+   * a free-floating node just drops it there and lets the simulation keep going from that spot;
+   * nothing becomes fixed unless you explicitly say so via the menu. */
   async onPointerUp(event?: PointerEvent): Promise<void> {
     this.panStart = null;
     this.panning.set(false);
     if (!this.dragging) return;
-    const { key, bssids, x, y, startScreen } = this.dragging;
+    const { id, kind, wasPinned, bssids, position, x, y, startScreen } = this.dragging;
     this.dragging = null;
 
-    const moved = event
-      ? Math.hypot(event.clientX - startScreen.x, event.clientY - startScreen.y)
-      : Infinity;
+    const moved = event ? Math.hypot(event.clientX - startScreen.x, event.clientY - startScreen.y) : Infinity;
     if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
-      const ap = this.apNodes().find((a) => a.key === key) ?? { key, bssids, ssids: [], x: null, y: null, placed: false };
-      await this.openApMenu(ap);
+      if (kind === 'ap') {
+        const key = id.slice(3);
+        const ap = this.apNodes().find((a) => a.key === key) ?? { key, bssids: bssids ?? [], ssids: [], x: null, y: null, pinned: false };
+        await this.openApMenu(ap);
+      } else if (position) {
+        const pi = this.piNodes().find((p) => p.position === position);
+        if (pi) await this.openPiMenu(pi);
+      }
       return;
     }
 
+    if (!wasPinned) return; // free node — stays free, dropped position is purely client-side
     try {
-      await Promise.all(bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, x, y))));
+      if (kind === 'ap' && bssids) {
+        await Promise.all(bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, x, y))));
+      } else if (kind === 'pi' && position) {
+        await firstValueFrom(this.api.pinPi(position, x, y));
+      }
       await this.load();
     } catch (e) {
       this.error.set(errorMessage(e));
