@@ -1,6 +1,6 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
-import { Observable } from 'rxjs';
+import { Observable, map } from 'rxjs';
 
 import { API } from './auth.service';
 import {
@@ -118,12 +118,59 @@ export class ApiService {
   }
 
   // ── Settings (admin) ───────────────────────────────────────────────────────
+  // Backend's wire shape doesn't match the Settings model: GET nests ssh/network but names
+  // the key path field `private_key_path`, and PATCH wants a *flat* body (`ssh_key_path`,
+  // `timeout_s`, `subnet`, ...) — see backend/routes/settings.py. Translate both ways here
+  // so the rest of the app can work with the clean nested Settings shape.
   getSettings(): Observable<Settings> {
-    return this.http.get<Settings>(`${API}/settings`);
+    return this.http.get<{ ssh: Record<string, unknown>; network: Settings['network'] }>(`${API}/settings`).pipe(
+      map((raw) => ({
+        ssh: {
+          key_path: raw.ssh['private_key_path'] as string,
+          username: raw.ssh['username'] as string,
+          timeout_s: raw.ssh['timeout_s'] as number,
+          retry_count: raw.ssh['retry_count'] as number,
+          retry_delay_s: raw.ssh['retry_delay_s'] as number,
+          parallel_limit: raw.ssh['parallel_limit'] as number,
+        },
+        network: raw.network,
+      })),
+    );
   }
 
   patchSettings(body: Partial<Settings>): Observable<Settings> {
-    return this.http.patch<Settings>(`${API}/settings`, body);
+    const flat: Record<string, unknown> = {};
+    if (body.ssh) {
+      const s = body.ssh;
+      if (s.key_path !== undefined) flat['ssh_key_path'] = s.key_path;
+      if (s.username !== undefined) flat['username'] = s.username;
+      if (s.timeout_s !== undefined) flat['timeout_s'] = s.timeout_s;
+      if (s.retry_count !== undefined) flat['retry_count'] = s.retry_count;
+      if (s.retry_delay_s !== undefined) flat['retry_delay_s'] = s.retry_delay_s;
+      if (s.parallel_limit !== undefined) flat['parallel_limit'] = s.parallel_limit;
+    }
+    if (body.network) {
+      const n = body.network;
+      if (n.subnet !== undefined) flat['subnet'] = n.subnet;
+      if (n.probe_ssh !== undefined) flat['probe_ssh'] = n.probe_ssh;
+      if (n.probe_timeout_s !== undefined) flat['probe_timeout_s'] = n.probe_timeout_s;
+      if (n.probe_username !== undefined) flat['probe_username'] = n.probe_username;
+      if (n.probe_auth !== undefined) flat['probe_auth'] = n.probe_auth;
+      if (n.probe_deploy_key !== undefined) flat['probe_deploy_key'] = n.probe_deploy_key;
+    }
+    return this.http.patch<{ ssh: Record<string, unknown>; network: Settings['network'] }>(`${API}/settings`, flat).pipe(
+      map((raw) => ({
+        ssh: {
+          key_path: raw.ssh['private_key_path'] as string,
+          username: raw.ssh['username'] as string,
+          timeout_s: raw.ssh['timeout_s'] as number,
+          retry_count: raw.ssh['retry_count'] as number,
+          retry_delay_s: raw.ssh['retry_delay_s'] as number,
+          parallel_limit: raw.ssh['parallel_limit'] as number,
+        },
+        network: raw.network,
+      })),
+    );
   }
 
   testSSH(ip: string): Observable<SSHTestResult> {
