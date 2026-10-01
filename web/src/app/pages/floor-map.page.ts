@@ -367,6 +367,16 @@ export class FloorMapPage implements OnDestroy {
     const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
     const AP_AP_SHARED_PI_MULT = 0.45; // ...unless they both serve the same Pi — let those sit closer
     const PI_AP_ATTRACT = 0.03; // gentle pull drawing every Pi toward every AP, even without a direct edge
+    const PI_PI_UNLINKED_MULT = 2.2; // Pis with no BLE sighting between them push apart harder
+
+    // Pi pairs with a direct BLE sighting — those are left at normal repulsion so their spring can win.
+    const linkedPiPairs = new Set<string>();
+    for (const s of springs) {
+      if (s.a.startsWith('pi:') && s.b.startsWith('pi:')) {
+        linkedPiPairs.add(`${s.a}|${s.b}`);
+        linkedPiPairs.add(`${s.b}|${s.a}`);
+      }
+    }
 
     // Two APs "share a Pi" if some Pi has a WiFi edge to both — softens their mutual repulsion.
     const apsByPi = new Map<string, Set<string>>();
@@ -413,7 +423,8 @@ export class FloorMapPage implements OnDestroy {
           // overshoot, and ping-pong, which read as the whole map jumping around.
           f = REPULSION / distSq - PI_AP_ATTRACT * Math.min(dist, 200);
         } else {
-          f = REPULSION / distSq;
+          const mult = linkedPiPairs.has(`${idA}|${idB}`) ? 1 : PI_PI_UNLINKED_MULT;
+          f = (REPULSION * mult) / distSq;
         }
 
         const fx = (dx / dist) * f;
