@@ -363,6 +363,7 @@ export class FloorMapPage implements OnDestroy {
     const SPRING_LEN = 120;
     const DAMPING = 0.82;
     const CENTER_PULL = 0.0008;
+    const MAX_SPEED = 25; // per-tick speed cap — stops any force spike from snapping a node across the map
     const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
     const AP_AP_SHARED_PI_MULT = 0.45; // ...unless they both serve the same Pi — let those sit closer
     const PI_AP_ATTRACT = 0.012; // gentle pull drawing every Pi toward every AP, even without a direct edge
@@ -407,7 +408,10 @@ export class FloorMapPage implements OnDestroy {
           const mult = sharedApPairs.has(`${idA}|${idB}`) ? AP_AP_SHARED_PI_MULT : AP_AP_DRIFT_MULT;
           f = (REPULSION * mult) / distSq;
         } else if (aIsAp !== bIsAp) {
-          f = REPULSION / distSq - Math.min(PI_AP_ATTRACT * dist, 40);
+          // Cap the distance fed into the pull — growing it unboundedly with raw `dist` made
+          // far-apart nodes (common right after a random initial placement) get yanked hard,
+          // overshoot, and ping-pong, which read as the whole map jumping around.
+          f = REPULSION / distSq - PI_AP_ATTRACT * Math.min(dist, 200);
         } else {
           f = REPULSION / distSq;
         }
@@ -459,6 +463,11 @@ export class FloorMapPage implements OnDestroy {
       const vel = this.simVel.get(n.id)!;
       vel.x = (vel.x + f.x) * DAMPING;
       vel.y = (vel.y + f.y) * DAMPING;
+      const speed = Math.hypot(vel.x, vel.y);
+      if (speed > MAX_SPEED) {
+        vel.x = (vel.x / speed) * MAX_SPEED;
+        vel.y = (vel.y / speed) * MAX_SPEED;
+      }
       pos.x += vel.x;
       pos.y += vel.y;
     }
