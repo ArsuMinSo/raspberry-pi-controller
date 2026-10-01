@@ -412,6 +412,7 @@ class FleetSummary(BaseModel):
 class AccessPointOut(BaseModel):
     bssid: str
     ssid: str | None
+    ssids: list[str]
     x: float | None
     y: float | None
     updated_at: datetime
@@ -432,9 +433,16 @@ class FloorMapPiNode(BaseModel):
     last_scan_at: datetime | None
 
 
+class FloorMapEdge(BaseModel):
+    position: str
+    bssid: str
+    rssi: int
+
+
 class FloorMapResponse(BaseModel):
     access_points: list[AccessPointOut]
     pis: list[FloorMapPiNode]
+    edges: list[FloorMapEdge]
 
 
 class BleDeviceSeen(BaseModel):

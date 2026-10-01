@@ -218,6 +218,7 @@ export interface ScheduledTaskUpdate {
 export interface AccessPointOut {
   bssid: string;
   ssid: string | null;
+  ssids: string[];
   x: number | null;
   y: number | null;
   updated_at: string;
@@ -231,9 +232,16 @@ export interface FloorMapPiNode {
   last_scan_at: string | null;
 }
 
+export interface FloorMapEdge {
+  position: string;
+  bssid: string;
+  rssi: number;
+}
+
 export interface FloorMapResponse {
   access_points: AccessPointOut[];
   pis: FloorMapPiNode[];
+  edges: FloorMapEdge[];
 }
 
 export interface BleDeviceSeen {

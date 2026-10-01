@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from backend.config import SSHSettings, effective_ssh_settings
 from backend.models import AccessPoint, BleScan, Pi, WifiScan
-from backend.schemas import AccessPointOut, BleDeviceSeen, FloorMapPiNode, FloorMapResponse
+from backend.schemas import AccessPointOut, BleDeviceSeen, FloorMapEdge, FloorMapPiNode, FloorMapResponse
 from backend.services import audit_log as al
 from backend.services import jobs
 from backend.services.ssh_executor import execute
@@ -114,14 +114,29 @@ def parse_ble_scan(raw: str) -> list[BleReading]:
 
 
 def _upsert_access_points(db: Session, readings: list[WifiReading]) -> None:
-    """Auto-register any BSSID never seen before, unplaced (x/y NULL)."""
-    seen = {r.bssid for r in readings}
-    if not seen:
+    """Auto-register any BSSID never seen before (unplaced, x/y NULL), and merge in any
+    SSID name not seen before for a BSSID already known — the same AP can broadcast
+    (or have broadcast) more than one SSID string across scans."""
+    seen_ssids: dict[str, set[str]] = {}
+    for r in readings:
+        if r.ssid:
+            seen_ssids.setdefault(r.bssid, set()).add(r.ssid)
+    if not seen_ssids and not readings:
         return
-    existing = {ap.bssid for ap in db.query(AccessPoint.bssid).filter(AccessPoint.bssid.in_(seen)).all()}
-    ssid_by_bssid = {r.bssid: r.ssid for r in readings}
-    for bssid in seen - existing:
-        db.add(AccessPoint(bssid=bssid, ssid=ssid_by_bssid.get(bssid)))
+
+    seen = {r.bssid for r in readings}
+    existing_aps = {ap.bssid: ap for ap in db.query(AccessPoint).filter(AccessPoint.bssid.in_(seen)).all()}
+    for bssid in seen - existing_aps.keys():
+        ssids = sorted(seen_ssids.get(bssid, set()))
+        db.add(AccessPoint(bssid=bssid, ssid=ssids[0] if ssids else None, ssids=ssids))
+
+    for bssid, ap in existing_aps.items():
+        new_names = seen_ssids.get(bssid, set()) - set(ap.ssids or [])
+        if new_names:
+            ap.ssids = sorted(set(ap.ssids or []) | new_names)
+            if not ap.ssid:
+                ap.ssid = ap.ssids[0]
+
     db.commit()
 
 
@@ -266,6 +281,23 @@ def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
     return (wx / total_weight, wy / total_weight)
 
 
+def get_latest_wifi_edges(db: Session) -> list[FloorMapEdge]:
+    """Latest wifi_scans reading per (Pi, AP) pair within the lookback window — the
+    graph edges, weighted by RSSI on the frontend (stronger signal = thicker/brighter line)."""
+    cutoff = datetime.now(timezone.utc) - SCAN_LOOKBACK
+    rows = (
+        db.query(Pi.position, WifiScan.bssid, WifiScan.rssi)
+        .join(WifiScan, WifiScan.mac == Pi.mac)
+        .filter(WifiScan.timestamp >= cutoff)
+        .order_by(WifiScan.timestamp.desc())
+        .all()
+    )
+    latest: dict[tuple[str, str], int] = {}
+    for position, bssid, rssi in rows:
+        latest.setdefault((position, bssid), rssi)
+    return [FloorMapEdge(position=position, bssid=bssid, rssi=rssi) for (position, bssid), rssi in latest.items()]
+
+
 def get_floor_map(db: Session) -> FloorMapResponse:
     aps = [AccessPointOut.model_validate(ap) for ap in db.query(AccessPoint).all()]
 
@@ -283,7 +315,7 @@ def get_floor_map(db: Session) -> FloorMapResponse:
             last_scan_at=last_scan.get(pi.mac),
         ))
 
-    return FloorMapResponse(access_points=aps, pis=pi_nodes)
+    return FloorMapResponse(access_points=aps, pis=pi_nodes, edges=get_latest_wifi_edges(db))
 
 
 def get_ble_devices_for_position(db: Session, position: str) -> list[BleDeviceSeen]:

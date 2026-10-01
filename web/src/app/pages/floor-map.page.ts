@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import {
   IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
@@ -6,12 +6,16 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { errorMessage } from '../core/errors';
-import { AccessPointOut, FloorMapPiNode, FloorMapResponse } from '../core/models';
+import { AccessPointOut, FloorMapEdge, FloorMapPiNode, FloorMapResponse } from '../core/models';
 
 /** View-box is a fixed logical size; drag positions are stored in these units. */
 const VIEW_W = 1000;
 const VIEW_H = 700;
 const UNPLACED_ROW_Y = 40;
+
+/** RSSI range used to turn a signal reading into an edge weight (0..1). Typical indoor WiFi: ~-30 (strong) to ~-90 (weak). */
+const RSSI_STRONG = -30;
+const RSSI_WEAK = -90;
 
 @Component({
   selector: 'app-floor-map',
@@ -29,7 +33,7 @@ const UNPLACED_ROW_Y = 40;
         </ion-buttons>
       </ion-toolbar>
     </ion-header>
-    <ion-content class="ion-padding">
+    <ion-content class="ion-padding graph-bg">
       @if (error()) { <ion-text color="danger"><p>{{ error() }}</p></ion-text> }
       @if (statusMsg()) { <ion-text color="medium"><p>{{ statusMsg() }}</p></ion-text> }
       @if (loading() && !map()) {
@@ -40,36 +44,64 @@ const UNPLACED_ROW_Y = 40;
         <p class="hint">
           Drag an access point to place/reposition it. Unplaced APs (seen in a scan, never placed) sit in the
           staging row at the top. Pi position is estimated from the latest WiFi scan and isn't draggable.
+          Line thickness/brightness = signal strength; node size = number of connections.
         </p>
 
-        <svg
-          [attr.viewBox]="'0 0 ' + viewW + ' ' + viewH"
-          class="map-canvas"
-          (pointermove)="onPointerMove($event)"
-          (pointerup)="onPointerUp()"
-          (pointerleave)="onPointerUp()"
-        >
-          <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
-                class="staging-divider" />
+        <div class="filter-row">
+          <ion-button fill="outline" size="small" [color]="showConnections() ? 'primary' : 'medium'"
+                      (click)="showConnections.set(!showConnections())">Connections</ion-button>
+          <ion-button fill="outline" size="small" [color]="showAps() ? 'primary' : 'medium'"
+                      (click)="showAps.set(!showAps())">APs</ion-button>
+          <ion-button fill="outline" size="small" [color]="showPis() ? 'primary' : 'medium'"
+                      (click)="showPis.set(!showPis())">Pis</ion-button>
+          <ion-button fill="outline" size="small" (click)="toggleFullscreen()">
+            <ion-icon slot="icon-only" [name]="fullscreen() ? 'contract-outline' : 'expand-outline'"></ion-icon>
+          </ion-button>
+        </div>
 
-          @for (pi of piNodes(); track pi.mac) {
-            @if (pi.x !== null && pi.y !== null) {
-              <g [attr.transform]="'translate(' + pi.x + ',' + pi.y + ')'" class="pi-node">
-                <circle r="10" />
-                <text y="-16" text-anchor="middle">{{ pi.position }}</text>
-              </g>
+        <div class="map-wrap" #mapWrap [class.fullscreen]="fullscreen()">
+          <svg
+            [attr.viewBox]="'0 0 ' + viewW + ' ' + viewH"
+            class="map-canvas"
+            preserveAspectRatio="xMidYMid meet"
+            (pointermove)="onPointerMove($event)"
+            (pointerup)="onPointerUp()"
+            (pointerleave)="onPointerUp()"
+          >
+            <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
+                  class="staging-divider" />
+
+            @if (showConnections()) {
+              @for (e of visibleEdges(); track e.position + e.bssid) {
+                <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
+                      class="edge" [attr.stroke-width]="e.width" [style.opacity]="e.opacity" />
+              }
             }
-          }
 
-          @for (ap of apNodes(); track ap.bssid) {
-            <g [attr.transform]="'translate(' + dragPos(ap) + ')'"
-               class="ap-node" [class.ap-unplaced]="ap.x === null"
-               (pointerdown)="onPointerDown($event, ap)">
-              <rect x="-9" y="-9" width="18" height="18" />
-              <text y="-14" text-anchor="middle">{{ ap.ssid || ap.bssid }}</text>
-            </g>
-          }
-        </svg>
+            @if (showPis()) {
+              @for (pi of piNodes(); track pi.mac) {
+                @if (pi.x !== null && pi.y !== null) {
+                  <g [attr.transform]="'translate(' + pi.x + ',' + pi.y + ')'" class="pi-node">
+                    <circle [attr.r]="nodeRadius(piDegree(pi.position))" />
+                    <text [attr.y]="-(nodeRadius(piDegree(pi.position)) + 6)" text-anchor="middle">{{ pi.position }}</text>
+                  </g>
+                }
+              }
+            }
+
+            @if (showAps()) {
+              @for (ap of apNodes(); track ap.bssid) {
+                <g [attr.transform]="'translate(' + dragPos(ap) + ')'"
+                   class="ap-node" [class.ap-unplaced]="ap.x === null"
+                   (pointerdown)="onPointerDown($event, ap)">
+                  <title>{{ apTitle(ap) }}</title>
+                  <circle [attr.r]="nodeRadius(apDegree(ap.bssid))" />
+                  <text [attr.y]="-(nodeRadius(apDegree(ap.bssid)) + 6)" text-anchor="middle">{{ apLabel(ap) }}</text>
+                </g>
+              }
+            }
+          </svg>
+        </div>
 
         @if (unplacedCount() > 0) {
           <p class="hint">{{ unplacedCount() }} access point(s) not yet placed — drag from the staging row above.</p>
@@ -79,21 +111,65 @@ const UNPLACED_ROW_Y = 40;
   `,
   styles: [`
     .hint { color: var(--ion-color-medium); font-size: 0.85rem; margin: 4px 0 12px; }
+
+    .graph-bg { --background: #1b1b1f; }
+
+    .filter-row { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+
+    .map-wrap {
+      width: 100%;
+      max-width: 1400px;
+      margin: 0 auto;
+      aspect-ratio: 1000 / 700;
+      max-height: 82vh;
+    }
+    .map-wrap.fullscreen {
+      max-width: none;
+      max-height: none;
+      width: 100vw;
+      height: 100vh;
+      aspect-ratio: auto;
+    }
     .map-canvas {
       width: 100%;
-      height: 70vh;
-      background: var(--ion-color-light, #f4f4f4);
-      border: 1px solid var(--ion-color-step-200, #ddd);
-      border-radius: 8px;
+      height: 100%;
+      display: block;
+      background: radial-gradient(circle at 50% 45%, #262630 0%, #19191d 75%);
+      border: 1px solid #33333c;
+      border-radius: 10px;
       touch-action: none;
     }
-    .staging-divider { stroke: var(--ion-color-step-300, #ccc); stroke-dasharray: 4 4; }
-    .pi-node circle { fill: var(--ion-color-primary, #3880ff); }
-    .pi-node text { font-size: 11px; fill: var(--ion-color-dark, #222); }
+    .map-wrap.fullscreen .map-canvas { border-radius: 0; }
+    .staging-divider { stroke: #3a3a44; stroke-dasharray: 4 4; }
+
+    .edge { stroke: #7fd8d0; stroke-linecap: round; transition: opacity 0.3s ease; }
+
+    .pi-node circle {
+      fill: #5b8cff;
+      stroke: #a9c1ff;
+      stroke-width: 1.5;
+      filter: drop-shadow(0 0 4px rgba(91, 140, 255, 0.65));
+    }
+    .pi-node text { font-size: 11px; fill: #d6def5; }
+
     .ap-node { cursor: grab; }
-    .ap-node rect { fill: var(--ion-color-warning, #ffc409); stroke: #8a6d00; stroke-width: 1; }
-    .ap-node.ap-unplaced rect { fill: var(--ion-color-medium, #92949c); stroke: #555; }
-    .ap-node text { font-size: 10px; fill: var(--ion-color-dark, #222); pointer-events: none; }
+    .ap-node circle {
+      fill: #ffb454;
+      stroke: #ffd9a0;
+      stroke-width: 1.5;
+      filter: drop-shadow(0 0 4px rgba(255, 180, 84, 0.6));
+    }
+    .ap-node.ap-unplaced circle {
+      fill: #7d7d88;
+      stroke: #a3a3ae;
+      filter: none;
+    }
+    .ap-node text { font-size: 10px; fill: #d6def5; pointer-events: none; }
+
+    @media (max-width: 600px) {
+      .map-wrap { max-height: 68vh; }
+      .pi-node text, .ap-node text { font-size: 13px; }
+    }
   `],
   imports: [IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonMenuButton, IonSpinner, IonText, IonTitle, IonToolbar],
 })
@@ -112,13 +188,33 @@ export class FloorMapPage {
 
   readonly piNodes = signal<FloorMapPiNode[]>([]);
   readonly apNodes = signal<AccessPointOut[]>([]);
+  readonly edges = signal<FloorMapEdge[]>([]);
   readonly unplacedCount = signal(0);
+
+  readonly showConnections = signal(true);
+  readonly showAps = signal(true);
+  readonly showPis = signal(true);
+  readonly fullscreen = signal(false);
+  private readonly mapWrap = viewChild<ElementRef<HTMLDivElement>>('mapWrap');
 
   private dragging: { bssid: string; x: number; y: number } | null = null;
   private svgEl: SVGSVGElement | null = null;
 
   constructor() {
     this.load();
+    document.addEventListener('fullscreenchange', () => {
+      this.fullscreen.set(document.fullscreenElement === this.mapWrap()?.nativeElement);
+    });
+  }
+
+  async toggleFullscreen(): Promise<void> {
+    const el = this.mapWrap()?.nativeElement;
+    if (!el) return;
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await el.requestFullscreen();
+    }
   }
 
   async load(): Promise<void> {
@@ -134,6 +230,7 @@ export class FloorMapPage {
       const staged = unplaced.map((a, i) => ({ ...a, x: 40 + i * 60, y: UNPLACED_ROW_Y }));
       this.apNodes.set([...placed, ...staged]);
       this.unplacedCount.set(unplaced.length);
+      this.edges.set(m.edges);
     } catch (e) {
       this.error.set(errorMessage(e));
     } finally {
@@ -167,6 +264,52 @@ export class FloorMapPage {
       return `${this.dragging.x},${this.dragging.y}`;
     }
     return `${ap.x},${ap.y}`;
+  }
+
+  /** Node size reflects its connection count, like Obsidian's graph view. */
+  nodeRadius(degree: number): number {
+    return Math.min(6 + degree * 1.5, 16);
+  }
+
+  /** Primary name + "(+N more)" when the BSSID has broadcast more than one SSID across scans. */
+  apLabel(ap: AccessPointOut): string {
+    const name = ap.ssid || ap.bssid;
+    const extra = ap.ssids.length - (ap.ssid ? 1 : 0);
+    return extra > 0 ? `${name} (+${extra})` : name;
+  }
+
+  apTitle(ap: AccessPointOut): string {
+    return ap.ssids.length > 0 ? ap.ssids.join(', ') : ap.bssid;
+  }
+
+  piDegree(position: string): number {
+    return this.edges().filter((e) => e.position === position).length;
+  }
+
+  apDegree(bssid: string): number {
+    return this.edges().filter((e) => e.bssid === bssid).length;
+  }
+
+  /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity). */
+  visibleEdges(): Array<FloorMapEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
+    const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
+    const apByBssid = new Map(this.apNodes().map((a) => [a.bssid, a]));
+    const out: Array<FloorMapEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    for (const e of this.edges()) {
+      const pi = piByPosition.get(e.position);
+      const ap = apByBssid.get(e.bssid);
+      if (!pi || pi.x === null || pi.y === null || !ap) continue;
+      const [ax, ay] = this.dragPos(ap).split(',').map(Number);
+      if (ax === null || ay === null || Number.isNaN(ax) || Number.isNaN(ay)) continue;
+      const strength = this.rssiStrength(e.rssi);
+      out.push({ ...e, x1: pi.x, y1: pi.y, x2: ax, y2: ay, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
+    }
+    return out;
+  }
+
+  private rssiStrength(rssi: number): number {
+    const clamped = Math.min(Math.max(rssi, RSSI_WEAK), RSSI_STRONG);
+    return (clamped - RSSI_WEAK) / (RSSI_STRONG - RSSI_WEAK);
   }
 
   onPointerDown(event: PointerEvent, ap: AccessPointOut): void {
