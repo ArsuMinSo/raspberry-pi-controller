@@ -300,7 +300,7 @@ export class FloorMapPage implements OnDestroy {
     if (!cursor) return;
     const z = this.zoom();
     const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
-    const newScale = Math.min(Math.max(z.scale * factor, 0.5), 8);
+    const newScale = Math.min(Math.max(z.scale * factor, 0.2), 8);
     const sizeOldX = VIEW_W / z.scale;
     const sizeOldY = VIEW_H / z.scale;
     const fracX = (cursor.x - z.x) / sizeOldX;
@@ -358,11 +358,11 @@ export class FloorMapPage implements OnDestroy {
       springs.push({ a: `pi:${e.position_a}`, b: `pi:${e.position_b}`, weight: this.rssiStrength(e.rssi), kMult: BLE_SPRING_MULT });
     }
 
-    const REPULSION = 15000;
+    const REPULSION = 24000;
     const SPRING_K = 0.02;
     const SPRING_LEN = 120;
     const DAMPING = 0.82;
-    const CENTER_PULL = 0.0003;
+    const CENTER_PULL = 0.00012;
     const CENTER_PULL_CAP_DIST = 150; // distance beyond which the center pull stops growing
     const MAX_SPEED = 25; // per-tick speed cap — stops any force spike from snapping a node across the map
     const AP_AP_DRIFT_MULT = 2.4; // APs push apart harder so they don't clump
