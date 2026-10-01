@@ -47,11 +47,10 @@ BLE_SCAN_CMD = (
 SCAN_LOOKBACK = timedelta(minutes=5)
 
 # The fleet's own SSID — the floor map only tracks a Pi's position relative to these APs, so a
-# scan keeps only readings for this network (dropping neighboring/guest networks picked up by
-# the radio) and, per Pi, only the strongest 2 of those (the signals actually useful for a
-# centroid estimate — weaker ones just add noise).
+# scan keeps only readings for this network, dropping neighboring/guest networks picked up by
+# the radio. How many of those get drawn as links is a frontend-only concern (SSID text filter +
+# the links-per-Pi slider on the floor map page) — scan ingestion keeps all of them.
 TARGET_SSID = "OMNIKA-VYROBA"
-READINGS_PER_PI = 2
 
 # bluetoothctl wraps colored lines in SOH/STX control bytes around an ANSI SGR code
 _BLUETOOTHCTL_WRAPPER_RE = re.compile(r"\x01\x1b\[[0-9;]*m\x02")
@@ -107,13 +106,10 @@ def parse_wifi_scan(raw: str) -> list[WifiReading]:
     return readings
 
 
-def filter_target_ssid_top_n(readings: list[WifiReading]) -> list[WifiReading]:
+def filter_target_ssid(readings: list[WifiReading]) -> list[WifiReading]:
     """Keep only `TARGET_SSID` readings (prefix match — the same AP can broadcast a per-band
-    variant like "OMNIKA-VYROBA-5G"), strongest `READINGS_PER_PI` first (RSSI is negative dBm,
-    so strongest = closest to 0 = largest)."""
-    matches = [r for r in readings if r.ssid is not None and r.ssid.startswith(TARGET_SSID)]
-    matches.sort(key=lambda r: r.rssi, reverse=True)
-    return matches[:READINGS_PER_PI]
+    variant like "OMNIKA-VYROBA-5G"). No count limit — see module docstring."""
+    return [r for r in readings if r.ssid is not None and r.ssid.startswith(TARGET_SSID)]
 
 
 def parse_ble_scan(raw: str) -> list[BleReading]:
@@ -235,7 +231,7 @@ def wifi_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
                               stdout=result.stdout, stderr=result.stderr)
                 continue
             readings = parse_wifi_scan(result.stdout)
-            kept = filter_target_ssid_top_n(readings)
+            kept = filter_target_ssid(readings)
             all_readings.extend(kept)
             mac = mac_by_position[position]
             now = datetime.now(timezone.utc)

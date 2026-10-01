@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 from backend.models import AccessPoint, BleScan, Pi, WifiScan
 from backend.services.floor_map import (
-    WifiReading, compute_pi_position, compute_pi_position_via_ble, filter_target_ssid_top_n, get_pi_ble_edges,
+    WifiReading, compute_pi_position, compute_pi_position_via_ble, filter_target_ssid, get_pi_ble_edges,
     parse_ble_controller_mac, parse_ble_scan, parse_wifi_scan,
 )
 from backend.services.ssh_executor import SSHResult
@@ -50,20 +50,15 @@ def test_parse_wifi_scan_empty():
     assert parse_wifi_scan("") == []
 
 
-def test_filter_target_ssid_top_n_keeps_strongest_two_of_fleet_ssid():
+def test_filter_target_ssid_keeps_all_fleet_ssid_variants():
     readings = [
         WifiReading(bssid="aa:bb:cc:dd:ee:01", rssi=-70, ssid="OMNIKA-VYROBA"),
-        WifiReading(bssid="aa:bb:cc:dd:ee:02", rssi=-40, ssid="OMNIKA-VYROBA-5G"),  # strongest
-        WifiReading(bssid="aa:bb:cc:dd:ee:03", rssi=-55, ssid="OMNIKA-VYROBA"),  # 2nd strongest
-        WifiReading(bssid="aa:bb:cc:dd:ee:04", rssi=-30, ssid="OtherAP"),  # strongest overall, wrong SSID
+        WifiReading(bssid="aa:bb:cc:dd:ee:02", rssi=-40, ssid="OMNIKA-VYROBA-5G"),
+        WifiReading(bssid="aa:bb:cc:dd:ee:03", rssi=-55, ssid="OMNIKA-VYROBA"),
+        WifiReading(bssid="aa:bb:cc:dd:ee:04", rssi=-30, ssid="OtherAP"),  # wrong SSID, dropped
     ]
-    kept = filter_target_ssid_top_n(readings)
-    assert [r.bssid for r in kept] == ["aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"]
-
-
-def test_filter_target_ssid_top_n_fewer_than_two_matches():
-    readings = [WifiReading(bssid="aa:bb:cc:dd:ee:01", rssi=-70, ssid="OMNIKA-VYROBA")]
-    assert filter_target_ssid_top_n(readings) == readings
+    kept = filter_target_ssid(readings)
+    assert {r.bssid for r in kept} == {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02", "aa:bb:cc:dd:ee:03"}
 
 
 def test_parse_ble_scan_joins_rssi_and_name_by_mac():

@@ -132,9 +132,6 @@ interface ApGroup {
                      [attr.width]="floorPlanImg.w" [attr.height]="floorPlanImg.h" class="floor-plan-bg" />
             }
 
-            <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
-                  class="staging-divider" />
-
             @if (showConnections()) {
               @for (e of visibleEdges(); track e.position + e.groupKey) {
                 <line [attr.x1]="e.x1" [attr.y1]="e.y1" [attr.x2]="e.x2" [attr.y2]="e.y2"
@@ -227,7 +224,6 @@ interface ApGroup {
     }
     .map-canvas.panning { cursor: grabbing; }
     .map-wrap.fullscreen .map-canvas { border-radius: 0; }
-    .staging-divider { stroke: #3a3a44; stroke-dasharray: 4 4; }
     .floor-plan-bg { opacity: 0.35; pointer-events: none; }
 
     .edge { stroke: #7fd8d0; stroke-linecap: round; transition: opacity 0.3s ease; }
