@@ -348,7 +348,7 @@ export class FloorMapPage implements OnDestroy {
     for (const n of nodes) this.ensureSimPos(n.id, n.pinnedX, n.pinnedY);
 
     interface Spring { a: string; b: string; weight: number; kMult: number }
-    const BLE_SPRING_MULT = 2.5; // BLE (Pi<->Pi) sightings pull harder than WiFi (Pi<->AP) edges
+    const BLE_SPRING_MULT = 6; // BLE (Pi<->Pi) sightings pull much harder than WiFi (Pi<->AP) edges
     const springs: Spring[] = [];
     for (const e of this.edges()) {
       const apKey = this.bssidToKey.get(e.bssid);
