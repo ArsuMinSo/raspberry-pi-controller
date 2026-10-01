@@ -148,6 +148,7 @@ class AccessPoint(Base):
 
     bssid: MappedColumn[str] = mapped_column(String(17), primary_key=True, nullable=False)
     ssid = mapped_column(String(255))
+    ssids = mapped_column(ARRAY(Text), nullable=False, default=list)
     x = mapped_column(Float)
     y = mapped_column(Float)
     placed_by_user_id = mapped_column(Integer, ForeignKey("users.id"))

@@ -72,9 +72,30 @@ def test_wifi_scan_trigger_registers_ap_unplaced(client, sample_pi, db):
 
     ap = db.get(AccessPoint, "aa:bb:cc:dd:ee:01")
     assert ap is not None and ap.x is None and ap.y is None and ap.ssid == "OMNIKA-VYROBA"
+    assert ap.ssids == ["OMNIKA-VYROBA"]
 
     scans = db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).all()
     assert {s.bssid for s in scans} == {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}
+
+    db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
+    db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])).delete(
+        synchronize_session=False)
+    db.commit()
+
+
+def test_wifi_scan_merges_new_ssid_seen_for_known_bssid(client, sample_pi, db):
+    """Same BSSID broadcasting a different SSID name on a later scan — merged in, not overwritten."""
+    second_name_output = IW_SCAN_OUTPUT.replace("OMNIKA-VYROBA", "OMNIKA-VYROBA-5G")
+    with patch("backend.services.floor_map.execute", return_value=_ssh("01-001", IW_SCAN_OUTPUT)):
+        client.post(f"{API}/floor-map/wifi-scan", json={"all": True})
+    with patch("backend.services.floor_map.execute", return_value=_ssh("01-001", second_name_output)):
+        res = client.post(f"{API}/floor-map/wifi-scan", json={"all": True})
+    assert client.get(f"{API}/actions/{res.json()['action_id']}").json()["status"] == "success"
+
+    db.expire_all()
+    ap = db.get(AccessPoint, "aa:bb:cc:dd:ee:01")
+    assert ap.ssid == "OMNIKA-VYROBA"  # first-seen name kept as primary
+    assert set(ap.ssids) == {"OMNIKA-VYROBA", "OMNIKA-VYROBA-5G"}
 
     db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
     db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])).delete(
