@@ -239,16 +239,17 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
 
 
 def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
-    """Weighted centroid of placed APs seen in the latest wifi scan window.
+    """Weighted centroid of placed APs seen in the most recent wifi scan on record.
 
     Weight = 1 / rssi^2 on the raw dBm value (a rough stand-in for inverse-square
     distance falloff — not a calibrated path-loss model). Returns None if no
-    placed AP was visible in the lookback window.
+    placed AP has ever been seen. Not time-windowed — the last scan persists across
+    page reloads instead of disappearing until someone re-scans (check `last_scan_at`
+    on the response if staleness matters).
     """
-    cutoff = datetime.now(timezone.utc) - SCAN_LOOKBACK
     rows = (
         db.query(WifiScan.bssid, WifiScan.rssi)
-        .filter(WifiScan.mac == mac, WifiScan.timestamp >= cutoff)
+        .filter(WifiScan.mac == mac)
         .order_by(WifiScan.timestamp.desc())
         .all()
     )
@@ -282,13 +283,11 @@ def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
 
 
 def get_latest_wifi_edges(db: Session) -> list[FloorMapEdge]:
-    """Latest wifi_scans reading per (Pi, AP) pair within the lookback window — the
-    graph edges, weighted by RSSI on the frontend (stronger signal = thicker/brighter line)."""
-    cutoff = datetime.now(timezone.utc) - SCAN_LOOKBACK
+    """Latest wifi_scans reading per (Pi, AP) pair on record — the graph edges, weighted by
+    RSSI on the frontend. Not time-windowed, same reasoning as `compute_pi_position`."""
     rows = (
         db.query(Pi.position, WifiScan.bssid, WifiScan.rssi)
         .join(WifiScan, WifiScan.mac == Pi.mac)
-        .filter(WifiScan.timestamp >= cutoff)
         .order_by(WifiScan.timestamp.desc())
         .all()
     )
