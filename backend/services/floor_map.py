@@ -28,7 +28,7 @@ from backend.utils.helpers import is_valid_mac
 
 log = logging.getLogger(__name__)
 
-WIFI_SCAN_CMD = "iw dev wlan0 scan"
+WIFI_SCAN_CMD = "/usr/sbin/iw dev wlan0 scan"
 BLE_SCAN_CMD = "bluetoothctl --timeout 10 scan on"
 
 SCAN_LOOKBACK = timedelta(minutes=5)
