@@ -13,6 +13,17 @@ import { AccessPointOut, FloorMapEdge, FloorMapPiNode, FloorMapResponse, PiBleEd
 /** View-box is a fixed logical size; drag positions are stored in these units. */
 const VIEW_W = 1000;
 const VIEW_H = 700;
+
+/** Factory floor plan background (rendered once from the Visio-exported PDF via poppler,
+ * see web/src/assets/floor-map/plan.jpg) — sized to fit inside the view box at its native
+ * 2200x2410 aspect ratio, letterboxed and centered rather than stretched so it isn't distorted. */
+const FLOOR_PLAN_IMG_W = Math.round(VIEW_H * (2200 / 2410));
+const FLOOR_PLAN_IMG = {
+  src: 'assets/floor-map/plan.jpg',
+  w: FLOOR_PLAN_IMG_W,
+  h: VIEW_H,
+  x: Math.round((VIEW_W - FLOOR_PLAN_IMG_W) / 2),
+};
 const UNPLACED_ROW_Y = 40;
 
 /** RSSI range used to turn a signal reading into an edge weight (0..1). Typical indoor WiFi: ~-30 (strong) to ~-90 (weak). */
@@ -71,6 +82,8 @@ interface ApGroup {
                       (click)="showPis.set(!showPis())">Pis</ion-button>
           <ion-button fill="outline" size="small" [color]="showBleLinks() ? 'primary' : 'medium'"
                       (click)="showBleLinks.set(!showBleLinks())">BLE links</ion-button>
+          <ion-button fill="outline" size="small" [color]="showFloorPlan() ? 'primary' : 'medium'"
+                      (click)="showFloorPlan.set(!showFloorPlan())">Floor plan</ion-button>
           <ion-button fill="outline" size="small" (click)="toggleFullscreen()">
             <ion-icon slot="icon-only" [name]="fullscreen() ? 'contract-outline' : 'expand-outline'"></ion-icon>
           </ion-button>
@@ -100,6 +113,11 @@ interface ApGroup {
             (pointerleave)="onPointerUp($event)"
             (wheel)="onWheel($event)"
           >
+            @if (showFloorPlan()) {
+              <image [attr.href]="floorPlanImg.src" [attr.x]="floorPlanImg.x" y="0"
+                     [attr.width]="floorPlanImg.w" [attr.height]="floorPlanImg.h" class="floor-plan-bg" />
+            }
+
             <line x1="0" [attr.y1]="UNPLACED_ROW_Y + 25" [attr.x2]="viewW" [attr.y2]="UNPLACED_ROW_Y + 25"
                   class="staging-divider" />
 
@@ -190,6 +208,7 @@ interface ApGroup {
     .map-canvas.panning { cursor: grabbing; }
     .map-wrap.fullscreen .map-canvas { border-radius: 0; }
     .staging-divider { stroke: #3a3a44; stroke-dasharray: 4 4; }
+    .floor-plan-bg { opacity: 0.35; pointer-events: none; }
 
     .edge { stroke: #7fd8d0; stroke-linecap: round; transition: opacity 0.3s ease; }
     .ble-edge { stroke: #c78bff; stroke-linecap: round; stroke-dasharray: 6 4; transition: opacity 0.3s ease; }
@@ -252,6 +271,8 @@ export class FloorMapPage {
   readonly showBleLinks = signal(true);
   readonly showAps = signal(true);
   readonly showPis = signal(true);
+  readonly showFloorPlan = signal(true);
+  readonly floorPlanImg = FLOOR_PLAN_IMG;
   readonly fullscreen = signal(false);
   readonly untangling = signal(false);
   /** x/y = viewBox min-corner, scale = zoom factor (viewBox width/height shrink as scale grows). */
