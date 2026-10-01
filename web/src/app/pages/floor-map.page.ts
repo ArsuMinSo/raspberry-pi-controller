@@ -69,8 +69,9 @@ interface ApGroup {
           Drag an access point to place/reposition it; click (without dragging) to group it with other APs that
           are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
           top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
-          its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Scroll to zoom.
-          Line thickness/brightness = signal strength; node size = number of connections.
+          its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Drag a Pi to pin
+          it in place (yellow ring); click a pinned Pi to release it back to its computed position. Scroll to
+          zoom. Line thickness/brightness = signal strength; node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -138,7 +139,10 @@ interface ApGroup {
             @if (showPis()) {
               @for (pi of piNodes(); track pi.mac) {
                 @if (pi.x !== null && pi.y !== null) {
-                  <g [attr.transform]="'translate(' + pi.x + ',' + pi.y + ')'" class="pi-node">
+                  <g [attr.transform]="'translate(' + piDragPos(pi) + ')'"
+                     class="pi-node" [class.pi-pinned]="pi.pinned"
+                     (pointerdown)="onPiPointerDown($event, pi)">
+                    <title>{{ pi.position }}{{ pi.pinned ? ' (pinned — click to release)' : '' }}</title>
                     <circle [attr.r]="scaledRadius(piDegree(pi.position))" />
                     <text [attr.y]="-(scaledRadius(piDegree(pi.position)) + 6 / zoom().scale)"
                           [style.font-size.px]="11 / zoom().scale" text-anchor="middle">{{ pi.position }}</text>
@@ -219,7 +223,9 @@ interface ApGroup {
       stroke-width: 1.5;
       filter: drop-shadow(0 0 4px rgba(91, 140, 255, 0.65));
     }
-    .pi-node text { font-size: 11px; fill: #d6def5; }
+    .pi-node { cursor: grab; }
+    .pi-node text { font-size: 11px; fill: #d6def5; pointer-events: none; }
+    .pi-node.pi-pinned circle { stroke: #ffe08a; stroke-width: 2.5; }
 
     .ap-node { cursor: grab; }
     .ap-node circle {
@@ -283,7 +289,10 @@ export class FloorMapPage {
 
   readonly panning = signal(false);
 
-  private dragging: { key: string; bssids: string[]; x: number; y: number; startScreen: { x: number; y: number } } | null = null;
+  private dragging:
+    | { kind: 'ap'; key: string; bssids: string[]; x: number; y: number; startScreen: { x: number; y: number } }
+    | { kind: 'pi'; position: string; pinned: boolean; x: number; y: number; startScreen: { x: number; y: number } }
+    | null = null;
   private static readonly CLICK_THRESHOLD_PX = 4;
   private panStart: { clientX: number; clientY: number; zoom: { scale: number; x: number; y: number } } | null = null;
   private svgEl: SVGSVGElement | null = null;
@@ -547,10 +556,17 @@ export class FloorMapPage {
   }
 
   dragPos(ap: ApGroup): string {
-    if (this.dragging && this.dragging.key === ap.key) {
+    if (this.dragging?.kind === 'ap' && this.dragging.key === ap.key) {
       return `${this.dragging.x},${this.dragging.y}`;
     }
     return `${ap.x},${ap.y}`;
+  }
+
+  piDragPos(pi: FloorMapPiNode): string {
+    if (this.dragging?.kind === 'pi' && this.dragging.position === pi.position) {
+      return `${this.dragging.x},${this.dragging.y}`;
+    }
+    return `${pi.x},${pi.y}`;
   }
 
   /** Node size reflects its connection count, like Obsidian's graph view. */
@@ -599,10 +615,11 @@ export class FloorMapPage {
       const ap = apByKey.get(groupKey);
       if (!pi || pi.x === null || pi.y === null || !ap) continue;
       const [ax, ay] = this.dragPos(ap).split(',').map(Number);
-      if (Number.isNaN(ax) || Number.isNaN(ay)) continue;
+      const [px, py] = this.piDragPos(pi).split(',').map(Number);
+      if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
       const strength = this.rssiStrength(e.rssi);
       out.push({
-        position: e.position, groupKey, x1: pi.x, y1: pi.y, x2: ax, y2: ay,
+        position: e.position, groupKey, x1: px, y1: py, x2: ax, y2: ay,
         width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
       });
     }
@@ -619,8 +636,10 @@ export class FloorMapPage {
       const a = piByPosition.get(e.position_a);
       const b = piByPosition.get(e.position_b);
       if (!a || !b || a.x === null || a.y === null || b.x === null || b.y === null) continue;
+      const [ax, ay] = this.piDragPos(a).split(',').map(Number);
+      const [bx, by] = this.piDragPos(b).split(',').map(Number);
       const strength = this.rssiStrength(e.rssi);
-      out.push({ ...e, x1: a.x, y1: a.y, x2: b.x, y2: b.y, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
+      out.push({ ...e, x1: ax, y1: ay, x2: bx, y2: by, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
     }
     return out;
   }
@@ -635,7 +654,21 @@ export class FloorMapPage {
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt) return;
-    this.dragging = { key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y, startScreen: { x: event.clientX, y: event.clientY } };
+    this.dragging = {
+      kind: 'ap', key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y,
+      startScreen: { x: event.clientX, y: event.clientY },
+    };
+  }
+
+  onPiPointerDown(event: PointerEvent, pi: FloorMapPiNode): void {
+    event.stopPropagation(); // don't also start a background pan
+    this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
+    const pt = this.toViewBox(event);
+    if (!pt || pi.x === null || pi.y === null) return;
+    this.dragging = {
+      kind: 'pi', position: pi.position, pinned: pi.pinned, x: pt.x, y: pt.y,
+      startScreen: { x: event.clientX, y: event.clientY },
+    };
   }
 
   /** Pointerdown on empty canvas (not an AP node, which stops propagation) — pan the view. */
@@ -666,20 +699,38 @@ export class FloorMapPage {
     this.panStart = null;
     this.panning.set(false);
     if (!this.dragging) return;
-    const { key, bssids, x, y, startScreen } = this.dragging;
+    const drag = this.dragging;
     this.dragging = null;
 
     const moved = event
-      ? Math.hypot(event.clientX - startScreen.x, event.clientY - startScreen.y)
+      ? Math.hypot(event.clientX - drag.startScreen.x, event.clientY - drag.startScreen.y)
       : Infinity;
-    if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
-      const ap = this.apNodes().find((a) => a.key === key) ?? { key, bssids, ssids: [], x: null, y: null, placed: false };
-      await this.openApMenu(ap);
+
+    if (drag.kind === 'ap') {
+      if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
+        const ap = this.apNodes().find((a) => a.key === drag.key)
+          ?? { key: drag.key, bssids: drag.bssids, ssids: [], x: null, y: null, placed: false };
+        await this.openApMenu(ap);
+        return;
+      }
+      try {
+        await Promise.all(drag.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, drag.x, drag.y))));
+        await this.load();
+      } catch (e) {
+        this.error.set(errorMessage(e));
+      }
       return;
     }
 
+    // Dragging a Pi pins it at the drop point; a plain click on an already-pinned Pi releases it
+    // back to its computed WiFi/BLE position instead. Clicking an unpinned Pi does nothing.
     try {
-      await Promise.all(bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, x, y))));
+      if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
+        if (!drag.pinned) return;
+        await firstValueFrom(this.api.unpinPi(drag.position));
+      } else {
+        await firstValueFrom(this.api.pinPi(drag.position, drag.x, drag.y));
+      }
       await this.load();
     } catch (e) {
       this.error.set(errorMessage(e));
