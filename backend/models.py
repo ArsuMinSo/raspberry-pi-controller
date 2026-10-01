@@ -138,3 +138,41 @@ class HealthSample(Base):
     mem_percent: MappedColumn[float | None] = mapped_column(Float)
     temp_c: MappedColumn[float | None] = mapped_column(Float)
     uptime_s: MappedColumn[int | None] = mapped_column(Integer)
+
+
+# ─── Floor map (migration 008) ────────────────────────────────────────────
+
+class AccessPoint(Base):
+    """Fixed WiFi AP anchor, placed manually on the floor map (migration 008)."""
+    __tablename__ = "access_points"
+
+    bssid: MappedColumn[str] = mapped_column(String(17), primary_key=True, nullable=False)
+    ssid = mapped_column(String(255))
+    x = mapped_column(Float)
+    y = mapped_column(Float)
+    placed_by_user_id = mapped_column(Integer, ForeignKey("users.id"))
+    created_at = mapped_column(DateTime, nullable=False, server_default=func.now())
+    updated_at = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
+
+
+class WifiScan(Base):
+    """One AP sighting from a wifi scan on a Pi (migration 008)."""
+    __tablename__ = "wifi_scans"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    mac: MappedColumn[str] = mapped_column(String(17), ForeignKey("raspberries.mac", ondelete="CASCADE"), nullable=False)
+    bssid: MappedColumn[str] = mapped_column(String(17), nullable=False)
+    rssi: MappedColumn[int] = mapped_column(SmallInteger, nullable=False)
+    timestamp: MappedColumn[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+
+class BleScan(Base):
+    """One BLE device sighting from a scan on a Pi (migration 008). Informational only, not used for positioning."""
+    __tablename__ = "ble_scans"
+
+    id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
+    mac: MappedColumn[str] = mapped_column(String(17), ForeignKey("raspberries.mac", ondelete="CASCADE"), nullable=False)
+    device_mac: MappedColumn[str] = mapped_column(String(17), nullable=False)
+    device_name = mapped_column(String(255))
+    rssi = mapped_column(SmallInteger)
+    timestamp: MappedColumn[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())

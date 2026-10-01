@@ -95,14 +95,16 @@ Same model as health checks: server SSHes in, runs a one-shot script, parses std
 - `FloorMapResponse {access_points: [...], pis: [...]}`
 - `BleDeviceSeen {device_mac, device_name, rssi, timestamp}` (for per-Pi BLE list endpoint)
 
-### Routes: `backend/routes/floor_map.py`
+### Routes: `backend/routes/floor_map.py` — all under `/api/v1/floor-map` (one router, not split across discovery)
 | Method | Path | Role | Notes |
 |--------|------|------|-------|
-| `POST` | `/discovery/wifi-scan` | operator+ | Body `{pis: [...]}` or `{all: true}` — triggers scan via SSH executor, same async/action pattern as `/health/trigger` |
-| `POST` | `/discovery/ble-scan` | operator+ | same pattern |
+| `POST` | `/floor-map/wifi-scan` | operator+ | Body `{pis: [...]}` or `{all: true}` (reuses `HealthTriggerRequest`) — triggers scan via SSH executor, same async/action pattern as `/health/trigger` |
+| `POST` | `/floor-map/ble-scan` | operator+ | same pattern |
 | `GET`  | `/floor-map` | viewer+ | Returns `FloorMapResponse` — APs w/ coords + Pis w/ computed coords |
 | `PATCH`| `/floor-map/ap/{bssid}` | operator+ | Body `{x, y}` — drag-save from UI |
 | `GET`  | `/floor-map/pi/{position}/ble` | viewer+ | Last BLE scan device list for one Pi |
+
+**Status: implemented (steps 1-7 done).** `wifi_scan`/`ble_scan` added to `actions_log.action` CHECK via migration `009` (008 was already applied when this was discovered).
 
 Wire into `backend/main.py` router include, same as existing route modules.
 

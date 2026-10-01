@@ -405,3 +405,40 @@ class FleetSummary(BaseModel):
     busiest_cpu: list[FleetPiValue]  # cpu_1m, top 5
     highest_mem: list[FleetPiValue]  # mem_percent, top 5
     last_health_check_at: datetime | None
+
+
+# ─── Floor map (migration 008) ─────────────────────────────────────────────
+
+class AccessPointOut(BaseModel):
+    bssid: str
+    ssid: str | None
+    x: float | None
+    y: float | None
+    updated_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class AccessPointPositionUpdate(BaseModel):
+    x: float
+    y: float
+
+
+class FloorMapPiNode(BaseModel):
+    position: str
+    mac: str
+    x: float | None
+    y: float | None
+    last_scan_at: datetime | None
+
+
+class FloorMapResponse(BaseModel):
+    access_points: list[AccessPointOut]
+    pis: list[FloorMapPiNode]
+
+
+class BleDeviceSeen(BaseModel):
+    device_mac: str
+    device_name: str | None
+    rssi: int | None
+    timestamp: datetime

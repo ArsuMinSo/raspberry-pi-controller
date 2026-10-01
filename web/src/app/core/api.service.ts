@@ -4,8 +4,9 @@ import { Observable } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  ActionProgress, ActionQueued, AuditEvent, FleetSummary, LogEntry, Me, PiDetail, PiSummary, Role, ScheduledTask,
-  ScheduledTaskCreate, ScheduledTaskUpdate, SessionInfo, Settings, SSHTestResult, User,
+  AccessPointOut, ActionProgress, ActionQueued, AuditEvent, BleDeviceSeen, FleetSummary, FloorMapResponse, LogEntry,
+  Me, PiDetail, PiSummary, Role, ScheduledTask, ScheduledTaskCreate, ScheduledTaskUpdate, SessionInfo, Settings,
+  SSHTestResult, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -151,5 +152,34 @@ export class ApiService {
 
   deleteTask(id: number): Observable<void> {
     return this.http.delete<void>(`${API}/tasks/${id}`);
+  }
+
+  // ── Floor Map ────────────────────────────────────────────────────────────────
+  floorMap(): Observable<FloorMapResponse> {
+    return this.http.get<FloorMapResponse>(`${API}/floor-map`);
+  }
+
+  floorMapWifiScan(positions: string[]): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/floor-map/wifi-scan`, { pis: positions });
+  }
+
+  floorMapWifiScanAll(): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/floor-map/wifi-scan`, { all: true });
+  }
+
+  floorMapBleScan(positions: string[]): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/floor-map/ble-scan`, { pis: positions });
+  }
+
+  floorMapBleScanAll(): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/floor-map/ble-scan`, { all: true });
+  }
+
+  placeAccessPoint(bssid: string, x: number, y: number): Observable<AccessPointOut> {
+    return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}`, { x, y });
+  }
+
+  bleDevicesForPi(position: string): Observable<BleDeviceSeen[]> {
+    return this.http.get<BleDeviceSeen[]>(`${API}/floor-map/pi/${encodeURIComponent(position)}/ble`);
   }
 }

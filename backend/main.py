@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from backend.database import check_db, get_db, SessionLocal
 from backend.routes import (
-    actions, auth, command, discovery, fleet, health, logs, pi, process, service, settings, tasks, users,
+    actions, auth, command, discovery, floor_map, fleet, health, logs, pi, process, service, settings, tasks, users,
 )
 from backend.services import audit_log as al
 from backend.services import scheduler as sched
@@ -59,6 +59,7 @@ app.include_router(process.router,   prefix=f"{API}/process",   tags=["process"]
 app.include_router(service.router,   prefix=f"{API}/service",   tags=["service"])
 app.include_router(logs.router,      prefix=f"{API}/logs",      tags=["logs"])
 app.include_router(discovery.router, prefix=f"{API}/discovery", tags=["discovery"])
+app.include_router(floor_map.router, prefix=f"{API}/floor-map", tags=["floor-map"])
 app.include_router(settings.router,  prefix=f"{API}/settings",  tags=["settings"])
 app.include_router(tasks.router,     prefix=f"{API}/tasks",     tags=["tasks"])
 

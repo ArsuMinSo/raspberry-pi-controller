@@ -1,5 +1,23 @@
 # TODO
 
+## Floor map — privacy/legal review (`plan_floor_map.md`)
+
+- [ ] **BLE scan = passive collection of bystanders' device MAC + name** (`ble_scans` table, `backend/services/floor_map.py`).
+      MAC address is a persistent identifier capable of tracking a device's position/movement over time — likely
+      counts as personal data under GDPR (Art. 4(1)) even with no other info attached, especially since a floor
+      map is explicitly a presence/location record. Not legal advice — get a real compliance check before this
+      is used anywhere with non-staff foot traffic.
+- [ ] `actions_log`/`action_results` is append-only (no deletes, locked decision) but now also carries raw
+      BLE scan output — conflicts with GDPR right-to-erasure if a bystander's device data ever needs removing.
+      Decide: exclude BLE stdout from the audit log, or accept the conflict knowingly.
+- [ ] No retention/pruning exists anywhere in the codebase (`health_samples`, `wifi_scans`, `ble_scans` all grow
+      forever). Add a retention job, at minimum for `ble_scans`.
+- [ ] Consider hashing `device_mac` instead of storing it raw, and dropping `device_name` entirely — keeps
+      "same device seen again" without storing the identifying info directly.
+- [ ] `setcap cap_net_raw,cap_net_admin+eip /usr/sbin/iw` (provisioning step) grants that capability to
+      **any user/process on the kiosk**, not scoped to the controller's SSH session — accepted tradeoff vs.
+      passwordless sudo, but worth remembering if a kiosk is ever compromised.
+
 ## Review fixes — MAC as primary key (commits 77cd008..0ca4512)
 
 - [x] **Migration 002**: bring DB in line with `backend/models.py` — drop `id`, `PRIMARY KEY (mac)`,

@@ -212,3 +212,33 @@ export interface ScheduledTaskUpdate {
   pis?: string[];
   enabled?: boolean;
 }
+
+// ── Floor Map ────────────────────────────────────────────────────────────────
+
+export interface AccessPointOut {
+  bssid: string;
+  ssid: string | null;
+  x: number | null;
+  y: number | null;
+  updated_at: string;
+}
+
+export interface FloorMapPiNode {
+  position: string;
+  mac: string;
+  x: number | null;
+  y: number | null;
+  last_scan_at: string | null;
+}
+
+export interface FloorMapResponse {
+  access_points: AccessPointOut[];
+  pis: FloorMapPiNode[];
+}
+
+export interface BleDeviceSeen {
+  device_mac: string;
+  device_name: string | null;
+  rssi: number | null;
+  timestamp: string;
+}
