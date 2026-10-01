@@ -59,6 +59,8 @@ EXPECTED_ROLES = {
     ("POST", "/floor-map/ble-scan"): "operator",
     ("GET", "/floor-map"): "viewer",
     ("PATCH", "/floor-map/ap/{bssid}"): "operator",
+    ("PATCH", "/floor-map/ap/{bssid}/group"): "operator",
+    ("GET", "/floor-map/groups"): "viewer",
     ("GET", "/floor-map/pi/{position}/ble"): "viewer",
 }
 
