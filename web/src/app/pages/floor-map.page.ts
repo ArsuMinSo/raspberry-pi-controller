@@ -447,8 +447,11 @@ export class FloorMapPage implements OnDestroy {
       const restLen = SPRING_LEN / Math.max(s.weight, 0.1);
       const k = SPRING_K * (0.3 + s.weight) * s.kMult;
       const stretch = dist - restLen;
-      const fx = (dx / dist) * stretch * k;
-      const fy = (dy / dist) * stretch * k;
+      // Scale pull by how long the spring currently is relative to its rest length — a spring
+      // stretched far past rest pulls proportionally harder, not just linearly with the stretch.
+      const lengthBoost = dist / restLen;
+      const fx = (dx / dist) * stretch * k * lengthBoost;
+      const fy = (dy / dist) * stretch * k * lengthBoost;
       const fa = forces.get(s.a);
       if (fa) { fa.x += fx; fa.y += fy; }
       const fb = forces.get(s.b);
