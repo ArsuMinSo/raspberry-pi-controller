@@ -75,16 +75,9 @@ def test_health_trigger_unknown_position(client):
     assert res.status_code == 422
 
 
-def test_health_trigger_all_scans_whole_network_first(client):
-    """`all: true` no longer requires a known-reachable Pi upfront — it pings the whole subnet
-    (like a discovery scan) and checks stats on whatever answers, new Pis included."""
-    with patch("backend.services.discovery._scan_host", return_value=None):
-        res = client.post(f"{API}/health/trigger", json={"all": True})
-    assert res.status_code == 200
-    body = res.json()
-    assert body["status"] == "queued"
-    progress = client.get(f"{API}/actions/{body['action_id']}").json()
-    assert progress["finished"] is True
+def test_health_trigger_no_reachable(client):
+    res = client.post(f"{API}/health/trigger", json={"all": True})
+    assert res.status_code == 404
 
 
 def test_health_trigger_success(client, db, sample_pi):

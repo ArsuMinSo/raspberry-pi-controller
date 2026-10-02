@@ -115,12 +115,14 @@ def _exec_command(task: ScheduledTask, db: Session, actor) -> int | None:
 
 
 def _exec_health(task: ScheduledTask, db: Session, actor) -> int | None:
+    from backend.config import effective_ssh_settings
     from backend.models import Pi
     from backend.services.health_check import start_health_check
-    if not task.pis:
-        # Whole fleet, not a specific list — scan the whole subnet first (see health_check.py).
-        return start_health_check(db, [], actor=actor, wait=True, whole_network=True)
-    pis = db.query(Pi).filter(Pi.position.in_(task.pis)).all()
+    pis = (
+        db.query(Pi).filter(Pi.position.in_(task.pis)).all()
+        if task.pis
+        else db.query(Pi).filter(Pi.status == "reachable").all()
+    )
     if not pis:
         return None
     return start_health_check(db, [p.position for p in pis], actor=actor, wait=True)

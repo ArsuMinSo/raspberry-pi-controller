@@ -17,17 +17,15 @@ router = APIRouter()
 def trigger_health(body: HealthTriggerRequest, actor: Actor = Depends(require_role("operator")),
                    db: Session = Depends(get_db)):
     if body.all:
-        # Whole-network mode: ping/SSH-probe the whole configured subnet first (picking up new
-        # Pis too), then check stats on whatever's reachable after that — not just whoever was
-        # already known-reachable before this run, so no upfront "none reachable yet" check either.
-        action_id = start_health_check(db, [], actor=actor, whole_network=True)
-        return ActionQueued(action_id=action_id)
-
-    pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
-    found = {p.position for p in pis}
-    missing = [pos for pos in body.pis if pos not in found]
-    if missing:
-        raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
+        pis = db.query(Pi).filter(Pi.status == "reachable").all()
+        if not pis:
+            raise HTTPException(status_code=404, detail="No reachable Pis found")
+    else:
+        pis = db.query(Pi).filter(Pi.position.in_(body.pis)).all()
+        found = {p.position for p in pis}
+        missing = [pos for pos in body.pis if pos not in found]
+        if missing:
+            raise HTTPException(status_code=422, detail=f"Unknown positions: {missing}")
 
     action_id = start_health_check(db, [p.position for p in pis], actor=actor)
     return ActionQueued(action_id=action_id)
