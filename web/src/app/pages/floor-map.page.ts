@@ -1,5 +1,6 @@
 import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import {
   ActionSheetController, AlertController, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonInput, IonLabel,
   IonMenuButton, IonRange, IonSpinner, IonText, IonTitle, IonToolbar,
@@ -72,9 +73,9 @@ interface ApGroup {
           Drag an access point to place/reposition it; click (without dragging) to group it with other APs that
           are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
           top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
-          its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Drag a Pi to pin
-          it in place (yellow ring); click a pinned Pi to release it back to its computed position. Scroll to
-          zoom. Line thickness/brightness = signal strength; node size = number of connections.
+          its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Click a Pi to open
+          its details; drag one to pin it in place (yellow ring) — a pinned Pi's click offers a menu to release it
+          too. Scroll to zoom. Line thickness/brightness = signal strength; node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -265,6 +266,7 @@ interface ApGroup {
 })
 export class FloorMapPage {
   private readonly api = inject(ApiService);
+  private readonly router = inject(Router);
   readonly canOperate = inject(AuthService).can('operator');
 
   readonly viewW = VIEW_W;
@@ -759,7 +761,8 @@ export class FloorMapPage {
 
   onPiPointerDown(event: PointerEvent, pi: FloorMapPiNode): void {
     event.stopPropagation(); // don't also start a background pan
-    if (!this.canOperate) return; // viewers can look, not move/pin Pis
+    // Tracked for every role, even viewers — a plain click (no real movement) navigates to the
+    // Pi's detail page regardless of permissions; only an actual drag is gated to operators below.
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
     const pt = this.toViewBox(event);
     if (!pt || pi.x === null || pi.y === null) return;
@@ -820,15 +823,45 @@ export class FloorMapPage {
       return;
     }
 
-    // Dragging a Pi pins it at the drop point; a plain click on an already-pinned Pi releases it
-    // back to its computed WiFi/BLE position instead. Clicking an unpinned Pi does nothing.
-    try {
-      if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
-        if (!drag.pinned) return;
-        await firstValueFrom(this.api.unpinPi(drag.position));
+    // A plain click navigates to the Pi's detail page — except an operator clicking an
+    // already-pinned Pi, where a menu offers "Release pin" too (no menu needed for an unpinned
+    // Pi, or for a viewer who can't unpin anyway — straight to details is one click, not two).
+    if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
+      if (drag.pinned && this.canOperate) {
+        await this.openPiMenu(drag.position);
       } else {
-        await firstValueFrom(this.api.pinPi(drag.position, drag.x, drag.y));
+        await this.router.navigate(['/pi', drag.position]);
       }
+      return;
+    }
+
+    if (!this.canOperate) {
+      await this.load(); // snap back — viewers can't persist a drag
+      return;
+    }
+    try {
+      await firstValueFrom(this.api.pinPi(drag.position, drag.x, drag.y));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
+  private async openPiMenu(position: string): Promise<void> {
+    const sheet = await this.actionSheets.create({
+      header: `Pi ${position}`,
+      buttons: [
+        { text: 'View details', handler: () => void this.router.navigate(['/pi', position]) },
+        { text: 'Release pin', role: 'destructive', handler: () => void this.unpinPi(position) },
+        { text: 'Cancel', role: 'cancel' },
+      ],
+    });
+    await sheet.present();
+  }
+
+  private async unpinPi(position: string): Promise<void> {
+    try {
+      await firstValueFrom(this.api.unpinPi(position));
       await this.load();
     } catch (e) {
       this.error.set(errorMessage(e));

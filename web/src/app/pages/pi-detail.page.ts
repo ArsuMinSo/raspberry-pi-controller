@@ -1,8 +1,9 @@
 import { Component, OnInit, computed, inject, input, signal } from '@angular/core';
+import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import {
-  IonBackButton, IonBadge, IonButton, IonButtons, IonContent, IonHeader, IonIcon, IonSpinner, IonText, IonTitle,
-  IonToolbar,
+  IonBackButton, IonBadge, IonButton, IonButtons, IonCard, IonCardContent, IonCardHeader, IonContent, IonHeader,
+  IonIcon, IonInput, IonItem, IonList, IonNote, IonSpinner, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
 
@@ -61,6 +62,37 @@ const COLUMNS: ColumnDef<Col>[] = [
           </table>
         } @else if (!error()) {
           <div class="ion-text-center"><ion-spinner></ion-spinner></div>
+        }
+
+        @if (canExecute) {
+          <ion-card>
+            <ion-card-header><h3>Execute command</h3></ion-card-header>
+            <ion-card-content>
+              <form (ngSubmit)="execute()">
+                <ion-list lines="full">
+                  <ion-item>
+                    <ion-input label="Command" labelPlacement="stacked" placeholder="e.g. ps aux"
+                               name="command" [(ngModel)]="command" [disabled]="executing()" required></ion-input>
+                  </ion-item>
+                  <ion-item>
+                    <ion-input label="SSH username (optional)" labelPlacement="stacked"
+                               name="username" [(ngModel)]="sshUsername" [disabled]="executing()"></ion-input>
+                  </ion-item>
+                  <ion-item>
+                    <ion-input label="Sudo password (optional)" labelPlacement="stacked" type="password"
+                               name="sudoPassword" [(ngModel)]="sudoPassword" [disabled]="executing()"
+                               placeholder="Will not be stored"></ion-input>
+                  </ion-item>
+                </ion-list>
+                <ion-note class="muted">Password transmitted once, never stored or logged.</ion-note>
+                <div class="execute-actions">
+                  <ion-button type="submit" [disabled]="executing() || !command.trim()">
+                    {{ executing() ? 'Running…' : 'Execute' }}
+                  </ion-button>
+                </div>
+              </form>
+            </ion-card-content>
+          </ion-card>
         }
 
         @if (canAct) {
@@ -125,10 +157,12 @@ const COLUMNS: ColumnDef<Col>[] = [
     th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     th.sortable:hover { opacity: 0.7; }
     .section-head { display: flex; align-items: center; justify-content: space-between; }
+    .execute-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
   `],
   imports: [
-    RouterLink, IonHeader, IonToolbar, IonButtons, IonBackButton, IonTitle, IonButton, IonIcon, IonContent,
-    IonText, IonBadge, IonSpinner, ColumnMenuComponent,
+    FormsModule, RouterLink, IonHeader, IonToolbar, IonButtons, IonBackButton, IonTitle, IonButton, IonIcon,
+    IonContent, IonText, IonBadge, IonSpinner, IonCard, IonCardHeader, IonCardContent, IonList, IonItem, IonInput,
+    IonNote, ColumnMenuComponent,
   ],
 })
 export class PiDetailPage implements OnInit {
@@ -140,6 +174,8 @@ export class PiDetailPage implements OnInit {
   readonly position = input.required<string>();
 
   readonly canAct = this.auth.can('operator');
+  // Arbitrary command execution is admin-only fleet-wide — see docs/design/web-service.md → "Roles & permissions".
+  readonly canExecute = this.auth.can('admin');
   readonly statusColor = statusColor;
   readonly dateTime = dateTime;
 
@@ -147,6 +183,10 @@ export class PiDetailPage implements OnInit {
   readonly actions = signal<LogEntry[]>([]);
   readonly error = signal<string | null>(null);
   readonly starting = signal(false);
+  readonly executing = signal(false);
+  command = '';
+  sshUsername = '';
+  sudoPassword = '';
   // No default column: preserve the API's own order (newest first) until the user clicks a header.
   readonly sort = new TableSort<LogEntry, SortColumn>({
     when: (a, b) => compareDates(a.timestamp, b.timestamp),
@@ -180,6 +220,21 @@ export class PiDetailPage implements OnInit {
       this.error.set(errorMessage(err));
     } finally {
       this.starting.set(false);
+    }
+  }
+
+  async execute(): Promise<void> {
+    if (!this.command.trim()) return;
+    this.executing.set(true);
+    try {
+      const queued = await firstValueFrom(
+        this.api.executeCommand([this.position()], this.command, this.sshUsername || undefined, this.sudoPassword || undefined),
+      );
+      await this.router.navigate(['/actions', queued.action_id]);
+    } catch (err) {
+      this.error.set(errorMessage(err));
+    } finally {
+      this.executing.set(false);
     }
   }
 }
