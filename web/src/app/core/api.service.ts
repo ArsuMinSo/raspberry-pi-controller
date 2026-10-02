@@ -70,6 +70,10 @@ export class ApiService {
     return this.http.post<ActionQueued>(`${API}/pi/reboot`, { pis: positions });
   }
 
+  deletePi(position: string): Observable<void> {
+    return this.http.delete<void>(`${API}/pi/${encodeURIComponent(position)}`);
+  }
+
   diagnostics(positions: string[]): Observable<ActionQueued> {
     return this.http.post<ActionQueued>(`${API}/diagnostics`, { pis: positions });
   }

@@ -148,6 +148,11 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
             <ion-button fill="outline" color="danger" (click)="reboot()" [disabled]="selected().size === 0 || starting()">
               Reboot
             </ion-button>
+            @if (canDelete) {
+              <ion-button fill="outline" color="danger" (click)="removeSelected()" [disabled]="selected().size === 0 || deleting()">
+                Remove from inventory
+              </ion-button>
+            }
           </ion-buttons>
         </ion-toolbar>
       }
@@ -300,6 +305,8 @@ export class InventoryPage {
   private readonly alerts = inject(AlertController);
 
   readonly canAct = this.auth.can('operator');
+  // Deleting a Pi outright (not just rebooting/checking it) is admin-only, matching DELETE /pi/*.
+  readonly canDelete = this.auth.can('admin');
   readonly statusColor = statusColor;
   readonly pct = pct;
   readonly temp = temp;
@@ -309,6 +316,7 @@ export class InventoryPage {
   readonly summary = signal<FleetSummary | null>(null);
   readonly loading = signal(false);
   readonly starting = signal(false);
+  readonly deleting = signal(false);
   readonly discovering = signal(false);
   readonly error = signal<string | null>(null);
   readonly statusFilter = signal<StatusFilter>('all');
@@ -491,6 +499,35 @@ export class InventoryPage {
     await alert.present();
     if ((await alert.onDidDismiss()).role === 'confirm') {
       await this.start((p) => this.api.reboot(p));
+    }
+  }
+
+  /** Permanently removes Pis from the database (not a fleet "action" — no SSH involved, nothing
+   * to queue/track in /actions). Wifi/BLE scans, health samples, and action-log position refs
+   * for that mac cascade-delete; a Pi that still exists on the network just gets rediscovered
+   * fresh next scan. Confirm first, it can't be undone. */
+  async removeSelected(): Promise<void> {
+    const positions = [...this.selected()].sort(comparePositions);
+    const alert = await this.alerts.create({
+      header: `Remove ${positions.length} Pi${positions.length === 1 ? '' : 's'} from inventory?`,
+      message: `Deletes all record of them — stats, action history, floor-map position: `
+        + `${positions.slice(0, 20).join(', ')}` + (positions.length > 20 ? ` … (+${positions.length - 20})` : '')
+        + `. This cannot be undone.`,
+      buttons: [{ text: 'Cancel', role: 'cancel' }, { text: 'Remove', role: 'destructive' }],
+    });
+    await alert.present();
+    if ((await alert.onDidDismiss()).role !== 'destructive') return;
+
+    this.deleting.set(true);
+    this.error.set(null);
+    try {
+      await Promise.all(positions.map((p) => firstValueFrom(this.api.deletePi(p))));
+      this.selected.set(this.emptySet());
+      await this.load();
+    } catch (err) {
+      this.error.set(errorMessage(err));
+    } finally {
+      this.deleting.set(false);
     }
   }
 
