@@ -31,6 +31,12 @@ from backend.utils.helpers import is_valid_mac
 
 log = logging.getLogger(__name__)
 
+# No sudo here on purpose: `scripts/provision-pi-controller-user.sh` stamps CAP_NET_ADMIN/
+# CAP_NET_RAW directly onto the /usr/sbin/iw binary via `setcap` (a one-time passwordless-sudo
+# step run during provisioning), so an unprivileged `iw scan` works from then on. If this
+# command starts needing sudo again on a Pi, the capability was likely reset — e.g. an apt
+# upgrade of iw/wireless-tools reinstalls the binary and wipes its file capabilities — re-run
+# that provisioning script's setcap step (now passwordless, via the sudoers rule it installs).
 WIFI_SCAN_CMD = "/usr/sbin/iw dev wlan0 scan"
 # `scan on` alone only puts this Pi into scanning/observer mode — it does NOT make this Pi's
 # own controller discoverable to other Pis scanning at the same time (discoverable/advertising
