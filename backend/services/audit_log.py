@@ -102,7 +102,9 @@ def query_actions(
     since: datetime | None = None,
     limit: int = 100,
 ) -> list[ActionLog]:
-    q = db.query(ActionLog)
+    # Health checks are excluded — they run far more often than real operator actions (daily
+    # cron + manual) and would otherwise drown out everything else in the activity log.
+    q = db.query(ActionLog).filter(ActionLog.action != "health")
     if pi_position:
         q = q.filter(ActionLog.pis_selected.contains([pi_position]))
     if user:
