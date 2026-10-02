@@ -75,7 +75,8 @@ interface ApGroup {
           top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
           its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Click a Pi to open
           its details; drag one to pin it in place (yellow ring) — a pinned Pi's click offers a menu to release it
-          too. Scroll to zoom. Line thickness/brightness = signal strength; node size = number of connections.
+          too (admins also get "Identify", popping its hostname/IP/MAC on its own screen). Scroll to zoom. Line
+          thickness/brightness = signal strength; node size = number of connections.
         </p>
 
         <div class="filter-row">
@@ -269,6 +270,8 @@ export class FloorMapPage {
   private readonly api = inject(ApiService);
   private readonly router = inject(Router);
   readonly canOperate = inject(AuthService).can('operator');
+  // "Identify" runs an arbitrary SSH command — admin-only fleet-wide, same as pi-detail's execute box.
+  readonly canExecute = inject(AuthService).can('admin');
 
   readonly viewW = VIEW_W;
   readonly viewH = VIEW_H;
@@ -905,12 +908,14 @@ export class FloorMapPage {
       return;
     }
 
-    // A plain click navigates to the Pi's detail page — except an operator clicking an
-    // already-pinned Pi, where a menu offers "Release pin" too (no menu needed for an unpinned
-    // Pi, or for a viewer who can't unpin anyway — straight to details is one click, not two).
+    // A plain click navigates straight to the Pi's detail page, unless there's something else
+    // to offer: an operator clicking an already-pinned Pi gets "Release pin" too, and an admin
+    // always gets "Identify" (pop a dialog with hostname/IP/MAC on the Pi's own screen — handy
+    // for matching a floor-map dot to the physical unit). No menu for anyone else — straight to
+    // details is one click, not two.
     if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
-      if (drag.pinned && this.canOperate) {
-        await this.openPiMenu(drag.position);
+      if (this.canExecute || (drag.pinned && this.canOperate)) {
+        await this.openPiMenu(drag.position, drag.pinned);
       } else {
         await this.router.navigate(['/pi', drag.position]);
       }
@@ -929,16 +934,37 @@ export class FloorMapPage {
     }
   }
 
-  private async openPiMenu(position: string): Promise<void> {
-    const sheet = await this.actionSheets.create({
-      header: `Pi ${position}`,
-      buttons: [
-        { text: 'View details', handler: () => void this.router.navigate(['/pi', position]) },
-        { text: 'Release pin', role: 'destructive', handler: () => void this.unpinPi(position) },
-        { text: 'Cancel', role: 'cancel' },
-      ],
-    });
+  private async openPiMenu(position: string, pinned: boolean): Promise<void> {
+    const buttons: Array<{ text: string; role?: string; handler?: () => void }> = [
+      { text: 'View details', handler: () => void this.router.navigate(['/pi', position]) },
+    ];
+    if (this.canExecute) {
+      buttons.push({ text: 'Identify (show info on screen)', handler: () => void this.identifyPi(position) });
+    }
+    if (pinned && this.canOperate) {
+      buttons.push({ text: 'Release pin', role: 'destructive', handler: () => void this.unpinPi(position) });
+    }
+    buttons.push({ text: 'Cancel', role: 'cancel' });
+
+    const sheet = await this.actionSheets.create({ header: `Pi ${position}`, buttons });
     await sheet.present();
+  }
+
+  /** Pops a zenity dialog with hostname/IP/MAC on the Pi's own screen — a quick way to match a
+   * floor-map dot to the physical unit in front of you. Fire-and-forget: nothing useful to show
+   * in the web UI (the result is a dialog on the Pi, not textual output), so just queue it and
+   * let the status line confirm it was sent instead of jumping to the action-progress page. */
+  private static readonly IDENTIFY_CMD =
+    'zenity --display=:0 --info --text "$(hostname -I)\\n$(cat /sys/class/net/wlan0/address)\\n$(hostname)" --width 300';
+
+  private async identifyPi(position: string): Promise<void> {
+    this.error.set('');
+    try {
+      await firstValueFrom(this.api.executeCommand([position], FloorMapPage.IDENTIFY_CMD));
+      this.statusMsg.set(`Identify sent to ${position} — check its screen.`);
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
   }
 
   private async unpinPi(position: string): Promise<void> {
