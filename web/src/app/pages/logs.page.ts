@@ -2,8 +2,8 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
-  IonBadge, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonMenuButton,
-  IonSegment, IonSegmentButton, IonText, IonTitle, IonToolbar,
+  IonBadge, IonButton, IonButtons, IonContent, IonHeader, IonInput, IonItem, IonLabel, IonMenuButton, IonSegment,
+  IonSegmentButton, IonSelect, IonSelectOption, IonText, IonTitle, IonToolbar,
 } from '@ionic/angular';
 import { firstValueFrom } from 'rxjs';
 
@@ -71,6 +71,11 @@ const EVENT_COLUMNS: ColumnDef<EventCol>[] = [
           <ion-item><ion-input label="Event" labelPlacement="stacked" name="event" placeholder="e.g. login_failed"
                                [(ngModel)]="event"></ion-input></ion-item>
         }
+        <ion-item>
+          <ion-select label="Show" labelPlacement="stacked" [(ngModel)]="limit" name="limit" interface="popover">
+            @for (n of limitOptions; track n) { <ion-select-option [value]="n">{{ n }}</ion-select-option> }
+          </ion-select>
+        </ion-item>
         <ion-button type="submit">Filter</ion-button>
       </form>
 
@@ -198,7 +203,8 @@ const EVENT_COLUMNS: ColumnDef<EventCol>[] = [
   `],
   imports: [
     FormsModule, RouterLink, IonHeader, IonToolbar, IonButtons, IonMenuButton, IonTitle, IonSegment,
-    IonSegmentButton, IonLabel, IonContent, IonItem, IonInput, IonButton, IonText, IonBadge, ColumnMenuComponent,
+    IonSegmentButton, IonLabel, IonContent, IonItem, IonInput, IonSelect, IonSelectOption, IonButton, IonText,
+    IonBadge, ColumnMenuComponent,
   ],
 })
 export class LogsPage {
@@ -233,6 +239,8 @@ export class LogsPage {
   user = '';
   pi = '';
   event = '';
+  readonly limitOptions = [100, 250, 500, 1000];
+  limit = 250;
 
   constructor() {
     void this.load();
@@ -247,9 +255,9 @@ export class LogsPage {
     this.error.set(null);
     try {
       if (this.tab() === 'actions') {
-        this.actions.set(await firstValueFrom(this.api.logs({ user: this.user.trim(), pi: this.pi.trim() })));
+        this.actions.set(await firstValueFrom(this.api.logs({ user: this.user.trim(), pi: this.pi.trim(), limit: this.limit })));
       } else {
-        this.events.set(await firstValueFrom(this.api.events({ user: this.user.trim(), event: this.event.trim() })));
+        this.events.set(await firstValueFrom(this.api.events({ user: this.user.trim(), event: this.event.trim(), limit: this.limit })));
       }
     } catch (err) {
       this.error.set(errorMessage(err));
