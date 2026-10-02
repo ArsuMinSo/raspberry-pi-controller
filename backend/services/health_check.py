@@ -11,12 +11,13 @@ from functools import partial
 import paramiko
 from datetime import datetime, timezone
 
-from backend.config import SSHSettings, effective_ssh_settings
+from backend.config import SSHSettings, effective_network_settings, effective_ssh_settings
 from backend.utils.helpers import extract_pi_version, is_valid_mac, load_private_key
 from backend.models import Pi
 from backend.schemas import PiHealthResult
 from backend.services import audit_log as al
 from backend.services import jobs
+from backend.services.discovery import scan_subnet
 
 log = logging.getLogger(__name__)
 
@@ -193,10 +194,17 @@ def check_health(ip: str, position: str, settings: SSHSettings) -> HealthCheckDa
         client.close()
 
 
-def start_health_check(db, positions: list[str], actor=None, wait: bool = False) -> int:
-    """Create the queued action and run it — in the background, or right here if `wait` (scheduler)."""
+def start_health_check(db, positions: list[str], actor=None, wait: bool = False,
+                        whole_network: bool = False) -> int:
+    """Create the queued action and run it — in the background, or right here if `wait` (scheduler).
+
+    `whole_network`: ping every address in the configured subnet first (like a discovery scan) and
+    SSH-probe/register whatever answers, then collect CPU/mem/disk stats from every Pi now known —
+    not just `positions` (which is only used to pre-fill the log entry's `pis_selected` when it's
+    the known fleet at trigger time; the actual stats targets are re-resolved after the scan so
+    newly-found Pis get checked in the same run)."""
     entry = al.create_action(db, positions, "health", status="queued", actor=actor)
-    work = partial(health_job, ssh=effective_ssh_settings())
+    work = partial(health_job, ssh=effective_ssh_settings(), whole_network=whole_network)
     if wait:
         jobs.run_action(entry.id, work)
     else:
@@ -204,10 +212,20 @@ def start_health_check(db, positions: list[str], actor=None, wait: bool = False)
     return entry.id
 
 
-def health_job(db, entry, ssh: SSHSettings) -> None:
-    """Check every Pi of the action; one action_results row per Pi as it finishes, then update the Pis."""
+def health_job(db, entry, ssh: SSHSettings, whole_network: bool = False) -> None:
+    """Check every target Pi; one action_results row per Pi as it finishes, then update the Pis."""
     start = time.monotonic()
-    pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
+
+    if whole_network:
+        # Separate "discovery" action/log entry, same as a direct discovery-scan trigger — ping
+        # 1-255, SSH-probe and register/update whatever answers. Re-query afterward instead of
+        # using `entry.pis_selected` (a stale snapshot from before the scan) so a Pi discovered
+        # just now is included in this same run's stats collection below.
+        net = effective_network_settings()
+        scan_subnet(net.subnet, db, ssh, net)
+        pis = db.query(Pi).filter(Pi.status == "reachable").all()
+    else:
+        pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
 
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
     workers = min(ssh.parallel_limit, max(1, len(targets)))
