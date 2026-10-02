@@ -58,6 +58,10 @@ export class ApiService {
     return this.http.post<ActionQueued>(`${API}/health/trigger`, { pis: positions });
   }
 
+  discoveryScan(): Observable<ActionQueued> {
+    return this.http.post<ActionQueued>(`${API}/discovery/scan`, {});
+  }
+
   healthCheckAll(): Observable<ActionQueued> {
     return this.http.post<ActionQueued>(`${API}/health/trigger`, { all: true });
   }

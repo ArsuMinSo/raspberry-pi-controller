@@ -53,6 +53,11 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
         <ion-buttons slot="start"><ion-menu-button></ion-menu-button></ion-buttons>
         <ion-title>Inventory</ion-title>
         <ion-buttons slot="end">
+          @if (canAct) {
+            <ion-button (click)="runDiscovery()" [disabled]="discovering()">
+              {{ discovering() ? 'Scanning…' : 'Run discovery scan' }}
+            </ion-button>
+          }
           <ion-button (click)="load()" [disabled]="loading()" aria-label="Refresh">
             <ion-icon slot="icon-only" name="refresh-outline"></ion-icon>
           </ion-button>
@@ -304,6 +309,7 @@ export class InventoryPage {
   readonly summary = signal<FleetSummary | null>(null);
   readonly loading = signal(false);
   readonly starting = signal(false);
+  readonly discovering = signal(false);
   readonly error = signal<string | null>(null);
   readonly statusFilter = signal<StatusFilter>('all');
   readonly search = signal('');
@@ -453,6 +459,21 @@ export class InventoryPage {
 
   healthCheck(): Promise<void> {
     return this.start((positions) => this.api.healthCheck(positions));
+  }
+
+  /** Pings the whole configured subnet and SSH-probes whatever answers, registering new Pis and
+   * updating known ones — unlike `healthCheck`, not scoped to a selection. */
+  async runDiscovery(): Promise<void> {
+    this.discovering.set(true);
+    this.error.set(null);
+    try {
+      const queued = await firstValueFrom(this.api.discoveryScan());
+      await this.router.navigate(['/actions', queued.action_id]);
+    } catch (err) {
+      this.error.set(errorMessage(err));
+    } finally {
+      this.discovering.set(false);
+    }
   }
 
   diagnostics(): Promise<void> {
