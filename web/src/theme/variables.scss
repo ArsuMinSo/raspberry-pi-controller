@@ -15,6 +15,7 @@ $accent-hover: #6e7480;
 $success: #8fa88a;     // sage
 $warning: #c8a96b;     // sand
 $danger: #c7826f;      // terracotta
+$info: #7d94ab;        // dusty slate blue — unreachable-but-not-overheating, distinct from danger red
 
 @function rgb-triplet($c) {
   @return math.round(color.channel($c, "red", $space: rgb)), math.round(color.channel($c, "green", $space: rgb)),
@@ -65,6 +66,7 @@ $danger: #c7826f;      // terracotta
   @include ion-color(success, $success, $bg);
   @include ion-color(warning, $warning, $bg);
   @include ion-color(danger, $danger, $bg);
+  @include ion-color(info, $info, $bg);
   @include ion-color(medium, $text-faint, $bg);
   @include ion-color(light, $text-muted, $bg);
   @include ion-color(dark, $bg-alt, $text);

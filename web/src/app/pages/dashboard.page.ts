@@ -56,7 +56,7 @@ const AUTO_REFRESH_MS = 10_000;
                  [style.transform]="'translate(-50%, -50%) rotate(' + r.rotate + 'deg)'"
                  [routerLink]="['/pi', r.pi.position]"
                  [title]="r.pi.position + ' — ' + (r.pi.hostname ?? 'no hostname') + ' — ' + r.pi.status">
-              <div class="wedge" [class]="'wedge-' + statusColor(r.pi.status)" [class.wedge-hot]="isHot(r.pi)">
+              <div class="wedge" [class]="'wedge-' + healthColor(r.pi)" [class.wedge-hot]="isHot(r.pi)">
                 <div class="wedge-fill" [style.height.%]="fillPercent(r.pi)"></div>
               </div>
               <div class="wedge-label" [style.transform]="'rotate(' + r.labelRotate + 'deg)'">{{ r.pi.position }}</div>
@@ -100,7 +100,7 @@ const AUTO_REFRESH_MS = 10_000;
             } @else {
               <div class="status-grid">
                 @for (pi of sortedPis(); track pi.mac) {
-                  <div class="status-cell" [class]="'status-' + statusColor(pi.status)" [class.hot]="isHot(pi)"
+                  <div class="status-cell" [class]="'status-' + healthColor(pi)" [class.hot]="isHot(pi)"
                        [routerLink]="['/pi', pi.position]"
                        [title]="pi.position + ' — ' + (pi.hostname ?? 'no hostname') + ' — ' + pi.status + (isHot(pi) ? ' — ' + temp(pi.temp_c) + ' 🔥' : '')">
                     {{ pi.position }}
@@ -233,6 +233,7 @@ const AUTO_REFRESH_MS = 10_000;
     .status-danger { background: var(--ion-color-danger); }
     .status-warning { background: var(--ion-color-warning); color: #000; }
     .status-medium { background: var(--ion-color-medium); }
+    .status-info { background: var(--ion-color-info); }
 
     .status-cell.hot {
       position: relative;
@@ -367,6 +368,8 @@ const AUTO_REFRESH_MS = 10_000;
     .wedge-danger .wedge-fill { background: #7a1f1f; }
     .wedge-warning { border-color: rgba(255, 190, 60, 0.7); }
     .wedge-medium { border-color: rgba(150, 160, 165, 0.6); }
+    .wedge-info { border-color: rgba(125, 148, 171, 0.7); opacity: 0.65; }
+    .wedge-info .wedge-fill { background: #3d4f61; }
     .wedge-hot .wedge-fill {
       background: linear-gradient(180deg, #ffd25a, #ff4d1a);
     }
@@ -503,6 +506,15 @@ export class DashboardPage {
 
   isHot(pi: PiSummary): boolean {
     return pi.temp_c !== null && pi.temp_c > this.HOT_THRESHOLD_C;
+  }
+
+  /** Color for the reactor wedge / fleet status-grid cell — distinct from the generic
+   * `statusColor` used for action/task statuses elsewhere. Overheating (`isHot`) already wins
+   * visually via a separate `.hot`/`-hot` CSS overlay regardless of what this returns, so this
+   * only needs to tell "SSH reachable" from "not reachable" at a glance: green vs. a muted blue,
+   * not the sharp red reserved for overheating. */
+  healthColor(pi: PiSummary): string {
+    return pi.status === 'reachable' ? 'success' : 'info';
   }
 
   /** Rod fill height: temperature if known, else CPU load, else a low idle level. */
