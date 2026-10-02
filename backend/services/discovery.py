@@ -1,5 +1,6 @@
 import ipaddress
 import json
+import logging
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -15,6 +16,8 @@ from backend.models import Pi
 from backend.schemas import DiscoveredPi, DiscoveryScanResult
 from backend.services import audit_log as al
 from backend.services import jobs
+
+log = logging.getLogger(__name__)
 
 
 def ping_host(ip: str) -> bool:
@@ -208,17 +211,20 @@ def scan_subnet(
 
     db.commit()
 
-    # Mark reachable Pis whose IP didn't respond as unreachable
-    reachable_q = db.query(Pi).filter(Pi.status == "reachable")
+    # Mark reachable Pis whose IP didn't respond as unreachable — but only if the scan actually
+    # found *something*. Zero hosts answering across an entire subnet sweep is far more likely a
+    # broken scan (ping unavailable/unprivileged for the service user, wrong subnet configured,
+    # firewall) than every single Pi genuinely going down at once; trusting it would wipe the
+    # whole fleet's status to unreachable on every such failure.
     if discovered_ips:
-        reachable_q = reachable_q.filter(
-            cast(Pi.current_ip, Text).notin_(discovered_ips)
+        db.query(Pi).filter(Pi.status == "reachable", cast(Pi.current_ip, Text).notin_(discovered_ips)).update(
+            {"status": "unreachable", "cpu_1m": None, "cpu_5m": None, "cpu_15m": None, "mem_percent": None, "temp_c": None},
+            synchronize_session=False,
         )
-    reachable_q.update(
-        {"status": "unreachable", "cpu_1m": None, "cpu_5m": None, "cpu_15m": None, "mem_percent": None, "temp_c": None},
-        synchronize_session=False,
-    )
-    db.commit()
+        db.commit()
+    else:
+        log.warning("Discovery scan of %s found zero responsive hosts — leaving existing Pi "
+                     "statuses untouched (likely a scan failure, not a real outage)", subnet)
 
     duration_ms = int((time.monotonic() - start) * 1000)
     al.update_action(

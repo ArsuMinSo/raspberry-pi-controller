@@ -1,7 +1,7 @@
 """Background jobs + progress endpoint (needs the PostgreSQL test DB)."""
 from unittest.mock import patch
 
-from backend.models import ActionLog
+from backend.models import ActionLog, Pi
 from backend.services import audit_log as al
 from backend.services.ssh_executor import SSHResult
 from tests.conftest import API, fake_execute_many
@@ -70,6 +70,25 @@ def test_discovery_runs_as_job(client):
     assert client.get(f"{API}/actions/{action_id}").json()["status"] == "success"
     result = client.get(f"{API}/discovery/scan/{action_id}").json()
     assert result["discovered"] == [] and result["updated"] == 0
+
+
+def test_discovery_zero_hosts_does_not_wipe_fleet_status(client, db):
+    """A scan finding literally nobody (e.g. ping broken/unprivileged for the service user) is
+    almost certainly a scan failure, not every Pi going down at once — must not mark the whole
+    fleet unreachable."""
+    pi = Pi(mac="cc:cc:cc:cc:cc:cc", hostname="kiosk-03", position="01-003", pi_version=4,
+            current_ip="10.10.20.9", status="reachable", tags=[])
+    db.add(pi)
+    db.commit()
+
+    with patch("backend.services.discovery._scan_host", return_value=None):
+        client.post(f"{API}/discovery/scan", json={})
+
+    db.expire_all()
+    assert db.get(Pi, "cc:cc:cc:cc:cc:cc").status == "reachable"
+
+    db.delete(db.get(Pi, "cc:cc:cc:cc:cc:cc"))
+    db.commit()
 
 
 def test_unknown_action_404(client):
