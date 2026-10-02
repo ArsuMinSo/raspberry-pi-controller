@@ -955,7 +955,7 @@ export class FloorMapPage {
    * in the web UI (the result is a dialog on the Pi, not textual output), so just queue it and
    * let the status line confirm it was sent instead of jumping to the action-progress page. */
   private static readonly IDENTIFY_CMD =
-    'zenity --display=:0 --info --text "$(hostname -I)\\n$(cat /sys/class/net/wlan0/address)\\n$(hostname)" --width 300';
+    'zenity --display=:0 --info --text "$(hostname -I)\\n$(cat /sys/class/net/wlan0/address)\\n$(hostname)" --width 300 --timeout 10';
 
   private async identifyPi(position: string): Promise<void> {
     this.error.set('');
