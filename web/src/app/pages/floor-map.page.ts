@@ -1,4 +1,4 @@
-import { Component, ElementRef, inject, signal, viewChild } from '@angular/core';
+import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
@@ -310,10 +310,14 @@ export class FloorMapPage {
 
   readonly panning = signal(false);
 
-  private dragging:
+  /** A signal (not a plain field) so the heavy derived collections below can be `computed()` and
+   * skip recomputing on every animation-frame change-detection tick where nothing actually moved
+   * — see `visibleEdges` for why that mattered. */
+  private readonly dragging = signal<
     | { kind: 'ap'; key: string; bssids: string[]; x: number; y: number; startScreen: { x: number; y: number } }
     | { kind: 'pi'; position: string; pinned: boolean; x: number; y: number; startScreen: { x: number; y: number } }
-    | null = null;
+    | null
+  >(null);
   // A bit more forgiving than a mouse click — a finger naturally drifts a few px on a tap.
   private static readonly CLICK_THRESHOLD_PX = 8;
   private panStart: { clientX: number; clientY: number; zoom: { scale: number; x: number; y: number } } | null = null;
@@ -328,7 +332,7 @@ export class FloorMapPage {
     if (this.activePointers.size === 2 && !this.pinch) {
       // A 2nd finger landing mid drag/pan means "pinch now" — drop whatever single-pointer
       // gesture was in progress so it doesn't fight with the zoom.
-      this.dragging = null;
+      this.dragging.set(null);
       this.panStart = null;
       this.panning.set(false);
       const [idA, idB] = [...this.activePointers.keys()] as [number, number];
@@ -661,28 +665,39 @@ export class FloorMapPage {
    * them when no filter is applied. Everything else (counts, degree, edges) is derived from
    * this instead of `apNodes()` so a filtered-out box is excluded everywhere, not just hidden
    * visually. */
-  visibleApNodes(): ApGroup[] {
+  readonly visibleApNodes = computed(() => {
     const terms = this.apFilterTerms();
     if (terms.length === 0) return this.apNodes();
     return this.apNodes().filter((g) => g.ssids.some((s) => terms.some((t) => s.toLowerCase().includes(t))));
-  }
+  });
 
   unplacedCount(): number {
     return this.visibleApNodes().filter((g) => !g.placed).length;
   }
 
+  /** Numeric position, used internally (e.g. by `visibleEdges`) to avoid a string
+   * format-then-reparse round trip on every edge endpoint. */
+  private apCoords(ap: ApGroup): { x: number; y: number } {
+    const d = this.dragging();
+    if (d?.kind === 'ap' && d.key === ap.key) return { x: d.x, y: d.y };
+    return { x: ap.x ?? NaN, y: ap.y ?? NaN };
+  }
+
+  private piCoords(pi: FloorMapPiNode): { x: number; y: number } {
+    const d = this.dragging();
+    if (d?.kind === 'pi' && d.position === pi.position) return { x: d.x, y: d.y };
+    return { x: pi.x ?? NaN, y: pi.y ?? NaN };
+  }
+
+  /** For the SVG `transform` attribute, which needs a "x,y" string. */
   dragPos(ap: ApGroup): string {
-    if (this.dragging?.kind === 'ap' && this.dragging.key === ap.key) {
-      return `${this.dragging.x},${this.dragging.y}`;
-    }
-    return `${ap.x},${ap.y}`;
+    const { x, y } = this.apCoords(ap);
+    return `${x},${y}`;
   }
 
   piDragPos(pi: FloorMapPiNode): string {
-    if (this.dragging?.kind === 'pi' && this.dragging.position === pi.position) {
-      return `${this.dragging.x},${this.dragging.y}`;
-    }
-    return `${pi.x},${pi.y}`;
+    const { x, y } = this.piCoords(pi);
+    return `${x},${y}`;
   }
 
   /** Node size reflects its connection count, like Obsidian's graph view. */
@@ -719,8 +734,18 @@ export class FloorMapPage {
 
   /** Edges with both endpoints resolved to canvas coordinates, weighted by RSSI (stroke width/opacity).
    * Only to APs that survive the SSID filter — a filtered-out box's connections disappear too. Also
-   * capped per-Pi at `topLinksPerPi` (strongest RSSI first) by the links-per-Pi slider. */
-  visibleEdges(): Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
+   * capped per-Pi at `topLinksPerPi` (strongest RSSI first) by the links-per-Pi slider.
+   *
+   * `computed()`, not a plain method: this used to recompute from scratch (including a sort) on
+   * every call, and it was being called many times per Angular change-detection cycle (once from
+   * the template loop, twice more per Pi/AP via `piDegree`/`apDegree`) — and a CD cycle runs on
+   * every animation frame while anything on the page keeps scheduling one (Ionic's gesture/anim
+   * internals do, continuously), not just while actually dragging. That compounded into a
+   * measured multi-second chunk of a profiling capture going to this one function — see the
+   * "why is mapplan so laggy" investigation. `computed()` instead caches the result and only
+   * redoes the work when a dependency signal (`piNodes`, `apNodes`, `edges`, `dragging`, …)
+   * actually changes value. */
+  readonly visibleEdges = computed(() => {
     const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
     const apByKey = new Map(this.visibleApNodes().map((a) => [a.key, a]));
     const byPosition = new Map<string, FloorMapEdge[]>();
@@ -738,12 +763,12 @@ export class FloorMapPage {
     const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const [position, forPi] of byPosition) {
       const pi = piByPosition.get(position)!;
+      const { x: px, y: py } = this.piCoords(pi);
       const strongest = [...forPi].sort((a, b) => b.rssi - a.rssi).slice(0, limit);
       for (const e of strongest) {
         const groupKey = this.bssidToKey.get(e.bssid)!;
         const ap = apByKey.get(groupKey)!;
-        const [ax, ay] = this.dragPos(ap).split(',').map(Number);
-        const [px, py] = this.piDragPos(pi).split(',').map(Number);
+        const { x: ax, y: ay } = this.apCoords(ap);
         if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
         const strength = this.rssiStrength(e.rssi);
         out.push({
@@ -753,25 +778,25 @@ export class FloorMapPage {
       }
     }
     return out;
-  }
+  });
 
   /** Pi<->Pi BLE sightings with both endpoints resolved to canvas coordinates — only drawable
    * once at least one end has a (WiFi-derived) position; a link between two still-unpositioned
    * Pis has nowhere to be drawn. */
-  visibleBleEdges(): Array<PiBleEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> {
+  readonly visibleBleEdges = computed(() => {
     const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
     const out: Array<PiBleEdge & { x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const e of this.bleEdges()) {
       const a = piByPosition.get(e.position_a);
       const b = piByPosition.get(e.position_b);
       if (!a || !b || a.x === null || a.y === null || b.x === null || b.y === null) continue;
-      const [ax, ay] = this.piDragPos(a).split(',').map(Number);
-      const [bx, by] = this.piDragPos(b).split(',').map(Number);
+      const { x: ax, y: ay } = this.piCoords(a);
+      const { x: bx, y: by } = this.piCoords(b);
       const strength = this.rssiStrength(e.rssi);
       out.push({ ...e, x1: ax, y1: ay, x2: bx, y2: by, width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6 });
     }
     return out;
-  }
+  });
 
   private rssiStrength(rssi: number): number {
     const clamped = Math.min(Math.max(rssi, RSSI_WEAK), RSSI_STRONG);
@@ -785,10 +810,10 @@ export class FloorMapPage {
     if (this.pinch || !this.canOperate) return; // 2nd finger landing here starts a pinch instead; viewers can look, not move/group APs
     const pt = this.toViewBox(event);
     if (!pt) return;
-    this.dragging = {
+    this.dragging.set({
       kind: 'ap', key: ap.key, bssids: ap.bssids, x: pt.x, y: pt.y,
       startScreen: { x: event.clientX, y: event.clientY },
-    };
+    });
   }
 
   onPiPointerDown(event: PointerEvent, pi: FloorMapPiNode): void {
@@ -801,15 +826,15 @@ export class FloorMapPage {
     if (this.pinch) return;
     const pt = this.toViewBox(event);
     if (!pt || pi.x === null || pi.y === null) return;
-    this.dragging = {
+    this.dragging.set({
       kind: 'pi', position: pi.position, pinned: pi.pinned, x: pt.x, y: pt.y,
       startScreen: { x: event.clientX, y: event.clientY },
-    };
+    });
   }
 
   /** Pointerdown on empty canvas (not an AP node, which stops propagation) — pan the view. */
   onBackgroundPointerDown(event: PointerEvent): void {
-    if (this.dragging) return;
+    if (this.dragging()) return;
     this.svgEl = event.currentTarget as SVGSVGElement;
     this.trackPointerDown(event);
     if (this.pinch) return; // 2nd finger landing here starts a pinch instead of a pan
@@ -833,10 +858,11 @@ export class FloorMapPage {
       if (cursor) this.zoomAround(cursor, factor);
       return;
     }
-    if (this.dragging) {
+    const dragNow = this.dragging();
+    if (dragNow) {
       const pt = this.toViewBox(event);
       if (!pt) return;
-      this.dragging = { ...this.dragging, x: pt.x, y: pt.y };
+      this.dragging.set({ ...dragNow, x: pt.x, y: pt.y });
       return;
     }
     if (this.panStart && this.svgEl) {
@@ -855,9 +881,9 @@ export class FloorMapPage {
     }
     this.panStart = null;
     this.panning.set(false);
-    if (!this.dragging) return;
-    const drag = this.dragging;
-    this.dragging = null;
+    const drag = this.dragging();
+    if (!drag) return;
+    this.dragging.set(null);
 
     const moved = event
       ? Math.hypot(event.clientX - drag.startScreen.x, event.clientY - drag.startScreen.y)
