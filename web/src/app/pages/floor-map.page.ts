@@ -1,4 +1,4 @@
-import { Component, ElementRef, computed, inject, signal, viewChild } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import {
@@ -46,7 +46,7 @@ interface ApGroup {
 @Component({
   selector: 'app-floor-map',
   template: `
-    <ion-header>
+    <ion-header [class.fs-hidden]="fullscreen()">
       <ion-toolbar>
         <ion-buttons slot="start"><ion-menu-button></ion-menu-button></ion-buttons>
         <ion-title>Floor Map</ion-title>
@@ -69,7 +69,7 @@ interface ApGroup {
       }
 
       @if (map(); as m) {
-        <p class="hint">
+        <p class="hint" [class.fs-hidden]="fullscreen()">
           Drag an access point to place/reposition it; click (without dragging) to group it with other APs that
           are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
           top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
@@ -79,7 +79,7 @@ interface ApGroup {
           thickness/brightness = signal strength; node size = number of connections.
         </p>
 
-        <div class="filter-row">
+        <div class="filter-row" [class.fs-hidden]="fullscreen()">
           <ion-button fill="outline" size="small" [color]="showConnections() ? 'primary' : 'medium'"
                       (click)="showConnections.set(!showConnections())">Connections</ion-button>
           <ion-button fill="outline" size="small" [color]="showAps() ? 'primary' : 'medium'"
@@ -117,7 +117,12 @@ interface ApGroup {
           </div>
         </div>
 
-        <div class="map-wrap" #mapWrap [class.fullscreen]="fullscreen()">
+        <div class="map-wrap" [class.fullscreen]="fullscreen()">
+          @if (fullscreen()) {
+            <ion-button class="fs-exit-btn" fill="solid" size="small" (click)="toggleFullscreen()" aria-label="Exit fullscreen">
+              <ion-icon slot="icon-only" name="contract-outline"></ion-icon>
+            </ion-button>
+          }
           <svg
             [attr.viewBox]="viewBoxStr()"
             class="map-canvas"
@@ -180,10 +185,10 @@ interface ApGroup {
         </div>
 
         @if (unplacedCount() > 0) {
-          <p class="hint">{{ unplacedCount() }} access point(s) not yet placed — drag from the staging row above.</p>
+          <p class="hint" [class.fs-hidden]="fullscreen()">{{ unplacedCount() }} access point(s) not yet placed — drag from the staging row above.</p>
         }
         @if (hiddenPiCount() > 0) {
-          <p class="hint">{{ hiddenPiCount() }} Pi(s) not shown — no <em>placed</em> AP seen in their latest WiFi
+          <p class="hint" [class.fs-hidden]="fullscreen()">{{ hiddenPiCount() }} Pi(s) not shown — no <em>placed</em> AP seen in their latest WiFi
           scan, and no BLE sighting of an already-positioned Pi either. Place an AP they can see (or get a
           neighboring Pi positioned), then re-scan.</p>
         }
@@ -202,6 +207,7 @@ interface ApGroup {
     .links-slider ion-range { flex: 1; min-width: 120px; padding: 0; }
 
     .map-wrap {
+      position: relative;
       width: 100%;
       max-width: 2100px;
       margin: 0 auto;
@@ -214,6 +220,14 @@ interface ApGroup {
       width: 100vw;
       height: 100vh;
       aspect-ratio: auto;
+    }
+    .fs-hidden { display: none; }
+    .fs-exit-btn {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      z-index: 10;
+      --background: rgba(20, 20, 24, 0.75);
     }
     .map-canvas {
       width: 100%;
@@ -307,7 +321,6 @@ export class FloorMapPage {
   readonly untangling = signal(false);
   /** x/y = viewBox min-corner, scale = zoom factor (viewBox width/height shrink as scale grows). */
   readonly zoom = signal({ scale: 1, x: 0, y: 0 });
-  private readonly mapWrap = viewChild<ElementRef<HTMLDivElement>>('mapWrap');
 
   readonly hiddenPiCount = () => this.piNodes().filter((p) => p.x === null || p.y === null).length;
 
@@ -355,7 +368,7 @@ export class FloorMapPage {
     this.applyApFilter();
     this.load();
     document.addEventListener('fullscreenchange', () => {
-      this.fullscreen.set(document.fullscreenElement === this.mapWrap()?.nativeElement);
+      this.fullscreen.set(document.fullscreenElement === document.documentElement);
     });
   }
 
@@ -454,13 +467,18 @@ export class FloorMapPage {
     }
   }
 
+  /** Fullscreens the whole page (`<html>`), not just the map div — Ionic's action-sheet/alert
+   * overlays (View details / Identify / Release pin, the "Remove AP" confirm, etc.) portal to
+   * `document.body`. The Fullscreen API only renders the fullscreened element and its
+   * descendants, so fullscreening just the map div made those overlays invisible (silently —
+   * they still opened, just off in the hidden rest-of-page). Fullscreening `documentElement`
+   * keeps body, and everything portaled to it, inside the fullscreened subtree. CSS below hides
+   * the header/filter chrome and expands `.map-wrap` to fill the screen to reproduce the old look. */
   async toggleFullscreen(): Promise<void> {
-    const el = this.mapWrap()?.nativeElement;
-    if (!el) return;
     if (document.fullscreenElement) {
       await document.exitFullscreen();
     } else {
-      await el.requestFullscreen();
+      await document.documentElement.requestFullscreen();
     }
   }
 
