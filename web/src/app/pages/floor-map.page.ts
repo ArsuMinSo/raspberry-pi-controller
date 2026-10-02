@@ -126,6 +126,7 @@ interface ApGroup {
             (pointermove)="onPointerMove($event)"
             (pointerup)="onPointerUp($event)"
             (pointerleave)="onPointerUp($event)"
+            (pointercancel)="onPointerUp($event)"
             (wheel)="onWheel($event)"
           >
             @if (showFloorPlan()) {
@@ -313,9 +314,34 @@ export class FloorMapPage {
     | { kind: 'ap'; key: string; bssids: string[]; x: number; y: number; startScreen: { x: number; y: number } }
     | { kind: 'pi'; position: string; pinned: boolean; x: number; y: number; startScreen: { x: number; y: number } }
     | null = null;
-  private static readonly CLICK_THRESHOLD_PX = 4;
+  // A bit more forgiving than a mouse click — a finger naturally drifts a few px on a tap.
+  private static readonly CLICK_THRESHOLD_PX = 8;
   private panStart: { clientX: number; clientY: number; zoom: { scale: number; x: number; y: number } } | null = null;
   private svgEl: SVGSVGElement | null = null;
+
+  // ─── Touch: two-finger pinch to zoom (wheel has no touch equivalent) ──────
+  private readonly activePointers = new Map<number, { x: number; y: number }>();
+  private pinch: { pointerIds: [number, number]; lastDistance: number } | null = null;
+
+  private trackPointerDown(event: PointerEvent): void {
+    this.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (this.activePointers.size === 2 && !this.pinch) {
+      // A 2nd finger landing mid drag/pan means "pinch now" — drop whatever single-pointer
+      // gesture was in progress so it doesn't fight with the zoom.
+      this.dragging = null;
+      this.panStart = null;
+      this.panning.set(false);
+      const [idA, idB] = [...this.activePointers.keys()] as [number, number];
+      this.pinch = { pointerIds: [idA, idB], lastDistance: this.pointerDistance(idA, idB) };
+    }
+  }
+
+  private pointerDistance(idA: number, idB: number): number {
+    const a = this.activePointers.get(idA);
+    const b = this.activePointers.get(idB);
+    if (!a || !b) return 0;
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
 
   constructor() {
     this.apFilterInput = localStorage.getItem(FloorMapPage.AP_FILTER_STORAGE_KEY) ?? '';
@@ -335,14 +361,11 @@ export class FloorMapPage {
     this.zoom.set({ scale: 1, x: 0, y: 0 });
   }
 
-  /** Zoom in/out around the cursor, keeping the point under it fixed on screen. */
-  onWheel(event: WheelEvent): void {
-    event.preventDefault();
-    this.svgEl = event.currentTarget as SVGSVGElement;
-    const cursor = this.toViewBox(event);
-    if (!cursor) return;
+  /** Zoom in/out around a view-box point, keeping it fixed on screen. Shared by the mouse wheel
+   * and touch pinch — pinch just supplies a (shrinking/growing) distance ratio instead of a
+   * wheel tick as the zoom `factor`. */
+  private zoomAround(cursor: { x: number; y: number }, factor: number): void {
     const z = this.zoom();
-    const factor = event.deltaY < 0 ? 1.15 : 1 / 1.15;
     const newScale = Math.min(Math.max(z.scale * factor, 0.5), 8);
     const sizeOldX = VIEW_W / z.scale;
     const sizeOldY = VIEW_H / z.scale;
@@ -351,6 +374,14 @@ export class FloorMapPage {
     const sizeNewX = VIEW_W / newScale;
     const sizeNewY = VIEW_H / newScale;
     this.zoom.set({ scale: newScale, x: cursor.x - fracX * sizeNewX, y: cursor.y - fracY * sizeNewY });
+  }
+
+  onWheel(event: WheelEvent): void {
+    event.preventDefault();
+    this.svgEl = event.currentTarget as SVGSVGElement;
+    const cursor = this.toViewBox(event);
+    if (!cursor) return;
+    this.zoomAround(cursor, event.deltaY < 0 ? 1.15 : 1 / 1.15);
   }
 
   /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
@@ -749,8 +780,9 @@ export class FloorMapPage {
 
   onPointerDown(event: PointerEvent, ap: ApGroup): void {
     event.stopPropagation(); // don't also start a background pan
-    if (!this.canOperate) return; // viewers can look, not move/group APs
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
+    this.trackPointerDown(event);
+    if (this.pinch || !this.canOperate) return; // 2nd finger landing here starts a pinch instead; viewers can look, not move/group APs
     const pt = this.toViewBox(event);
     if (!pt) return;
     this.dragging = {
@@ -761,9 +793,12 @@ export class FloorMapPage {
 
   onPiPointerDown(event: PointerEvent, pi: FloorMapPiNode): void {
     event.stopPropagation(); // don't also start a background pan
-    // Tracked for every role, even viewers — a plain click (no real movement) navigates to the
-    // Pi's detail page regardless of permissions; only an actual drag is gated to operators below.
     this.svgEl = (event.currentTarget as SVGGraphicsElement).ownerSVGElement;
+    this.trackPointerDown(event);
+    // Tracked for every role, even viewers — a plain click/tap (no real movement) navigates to
+    // the Pi's detail page regardless of permissions; only an actual drag is gated to operators
+    // below. A 2nd finger landing here starts a pinch instead of a drag.
+    if (this.pinch) return;
     const pt = this.toViewBox(event);
     if (!pt || pi.x === null || pi.y === null) return;
     this.dragging = {
@@ -776,11 +811,28 @@ export class FloorMapPage {
   onBackgroundPointerDown(event: PointerEvent): void {
     if (this.dragging) return;
     this.svgEl = event.currentTarget as SVGSVGElement;
+    this.trackPointerDown(event);
+    if (this.pinch) return; // 2nd finger landing here starts a pinch instead of a pan
     this.panStart = { clientX: event.clientX, clientY: event.clientY, zoom: this.zoom() };
     this.panning.set(true);
   }
 
   onPointerMove(event: PointerEvent): void {
+    if (this.activePointers.has(event.pointerId)) {
+      this.activePointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    if (this.pinch) {
+      const [idA, idB] = this.pinch.pointerIds;
+      const a = this.activePointers.get(idA);
+      const b = this.activePointers.get(idB);
+      if (!a || !b) return;
+      const dist = this.pointerDistance(idA, idB);
+      const factor = this.pinch.lastDistance > 0 ? dist / this.pinch.lastDistance : 1;
+      this.pinch.lastDistance = dist;
+      const cursor = this.toViewBox({ clientX: (a.x + b.x) / 2, clientY: (a.y + b.y) / 2 });
+      if (cursor) this.zoomAround(cursor, factor);
+      return;
+    }
     if (this.dragging) {
       const pt = this.toViewBox(event);
       if (!pt) return;
@@ -797,6 +849,10 @@ export class FloorMapPage {
   }
 
   async onPointerUp(event?: PointerEvent): Promise<void> {
+    if (event) this.activePointers.delete(event.pointerId);
+    if (this.pinch && (!this.activePointers.has(this.pinch.pointerIds[0]) || !this.activePointers.has(this.pinch.pointerIds[1]))) {
+      this.pinch = null; // one of the two pinch fingers lifted — zoom gesture is over
+    }
     this.panStart = null;
     this.panning.set(false);
     if (!this.dragging) return;
