@@ -6,12 +6,12 @@ from backend.auth import Actor, require_role
 from backend.database import get_db
 from backend.models import AccessPoint, Pi, WifiScan
 from backend.schemas import (
-    AccessPointGroupUpdate, AccessPointOut, AccessPointPositionUpdate, ActionQueued, BleDeviceSeen,
+    AccessPointGroupUpdate, AccessPointOut, AccessPointPinUpdate, AccessPointPositionUpdate, ActionQueued, BleDeviceSeen,
     FloorMapPiNode, FloorMapResponse, FloorMapSettingsUpdate, HealthTriggerRequest, PiPinUpdate,
 )
 from backend.services.floor_map import (
-    clear_all_links, compute_pi_position, get_ble_devices_for_position, get_floor_map, set_plan_visible,
-    start_ble_scan, start_wifi_scan,
+    adjacent_bssid_clusters, clear_all_links, compute_pi_position, get_ble_devices_for_position, get_floor_map,
+    set_plan_visible, start_ble_scan, start_wifi_scan,
 )
 
 router = APIRouter()
@@ -63,6 +63,32 @@ def place_access_point(bssid: str, body: AccessPointPositionUpdate,
     db.commit()
     db.refresh(ap)
     return AccessPointOut.model_validate(ap)
+
+
+@router.patch("/ap/{bssid}/pin", response_model=AccessPointOut)
+def set_access_point_pinned(bssid: str, body: AccessPointPinUpdate,
+                            actor: Actor = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    ap = db.get(AccessPoint, bssid.lower())
+    if ap is None:
+        raise HTTPException(status_code=404, detail=f"Access point {bssid} not found")
+    ap.pinned = body.pinned
+    db.commit()
+    db.refresh(ap)
+    return AccessPointOut.model_validate(ap)
+
+
+@router.post("/ap/auto-group")
+def auto_group_access_points(actor: Actor = Depends(require_role("operator")), db: Session = Depends(get_db)):
+    """Groups ungrouped APs whose BSSIDs differ only by 1 in the last octet. Already-grouped APs
+    are left alone; each new group is named after its lowest BSSID."""
+    aps = db.query(AccessPoint).filter(AccessPoint.group_name.is_(None)).all()
+    by_bssid = {ap.bssid: ap for ap in aps}
+    clusters = adjacent_bssid_clusters(list(by_bssid))
+    for cluster in clusters:
+        for bssid in cluster:
+            by_bssid[bssid].group_name = cluster[0]
+    db.commit()
+    return {"groups": len(clusters), "aps": sum(len(c) for c in clusters)}
 
 
 @router.patch("/ap/{bssid}/group", response_model=AccessPointOut)

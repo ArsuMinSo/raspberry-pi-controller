@@ -160,6 +160,7 @@ class AccessPoint(Base):
     group_name = mapped_column(String(255))
     x = mapped_column(Float)
     y = mapped_column(Float)
+    pinned: MappedColumn[bool] = mapped_column(Boolean, nullable=False, default=False)
     placed_by_user_id = mapped_column(Integer, ForeignKey("users.id"))
     created_at = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())

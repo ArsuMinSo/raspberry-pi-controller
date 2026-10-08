@@ -330,3 +330,17 @@ def test_floor_map_viewer_can_read_but_not_trigger_scan(anon_client, sample_pi, 
     headers = login_as("viewer")
     assert anon_client.get(f"{API}/floor-map", headers=headers).status_code == 200
     assert anon_client.post(f"{API}/floor-map/wifi-scan", json={"all": True}, headers=headers).status_code == 403
+
+
+def test_adjacent_bssid_clusters_group_last_octet_neighbours():
+    from backend.services.floor_map import adjacent_bssid_clusters
+    bssids = [
+        "9c:05:d6:ba:88:46", "9c:05:d6:ba:88:47",  # differ by 1 → grouped
+        "9c:05:d6:ba:88:50", "9c:05:d6:ba:88:52",  # differ by 2 → not grouped
+        "9c:05:d6:ba:89:47",                       # same last octet, other prefix → alone
+        "d8:b3:70:fc:7d:26", "d8:b3:70:fc:7d:27", "d8:b3:70:fc:7d:28",  # chain → one group
+    ]
+    assert adjacent_bssid_clusters(bssids) == [
+        ["9c:05:d6:ba:88:46", "9c:05:d6:ba:88:47"],
+        ["d8:b3:70:fc:7d:26", "d8:b3:70:fc:7d:27", "d8:b3:70:fc:7d:28"],
+    ]

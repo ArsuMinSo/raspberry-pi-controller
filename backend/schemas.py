@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 # ─── Common ───────────────────────────────────────────────────────────────────
@@ -419,14 +419,14 @@ class AccessPointOut(BaseModel):
     group_name: str | None
     x: float | None
     y: float | None
+    pinned: bool
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
 
-    @computed_field
-    @property
-    def pinned(self) -> bool:
-        return self.x is not None and self.y is not None
+
+class AccessPointPinUpdate(BaseModel):
+    pinned: bool
 
 
 class AccessPointPositionUpdate(BaseModel):

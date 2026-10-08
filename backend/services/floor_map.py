@@ -207,6 +207,31 @@ def _upsert_access_points(db: Session, readings: list[WifiReading]) -> None:
     db.commit()
 
 
+def adjacent_bssid_clusters(bssids: list[str]) -> list[list[str]]:
+    """Clusters of BSSIDs that share their first five octets and whose last octet differs by 1
+    (chained transitively). Only clusters with more than one member are returned."""
+    parent = {b: b for b in bssids}
+
+    def find(b: str) -> str:
+        while parent[b] != b:
+            parent[b] = parent[parent[b]]
+            b = parent[b]
+        return b
+
+    by_prefix: dict[str, dict[int, str]] = {}
+    for b in bssids:
+        by_prefix.setdefault(b[:15], {})[int(b[15:], 16)] = b
+    for members in by_prefix.values():
+        for last, b in members.items():
+            if last + 1 in members:
+                parent[find(b)] = find(members[last + 1])
+
+    clusters: dict[str, list[str]] = {}
+    for b in bssids:
+        clusters.setdefault(find(b), []).append(b)
+    return [sorted(c) for c in clusters.values() if len(c) > 1]
+
+
 def _run_wifi_scan_one(ip: str, position: str, settings: SSHSettings):
     return position, execute(ip, position, WIFI_SCAN_CMD, settings)
 
