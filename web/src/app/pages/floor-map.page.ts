@@ -407,22 +407,21 @@ export class FloorMapPage {
 
   /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
    * AP boxes repel each other (declutter overlap) and are pulled toward the Pis that see them,
-   * weighted by signal strength. Result is saved per-BSSID via the normal placement endpoint
-   * (every BSSID in a box moves together). */
+   * weighted by signal strength. Only the visible APs and the links currently drawn (SSID filter
+   * and links-per-Pi slider) take part; hidden boxes keep their saved positions. Result is saved
+   * per-BSSID via the normal placement endpoint (every BSSID in a box moves together). */
   async untangle(): Promise<void> {
     const pis = this.piNodes().filter((p) => p.x !== null && p.y !== null) as Array<FloorMapPiNode & { x: number; y: number }>;
     const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
-    for (const e of this.edges()) {
+    for (const e of this.visibleEdges()) {
       const pi = pis.find((p) => p.position === e.position);
       if (!pi) continue;
-      const key = this.bssidToKey.get(e.bssid);
-      if (!key) continue;
-      const arr = edgesByKey.get(key) ?? [];
+      const arr = edgesByKey.get(e.groupKey) ?? [];
       arr.push({ x: pi.x, y: pi.y, weight: this.rssiStrength(e.rssi) });
-      edgesByKey.set(key, arr);
+      edgesByKey.set(e.groupKey, arr);
     }
 
-    let groups = this.apNodes().map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
+    let groups = this.visibleApNodes().map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
     if (groups.length === 0) return;
 
     this.untangling.set(true);
@@ -786,7 +785,7 @@ export class FloorMapPage {
     }
 
     const limit = this.topLinksPerPi() >= this.MAX_LINKS_PER_PI ? Infinity : this.topLinksPerPi();
-    const out: Array<{ position: string; groupKey: string; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    const out: Array<{ position: string; groupKey: string; rssi: number; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
     for (const [position, forPi] of byPosition) {
       const pi = piByPosition.get(position)!;
       const { x: px, y: py } = this.piCoords(pi);
@@ -798,7 +797,7 @@ export class FloorMapPage {
         if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
         const strength = this.rssiStrength(e.rssi);
         out.push({
-          position, groupKey, x1: px, y1: py, x2: ax, y2: ay,
+          position, groupKey, rssi: e.rssi, x1: px, y1: py, x2: ax, y2: ay,
           width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
         });
       }
