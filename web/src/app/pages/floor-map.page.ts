@@ -450,6 +450,7 @@ export class FloorMapPage {
 
     this.untangling.set(true);
     const REPULSION = 9000;
+    const MIN_DISTANCE = 60;
     const ATTRACTION = 0.06;
     const MARGIN = 30;
     const MIN_Y = UNPLACED_ROW_Y + 40;
@@ -461,7 +462,8 @@ export class FloorMapPage {
           const dy = groups[i].y - groups[j].y;
           const distSq = Math.max(dx * dx + dy * dy, 1);
           const dist = Math.sqrt(distSq);
-          const f = REPULSION / distSq;
+          const overlap = Math.max(0, MIN_DISTANCE - dist);
+          const f = REPULSION / distSq + overlap * 0.5;
           const fx = (dx / dist) * f;
           const fy = (dy / dist) * f;
           forces[i].fx += fx; forces[i].fy += fy;
