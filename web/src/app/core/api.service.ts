@@ -239,6 +239,10 @@ export class ApiService {
     return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}`, { x: null, y: null });
   }
 
+  pinAccessPoint(bssid: string, pinned: boolean): Observable<AccessPointOut> {
+    return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}/pin`, { pinned });
+  }
+
   setAccessPointGroup(bssid: string, groupName: string | null): Observable<AccessPointOut> {
     return this.http.patch<AccessPointOut>(`${API}/floor-map/ap/${encodeURIComponent(bssid)}/group`, { group_name: groupName });
   }
@@ -249,6 +253,10 @@ export class ApiService {
 
   listAccessPointGroups(): Observable<string[]> {
     return this.http.get<string[]>(`${API}/floor-map/groups`);
+  }
+
+  autoGroupAccessPoints(): Observable<{ groups: number; aps: number }> {
+    return this.http.post<{ groups: number; aps: number }>(`${API}/floor-map/ap/auto-group`, {});
   }
 
   pinPi(position: string, x: number, y: number): Observable<FloorMapPiNode> {

@@ -41,6 +41,8 @@ interface ApGroup {
   y: number | null;
   /** False once staged with synthetic x/y for the staging row — x/y are non-null either way. */
   placed: boolean;
+  /** Fixed for untangle; set/cleared from the AP sheet. */
+  pinned: boolean;
 }
 
 @Component({
@@ -108,6 +110,9 @@ interface ApGroup {
           <ion-input class="ssid-filter" fill="outline" placeholder="wifi1, wifi2, ..."
                      [(ngModel)]="apFilterInput" (keyup.enter)="applyApFilter()"></ion-input>
           <ion-button fill="outline" size="small" (click)="applyApFilter()">Filter</ion-button>
+          @if (canOperate) {
+            <ion-button fill="outline" size="small" (click)="autoGroup()">Auto-group</ion-button>
+          }
           @if (apFilterTerms().length > 0) {
             <ion-button fill="clear" size="small" (click)="clearApFilter()">Clear filter</ion-button>
           }
@@ -408,7 +413,7 @@ export class FloorMapPage {
   /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
    * AP boxes repel each other (declutter overlap) and are pulled toward the Pis that see them,
    * weighted by signal strength. Only what is on screen takes part: APs/Pis/connections shown by the
-   * toggles, APs passing the SSID filter, and links within the links-per-Pi cap. Pinned (placed) APs
+   * toggles, APs passing the SSID filter, and links within the links-per-Pi cap. Pinned APs
    * never move — they only push and pull the others. Hidden boxes keep their saved positions. Result is saved
    * per-BSSID via the normal placement endpoint (every BSSID in a box moves together). */
   async untangle(): Promise<void> {
@@ -427,7 +432,7 @@ export class FloorMapPage {
 
     const shownAps = this.showAps() ? this.visibleApNodes() : [];
     let groups = shownAps.map((a) => ({
-      key: a.key, bssids: a.bssids, fixed: a.placed, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2,
+      key: a.key, bssids: a.bssids, fixed: a.pinned, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2,
     }));
     if (groups.length === 0) return;
 
@@ -517,8 +522,9 @@ export class FloorMapPage {
     const groups = new Map<string, ApGroup>();
     for (const ap of aps) {
       const key = ap.group_name ?? ap.bssid;
-      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, placed: false };
+      const g = groups.get(key) ?? { key, bssids: [], ssids: [], x: null, y: null, placed: false, pinned: false };
       g.bssids.push(ap.bssid);
+      if (ap.pinned) g.pinned = true;
       const ssidsToAdd = ap.ssid ? [...ap.ssids, ap.ssid] : ap.ssids;
       for (const s of ssidsToAdd) {
         if (!g.ssids.includes(s)) g.ssids.push(s);
@@ -545,6 +551,28 @@ export class FloorMapPage {
   private readonly actionSheets = inject(ActionSheetController);
   private readonly alerts = inject(AlertController);
 
+  /** Groups ungrouped APs whose BSSIDs differ only by 1 in the last octet (server-side). */
+  async autoGroup(): Promise<void> {
+    this.error.set('');
+    try {
+      const res = await firstValueFrom(this.api.autoGroupAccessPoints());
+      this.statusMsg.set(`Grouped ${res.aps} APs into ${res.groups} group(s).`);
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
+  private async setApPinned(ap: ApGroup, pinned: boolean): Promise<void> {
+    this.error.set('');
+    try {
+      await Promise.all(ap.bssids.map((bssid) => firstValueFrom(this.api.pinAccessPoint(bssid, pinned))));
+      await this.load();
+    } catch (e) {
+      this.error.set(errorMessage(e));
+    }
+  }
+
   async openApMenu(ap: ApGroup): Promise<void> {
     let groups: string[] = [];
     try {
@@ -560,6 +588,11 @@ export class FloorMapPage {
     ];
     if (currentlyGrouped) {
       buttons.push({ text: 'Remove from group', role: 'destructive', handler: () => void this.assignGroup(ap, null) });
+    }
+    if (ap.placed && this.canOperate) {
+      buttons.push(ap.pinned
+        ? { text: 'Unpin (let untangle move it)', handler: () => void this.setApPinned(ap, false) }
+        : { text: 'Pin in place (untangle keeps it)', handler: () => void this.setApPinned(ap, true) });
     }
     buttons.push({ text: 'Remove access point', role: 'destructive', handler: () => void this.confirmRemoveAp(ap) });
     buttons.push({ text: 'Cancel', role: 'cancel' });
@@ -964,7 +997,7 @@ export class FloorMapPage {
     if (drag.kind === 'ap') {
       if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
         const ap = this.apNodes().find((a) => a.key === drag.key)
-          ?? { key: drag.key, bssids: drag.bssids, ssids: [], x: null, y: null, placed: false };
+          ?? { key: drag.key, bssids: drag.bssids, ssids: [], x: null, y: null, placed: false, pinned: false };
         await this.openApMenu(ap);
         return;
       }
