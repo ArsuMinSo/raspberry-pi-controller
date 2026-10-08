@@ -52,8 +52,8 @@ def probe_pi(
     auth: str = "key",
     password: str | None = None,
     deploy_key: bool = False,
-) -> tuple[str | None, str | None, int | None, str | None]:
-    """Returns (hostname, pi_version, serial, mac) via SSH. All None on failure."""
+) -> tuple[str | None, int | None, str | None, str | None] | None:
+    """Returns (hostname, pi_version, serial, mac) via SSH, or None if the login failed."""
     import socket
     username = probe_username or ssh.username
     client = paramiko.SSHClient()
@@ -95,7 +95,7 @@ def probe_pi(
         mac = mac_raw if is_valid_mac(mac_raw) else None
         return hostname, pi_version, serial, mac
     except (paramiko.SSHException, OSError, socket.timeout):
-        return None, None, None, None
+        return None
     finally:
         client.close()
 
@@ -113,30 +113,45 @@ def _parse_hosts(scan_range: str) -> list:
     return list(ipaddress.ip_network(scan_range, strict=False).hosts())
 
 
+HOST_DOWN = "down"
+HOST_PING = "ping"
+HOST_SSH_MAIN = "ssh_main"
+HOST_SSH_BACKUP = "ssh_backup"
+
+
 def _scan_host(
     ip: str,
     ssh_settings: SSHSettings,
     do_probe: bool,
     probe_timeout: int,
     probe_username: str | None = None,
+    probe_backup_username: str = "",
     probe_auth: str = "key",
     probe_password: str | None = None,
     probe_deploy_key: bool = False,
-) -> tuple[str, str | None, int | None, str | None, str | None] | None:
-    """Ping + optional SSH probe for one host. Returns None if host unreachable."""
+) -> tuple[str, str, str | None, int | None, str | None, str | None]:
+    """Ping, then SSH-probe as the main user and (on failure) the backup user.
+
+    Returns (ip, state, hostname, pi_version, serial, mac); state is one of HOST_*.
+    """
     if not ping_host(ip):
-        return None
-    if do_probe:
-        hostname, pi_version, serial, mac = probe_pi(
+        return ip, HOST_DOWN, None, None, None, None
+    if not do_probe:
+        return ip, HOST_PING, None, None, None, None
+    attempts = ((HOST_SSH_MAIN, probe_username), (HOST_SSH_BACKUP, probe_backup_username))
+    for state, username in attempts:
+        if not username:
+            continue
+        info = probe_pi(
             ip, ssh_settings, probe_timeout,
-            probe_username=probe_username,
+            probe_username=username,
             auth=probe_auth,
             password=probe_password,
             deploy_key=probe_deploy_key,
         )
-    else:
-        hostname, pi_version, serial, mac = None, None, None, None
-    return (ip, hostname, pi_version, serial, mac)
+        if info is not None:
+            return (ip, state, *info)
+    return ip, HOST_PING, None, None, None, None
 
 
 def scan_subnet(
@@ -156,26 +171,33 @@ def scan_subnet(
     do_probe = net_settings.probe_ssh if net_settings else True
     probe_timeout = net_settings.probe_timeout_s if net_settings else 3
     probe_username = net_settings.probe_username if net_settings else None
+    probe_backup_username = net_settings.probe_backup_username if net_settings else ""
     probe_auth = net_settings.probe_auth if net_settings else "key"
     probe_deploy_key = net_settings.probe_deploy_key if net_settings else False
 
     hosts = [str(h) for h in _parse_hosts(subnet)]
     workers = min(64, max(1, len(hosts)))
+    known_ips = {
+        str(ip) for (ip,) in db.query(Pi.current_ip).filter(Pi.last_seen.isnot(None), Pi.current_ip.isnot(None))
+    }
 
-    # Parallel ping + probe
+    # Parallel ping + probe; each host's state is recorded as soon as it finishes (live grid)
     alive: list[tuple[str, str | None, int | None, str | None, str | None]] = []
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {
             ex.submit(
                 _scan_host, ip, ssh_settings, do_probe, probe_timeout,
-                probe_username, probe_auth, probe_password, probe_deploy_key,
+                probe_username, probe_backup_username, probe_auth, probe_password, probe_deploy_key,
             ): ip
             for ip in hosts
         }
         for future in as_completed(futures):
-            result = future.result()
-            if result is not None:
-                alive.append(result)
+            ip, state, hostname, pi_version, serial, mac = future.result()
+            if state == HOST_DOWN and ip in known_ips:
+                al.add_result(db, entry.id, ip, details={"state": "down_known"})
+            elif state != HOST_DOWN:
+                alive.append((ip, hostname, pi_version, serial, mac))
+                al.add_result(db, entry.id, ip, details={"state": state})
 
     # Sort by IP for stable output
     alive.sort(key=lambda r: ipaddress.IPv4Address(r[0]))

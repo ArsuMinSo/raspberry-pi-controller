@@ -163,6 +163,7 @@ export class ApiService {
       if (n.probe_ssh !== undefined) flat['probe_ssh'] = n.probe_ssh;
       if (n.probe_timeout_s !== undefined) flat['probe_timeout_s'] = n.probe_timeout_s;
       if (n.probe_username !== undefined) flat['probe_username'] = n.probe_username;
+      if (n.probe_backup_username !== undefined) flat['probe_backup_username'] = n.probe_backup_username;
       if (n.probe_auth !== undefined) flat['probe_auth'] = n.probe_auth;
       if (n.probe_deploy_key !== undefined) flat['probe_deploy_key'] = n.probe_deploy_key;
     }

@@ -97,7 +97,8 @@ network:
   scan_interval_s: 86400
   probe_ssh: true                            # SSH-probe during discovery
   probe_timeout_s: 5
-  probe_username: pi                         # user for probe connections
+  probe_username: pi                         # main user for probe connections (green in scan grid)
+  probe_backup_username: ""                  # fallback user, same auth (yellow in scan grid); "" = off
   probe_auth: key                            # "key" or "password"
   probe_deploy_key: false                    # copy pub key during probe
 

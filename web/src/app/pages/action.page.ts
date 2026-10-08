@@ -30,6 +30,12 @@ function isFatal(err: unknown): boolean {
   return err instanceof HttpErrorResponse && [401, 403, 404].includes(err.status);
 }
 
+interface ScanCell {
+  octet: number;
+  ip: string | null;
+  state: string | null;
+}
+
 @Component({
   selector: 'app-action',
   template: `
@@ -61,7 +67,20 @@ function isFatal(err: unknown): boolean {
           @if (p.total) { <p>{{ p.done }} / {{ p.total }} Pis done</p> }
           @if (p.error) { <ion-text color="danger"><p>{{ p.error }}</p></ion-text> }
 
-          @if (p.action === 'diagnostics') {
+          @if (p.action === 'discovery') {
+            <div class="scan-grid" role="img" aria-label="Discovery scan, one cell per last octet">
+              @for (c of scanCells(); track c.octet) {
+                <span class="cell" [attr.data-state]="c.state ?? 'none'" [title]="c.ip ?? ('.' + c.octet)"></span>
+              }
+            </div>
+            <ul class="scan-legend muted">
+              <li><span class="swatch" data-state="none"></span> not touched</li>
+              <li><span class="swatch" data-state="ping"></span> answers ping</li>
+              <li><span class="swatch" data-state="down_known"></span> known Pi, no answer</li>
+              <li><span class="swatch" data-state="ssh_main"></span> SSH as main user</li>
+              <li><span class="swatch" data-state="ssh_backup"></span> SSH as backup user</li>
+            </ul>
+          } @else if (p.action === 'diagnostics') {
             <div class="table-scroll">
               <table class="data">
                 <thead>
@@ -190,6 +209,20 @@ function isFatal(err: unknown): boolean {
   `,
   styles: [`
     .result { margin: 12px 0; }
+    .scan-grid { display: grid; grid-template-columns: repeat(16, 1fr); gap: 3px; max-width: 480px; margin: 12px 0; }
+    .cell { position: relative; aspect-ratio: 1; border: 1px solid var(--ion-color-medium-tint, #bbb); border-radius: 2px; }
+    .cell[data-state="ping"], .cell[data-state="down_known"] { background: #9e9e9e; border-color: #9e9e9e; }
+    .cell[data-state="ssh_main"] { background: #2dd36f; border-color: #2dd36f; }
+    .cell[data-state="ssh_backup"] { background: #ffc409; border-color: #ffc409; }
+    .cell[data-state="down_known"]::after {
+      content: ''; position: absolute; right: 12%; top: 12%; width: 30%; height: 30%; border-radius: 50%; background: #eb445a;
+    }
+    .scan-legend { list-style: none; padding: 0; display: flex; flex-wrap: wrap; gap: 12px; }
+    .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; vertical-align: middle; margin-right: 4px; border: 1px solid #bbb; }
+    .swatch[data-state="ping"] { background: #9e9e9e; }
+    .swatch[data-state="down_known"] { background: #9e9e9e; box-shadow: inset -4px -4px 0 #eb445a; }
+    .swatch[data-state="ssh_main"] { background: #2dd36f; }
+    .swatch[data-state="ssh_backup"] { background: #ffc409; }
     ion-badge { margin-left: 6px; }
     th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
     th.sortable:hover { opacity: 0.7; }
@@ -248,6 +281,14 @@ export class ActionPage implements OnInit {
 
   readonly verifySorted = computed<ActionResult[]>(() => this.verifySort.apply(this.verify()?.results ?? []));
 
+  readonly scanCells = computed<ScanCell[]>(() => {
+    const byOctet = new Map<number, ActionResult>();
+    for (const r of this.progress()?.results ?? []) byOctet.set(Number(r.position.split('.')[3]), r);
+    return Array.from({ length: 256 }, (_, octet) => {
+      const r = byOctet.get(octet);
+      return { octet, ip: r?.position ?? null, state: r ? String(r.details?.['state'] ?? '') || null : null };
+    });
+  });
   readonly sortedDiag = computed<ActionResult[]>(() => this.diagSort.apply(this.progress()?.results ?? []));
   readonly sortedHealth = computed<ActionResult[]>(() => this.healthSort.apply(this.progress()?.results ?? []));
 

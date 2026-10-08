@@ -157,6 +157,7 @@ export interface NetworkSettings {
   probe_ssh: boolean;
   probe_timeout_s: number;
   probe_username: string;
+  probe_backup_username: string;
   probe_auth: 'key' | 'password';
   probe_deploy_key: boolean;
 }

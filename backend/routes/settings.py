@@ -34,6 +34,7 @@ class SettingsPatch(BaseModel):
     probe_username: str | None = None
     probe_auth: str | None = None    # "key" or "password"
     probe_deploy_key: bool | None = None
+    probe_backup_username: str | None = None
 
 
 class SSHTestRequest(BaseModel):
@@ -59,6 +60,7 @@ def _net_view(net) -> dict:
         "probe_username": net.probe_username,
         "probe_auth": net.probe_auth,
         "probe_deploy_key": net.probe_deploy_key,
+        "probe_backup_username": net.probe_backup_username,
     }
 
 
@@ -89,6 +91,7 @@ def patch_settings(body: SettingsPatch, actor: Actor = Depends(require_role("adm
         probe_username=body.probe_username,
         probe_auth=body.probe_auth,
         probe_deploy_key=body.probe_deploy_key,
+        probe_backup_username=body.probe_backup_username,
     )
     persist_ssh_settings()
     persist_network_settings()

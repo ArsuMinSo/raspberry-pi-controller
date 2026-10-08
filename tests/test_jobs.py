@@ -7,6 +7,10 @@ from backend.services.ssh_executor import SSHResult
 from tests.conftest import API, fake_execute_many
 
 
+def _no_answer(ip: str, *args, **kwargs):
+    return ip, "down", None, None, None, None
+
+
 def _ssh(position: str, exit_code: int = 0, **kw) -> SSHResult:
     return SSHResult(position=position, exit_code=exit_code, stdout=kw.get("stdout", "ok"),
                      stderr=kw.get("stderr", ""), error=kw.get("error"), duration_ms=7, retry_count=0)
@@ -63,7 +67,7 @@ def test_pi_without_ip_gets_a_result_row(client, db):
 
 
 def test_discovery_runs_as_job(client):
-    with patch("backend.services.discovery._scan_host", return_value=None):
+    with patch("backend.services.discovery._scan_host", side_effect=_no_answer):
         res = client.post(f"{API}/discovery/scan", json={})
     assert res.status_code == 200
     action_id = res.json()["action_id"]
@@ -81,7 +85,7 @@ def test_discovery_zero_hosts_does_not_wipe_fleet_status(client, db):
     db.add(pi)
     db.commit()
 
-    with patch("backend.services.discovery._scan_host", return_value=None):
+    with patch("backend.services.discovery._scan_host", side_effect=_no_answer):
         client.post(f"{API}/discovery/scan", json={})
 
     db.expire_all()

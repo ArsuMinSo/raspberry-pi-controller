@@ -55,6 +55,7 @@ class NetworkSettings:
     probe_username: str    # username for probe connections
     probe_auth: str        # "key" or "password"
     probe_deploy_key: bool # copy SSH pub key during probe (password auth only)
+    probe_backup_username: str = ""  # tried when the main probe user fails; empty = disabled
 
 
 @dataclass
@@ -130,6 +131,7 @@ def _load(path: str = CONFIG_PATH) -> Settings:
             probe_username=str(net.get("probe_username", ssh["username"])),
             probe_auth=str(net.get("probe_auth", "key")),
             probe_deploy_key=bool(net.get("probe_deploy_key", False)),
+            probe_backup_username=str(net.get("probe_backup_username", "")),
         ),
         server=ServerSettings(
             host=srv["host"],
@@ -209,6 +211,7 @@ def apply_network_override(
     probe_username: str | None = None,
     probe_auth: str | None = None,
     probe_deploy_key: bool | None = None,
+    probe_backup_username: str | None = None,
 ) -> None:
     if subnet is not None:
         _network_overrides["subnet"] = subnet
@@ -222,6 +225,8 @@ def apply_network_override(
         _network_overrides["probe_auth"] = probe_auth
     if probe_deploy_key is not None:
         _network_overrides["probe_deploy_key"] = probe_deploy_key
+    if probe_backup_username is not None:
+        _network_overrides["probe_backup_username"] = probe_backup_username
 
 
 def effective_network_settings() -> NetworkSettings:

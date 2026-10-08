@@ -13,6 +13,7 @@ network:
   probe_ssh: true
   probe_timeout_s: 5
   probe_username: pi
+  probe_backup_username: ""
   scan_interval_s: 86400
   subnet: 10.10.20.0/24
 server:

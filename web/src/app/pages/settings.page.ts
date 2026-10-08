@@ -92,6 +92,10 @@ import { NetworkSettings, Settings, SSHSettings, SSHTestResult } from '../core/m
                                name="probe_username" [(ngModel)]="network.probe_username" [disabled]="saving()"></ion-input>
                   </ion-item>
                   <ion-item>
+                    <ion-input label="SSH backup username (yellow in scan grid; empty = off)" labelPlacement="stacked"
+                               name="probe_backup_username" [(ngModel)]="network.probe_backup_username" [disabled]="saving()"></ion-input>
+                  </ion-item>
+                  <ion-item>
                     <ion-input label="SSH probe timeout (seconds)" labelPlacement="stacked" type="number"
                                name="probe_timeout_s" [(ngModel)]="network.probe_timeout_s" [disabled]="saving()"></ion-input>
                   </ion-item>
@@ -133,7 +137,7 @@ export class SettingsPage implements OnInit {
   testIP = '';
 
   readonly ssh: SSHSettings = { key_path: '', username: '', timeout_s: 0, retry_count: 0, retry_delay_s: 0, parallel_limit: 0 };
-  readonly network: NetworkSettings = { subnet: '', probe_ssh: false, probe_timeout_s: 0, probe_username: '', probe_auth: 'key', probe_deploy_key: false };
+  readonly network: NetworkSettings = { subnet: '', probe_ssh: false, probe_timeout_s: 0, probe_username: '', probe_backup_username: '', probe_auth: 'key', probe_deploy_key: false };
   private original: Settings | null = null;
 
   /** Plain method, not a signal+effect — `ssh`/`network` are mutated directly by ngModel,
