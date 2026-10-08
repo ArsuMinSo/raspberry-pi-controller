@@ -712,12 +712,16 @@ export class FloorMapPage {
   private apCoords(ap: ApGroup): { x: number; y: number } {
     const d = this.dragging();
     if (d?.kind === 'ap' && d.key === ap.key) return { x: d.x, y: d.y };
+    const s = this.settling();
+    if (s?.apKey === ap.key) return { x: s.apX, y: s.apY };
     return { x: ap.x ?? NaN, y: ap.y ?? NaN };
   }
 
   private piCoords(pi: FloorMapPiNode): { x: number; y: number } {
     const d = this.dragging();
     if (d?.kind === 'pi' && d.position === pi.position) return { x: d.x, y: d.y };
+    const held = this.settling()?.pis.get(pi.position);
+    if (held) return held;
     const follow = this.dragFollowers().get(pi.position);
     return { x: (pi.x ?? NaN) + (follow?.dx ?? 0), y: (pi.y ?? NaN) + (follow?.dy ?? 0) };
   }
@@ -819,6 +823,11 @@ export class FloorMapPage {
     }
     return out;
   });
+
+  /** Positions held after an AP drop until the saved state reloads, so nothing snaps back. */
+  private readonly settling = signal<{
+    apKey: string; apX: number; apY: number; pis: Map<string, { x: number; y: number }>;
+  } | null>(null);
 
   /** While an AP is dragged, each unpinned Pi with a visible link to it moves by the same drag
    * delta, scaled by that link's signal strength (spring-like: strong links follow closely, weak
@@ -945,6 +954,7 @@ export class FloorMapPage {
     this.panning.set(false);
     const drag = this.dragging();
     if (!drag) return;
+    const followers = drag.kind === 'ap' ? this.dragFollowers() : null;
     this.dragging.set(null);
 
     const moved = event
@@ -958,11 +968,19 @@ export class FloorMapPage {
         await this.openApMenu(ap);
         return;
       }
+      const pis = new Map<string, { x: number; y: number }>();
+      for (const [position, f] of followers ?? []) {
+        const node = this.piNodes().find((p) => p.position === position);
+        if (node?.x != null && node.y != null) pis.set(position, { x: node.x + f.dx, y: node.y + f.dy });
+      }
+      this.settling.set({ apKey: drag.key, apX: drag.x, apY: drag.y, pis });
       try {
         await Promise.all(drag.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, drag.x, drag.y))));
         await this.load();
       } catch (e) {
         this.error.set(errorMessage(e));
+      } finally {
+        this.settling.set(null);
       }
       return;
     }
