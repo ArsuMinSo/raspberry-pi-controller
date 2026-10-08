@@ -19,13 +19,14 @@ import { TableSort, compareDates, compareIps, compareStrings } from '../core/tab
 import { ColumnDef, TableColumns } from '../core/table-columns';
 
 type StatusFilter = 'all' | 'reachable' | 'unreachable';
-type SortColumn = 'position' | 'hostname' | 'ip' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'seen';
+type SortColumn = 'position' | 'hostname' | 'ip' | 'mac' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'seen';
 type Col = SortColumn | 'tags';
 
 const COLUMNS: ColumnDef<Col>[] = [
   { key: 'position', label: 'Position', defaultWidth: 100 },
   { key: 'hostname', label: 'Hostname', defaultWidth: 140 },
   { key: 'ip', label: 'IP', defaultWidth: 120 },
+  { key: 'mac', label: 'MAC', defaultWidth: 140, defaultVisible: false },
   { key: 'status', label: 'Status', defaultWidth: 110 },
   { key: 'cpu', label: 'CPU 1m', defaultWidth: 90 },
   { key: 'ram', label: 'RAM', defaultWidth: 90 },
@@ -212,6 +213,12 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
                     <span class="resize-handle" (pointerdown)="cols.startResize('ip', $event)"></span>
                   </th>
                 }
+                @if (cols.isVisible('mac')) {
+                  <th (click)="sort.sortBy('mac')" class="sortable" [style.width.px]="cols.width('mac')">
+                    MAC{{ sort.indicator('mac') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('mac', $event)"></span>
+                  </th>
+                }
                 @if (cols.isVisible('status')) {
                   <th (click)="sort.sortBy('status')" class="sortable" [style.width.px]="cols.width('status')">
                     Status{{ sort.indicator('status') }}
@@ -268,6 +275,7 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
                   @if (cols.isVisible('position')) { <td><strong>{{ pi.position }}</strong></td> }
                   @if (cols.isVisible('hostname')) { <td>{{ pi.hostname ?? '—' }}</td> }
                   @if (cols.isVisible('ip')) { <td>{{ pi.ip ?? '—' }}</td> }
+                  @if (cols.isVisible('mac')) { <td>{{ pi.mac }}</td> }
                   @if (cols.isVisible('status')) { <td><ion-badge [color]="statusColor(pi.status)">{{ pi.status }}</ion-badge></td> }
                   @if (cols.isVisible('cpu')) { <td>{{ pct(pi.cpu_1m) }}</td> }
                   @if (cols.isVisible('ram')) { <td>{{ pct(pi.mem_percent) }}</td> }
@@ -327,6 +335,7 @@ export class InventoryPage {
     position: (a, b) => comparePositions(a.position, b.position),
     hostname: (a, b) => compareStrings(a.hostname, b.hostname),
     ip: (a, b) => compareIps(a.ip, b.ip),
+    mac: (a, b) => compareStrings(a.mac, b.mac),
     status: (a, b) => a.status.localeCompare(b.status),
     cpu: (a, b) => (a.cpu_1m ?? 0) - (b.cpu_1m ?? 0),
     ram: (a, b) => (a.mem_percent ?? 0) - (b.mem_percent ?? 0),
