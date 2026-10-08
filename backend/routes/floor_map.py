@@ -110,9 +110,12 @@ def pin_pi(position: str, body: PiPinUpdate, actor: Actor = Depends(require_role
     if pi.pinned_x is not None and pi.pinned_y is not None:
         x, y, pinned = pi.pinned_x, pi.pinned_y, True
     else:
-        pos = compute_pi_position(db, pi.mac)
+        pos = compute_pi_position(db, pi.rid)
         x, y, pinned = (pos[0], pos[1], False) if pos else (None, None, False)
-    return FloorMapPiNode(position=pi.position, mac=pi.mac, x=x, y=y, pinned=pinned, last_scan_at=last_scan)
+    return FloorMapPiNode(
+        position=pi.position, mac=pi.mac, x=x, y=y, pinned=pinned, last_scan_at=last_scan,
+        connected_bssid=pi.connected_bssid, connected_ssid=pi.connected_ssid, connected_at=pi.connected_at,
+    )
 
 
 @router.get("/pi/{position}/ble", response_model=list[BleDeviceSeen], dependencies=[Depends(require_role("viewer"))])
