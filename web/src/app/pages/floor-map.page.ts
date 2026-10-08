@@ -417,17 +417,29 @@ export class FloorMapPage {
    * never move — they only push and pull the others. Hidden boxes keep their saved positions. Result is saved
    * per-BSSID via the normal placement endpoint (every BSSID in a box moves together). */
   async untangle(): Promise<void> {
-    const pis = this.showPis()
-      ? this.piNodes().filter((p) => p.x !== null && p.y !== null) as Array<FloorMapPiNode & { x: number; y: number }>
-      : [];
+    const shownPis = new Set(this.showPis() ? this.piNodes().map((p) => p.position) : []);
+    const apByKey = new Map((this.showAps() ? this.visibleApNodes() : []).map((a) => [a.key, a]));
+    const drawnLinks = this.showConnections() ? this.visibleLinks() : [];
+    // Each Pi's anchor is the weighted centroid (1/rssi², as the server does) of only the visible
+    // placed APs it links to, so filtered-out APs exert no pull.
+    const anchorSum = new Map<string, { x: number; y: number; w: number }>();
+    for (const link of drawnLinks) {
+      const ap = apByKey.get(link.groupKey);
+      if (!ap?.placed || ap.x === null || ap.y === null || !shownPis.has(link.position)) continue;
+      const w = 1 / Math.max(link.rssi ** 2, 1);
+      const s = anchorSum.get(link.position) ?? { x: 0, y: 0, w: 0 };
+      s.x += w * ap.x;
+      s.y += w * ap.y;
+      s.w += w;
+      anchorSum.set(link.position, s);
+    }
     const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
-    const drawnEdges = this.showConnections() ? this.visibleEdges() : [];
-    for (const e of drawnEdges) {
-      const pi = pis.find((p) => p.position === e.position);
-      if (!pi) continue;
-      const arr = edgesByKey.get(e.groupKey) ?? [];
-      arr.push({ x: pi.x, y: pi.y, weight: this.rssiStrength(e.rssi) });
-      edgesByKey.set(e.groupKey, arr);
+    for (const link of drawnLinks) {
+      const s = anchorSum.get(link.position);
+      if (!s || !apByKey.has(link.groupKey)) continue;
+      const arr = edgesByKey.get(link.groupKey) ?? [];
+      arr.push({ x: s.x / s.w, y: s.y / s.w, weight: this.rssiStrength(link.rssi) });
+      edgesByKey.set(link.groupKey, arr);
     }
 
     const shownAps = this.showAps() ? this.visibleApNodes() : [];
