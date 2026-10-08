@@ -51,6 +51,7 @@ def test_engine():
 def _drop_tables(engine):
     with engine.begin() as conn:
         for table in ("action_results", "audit_events", "sessions", "scheduled_tasks", "actions_log", "users",
+                      "wifi_scans", "ble_scans", "health_samples", "access_points", "floor_map_settings",
                       "raspberries"):
             conn.execute(text(f"DROP TABLE IF EXISTS {table} CASCADE"))
 
