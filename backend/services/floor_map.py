@@ -468,8 +468,8 @@ def get_floor_map(db: Session) -> FloorMapResponse:
     for pi in all_pis:
         if pi.pinned_x is not None and pi.pinned_y is not None:
             pi_nodes.append(FloorMapPiNode(
-                position=pi.position, mac=pi.mac, x=pi.pinned_x, y=pi.pinned_y,
-                pinned=True, last_scan_at=last_scan.get(pi.rid),
+                position=pi.position, mac=pi.mac, ip=str(pi.current_ip) if pi.current_ip else None,
+                x=pi.pinned_x, y=pi.pinned_y, pinned=True, last_scan_at=last_scan.get(pi.rid),
                 connected_bssid=pi.connected_bssid, connected_ssid=pi.connected_ssid,
                 connected_at=pi.connected_at,
             ))
@@ -480,6 +480,7 @@ def get_floor_map(db: Session) -> FloorMapResponse:
         pi_nodes.append(FloorMapPiNode(
             position=pi.position,
             mac=pi.mac,
+            ip=str(pi.current_ip) if pi.current_ip else None,
             x=pos[0] if pos else None,
             y=pos[1] if pos else None,
             pinned=False,

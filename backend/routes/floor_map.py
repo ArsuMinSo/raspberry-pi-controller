@@ -113,7 +113,8 @@ def pin_pi(position: str, body: PiPinUpdate, actor: Actor = Depends(require_role
         pos = compute_pi_position(db, pi.rid)
         x, y, pinned = (pos[0], pos[1], False) if pos else (None, None, False)
     return FloorMapPiNode(
-        position=pi.position, mac=pi.mac, x=x, y=y, pinned=pinned, last_scan_at=last_scan,
+        position=pi.position, mac=pi.mac, ip=str(pi.current_ip) if pi.current_ip else None,
+        x=x, y=y, pinned=pinned, last_scan_at=last_scan,
         connected_bssid=pi.connected_bssid, connected_ssid=pi.connected_ssid, connected_at=pi.connected_at,
     )
 

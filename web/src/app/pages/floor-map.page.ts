@@ -74,8 +74,9 @@ interface ApGroup {
           are really the same router. Unplaced APs (seen in a scan, never placed) sit in the staging row at the
           top. Pi position is estimated from the latest WiFi scan; a Pi with no WiFi position yet falls back to
           its BLE sightings of other (already-positioned) Pis — dashed purple "BLE links" below. Click a Pi to open
-          its details; drag one to pin it in place (yellow ring) — a pinned Pi's click offers a menu to release it
-          too (admins also get "Identify", popping its hostname/IP/MAC on its own screen). Scroll to zoom. Line
+          a sheet with its MAC and IP (View details from there); drag one to pin it in place (yellow ring) — a
+          pinned Pi's sheet also offers release (admins also get "Identify", popping its hostname/IP/MAC on its own
+          screen). Clicking an AP shows its MAC(s) in the sheet. Scroll to zoom. Line
           thickness/brightness = signal strength; node size = number of connections.
         </p>
 
@@ -557,7 +558,11 @@ export class FloorMapPage {
     buttons.push({ text: 'Remove access point', role: 'destructive', handler: () => void this.confirmRemoveAp(ap) });
     buttons.push({ text: 'Cancel', role: 'cancel' });
 
-    const sheet = await this.actionSheets.create({ header: `Group "${this.apLabel(ap)}" to:`, buttons });
+    const sheet = await this.actionSheets.create({
+      header: `Group "${this.apLabel(ap)}" to:`,
+      subHeader: `MAC ${ap.bssids.join(', ')}`,
+      buttons,
+    });
     await sheet.present();
   }
 
@@ -926,17 +931,13 @@ export class FloorMapPage {
       return;
     }
 
-    // A plain click navigates straight to the Pi's detail page, unless there's something else
-    // to offer: an operator clicking an already-pinned Pi gets "Release pin" too, and an admin
-    // always gets "Identify" (pop a dialog with hostname/IP/MAC on the Pi's own screen — handy
-    // for matching a floor-map dot to the physical unit). No menu for anyone else — straight to
-    // details is one click, not two.
+    // A plain click opens the Pi's sheet with its MAC and IP; "View details" is the first option.
+    // Operators also get "Release pin" on a pinned Pi, and admins "Identify" (pops hostname/IP/MAC
+    // on the Pi's own screen).
     if (moved < FloorMapPage.CLICK_THRESHOLD_PX) {
-      if (this.canExecute || (drag.pinned && this.canOperate)) {
-        await this.openPiMenu(drag.position, drag.pinned);
-      } else {
-        await this.router.navigate(['/pi', drag.position]);
-      }
+      const pi = this.piNodes().find((p) => p.position === drag.position);
+      if (pi) await this.openPiMenu(pi, drag.pinned);
+      else await this.router.navigate(['/pi', drag.position]);
       return;
     }
 
@@ -952,7 +953,8 @@ export class FloorMapPage {
     }
   }
 
-  private async openPiMenu(position: string, pinned: boolean): Promise<void> {
+  private async openPiMenu(pi: FloorMapPiNode, pinned: boolean): Promise<void> {
+    const position = pi.position;
     const buttons: Array<{ text: string; role?: string; handler?: () => void }> = [
       { text: 'View details', handler: () => void this.router.navigate(['/pi', position]) },
     ];
@@ -964,7 +966,11 @@ export class FloorMapPage {
     }
     buttons.push({ text: 'Cancel', role: 'cancel' });
 
-    const sheet = await this.actionSheets.create({ header: `Pi ${position}`, buttons });
+    const sheet = await this.actionSheets.create({
+      header: `Pi ${position}`,
+      subHeader: `MAC ${pi.mac} · IP ${pi.ip ?? '—'}`,
+      buttons,
+    });
     await sheet.present();
   }
 

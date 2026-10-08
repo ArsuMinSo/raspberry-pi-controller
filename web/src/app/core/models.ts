@@ -230,6 +230,7 @@ export interface AccessPointOut {
 export interface FloorMapPiNode {
   position: string;
   mac: string;
+  ip: string | null;
   x: number | null;
   y: number | null;
   pinned: boolean;

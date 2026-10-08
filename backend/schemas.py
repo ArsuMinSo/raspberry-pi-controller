@@ -460,6 +460,7 @@ class PiPinUpdate(BaseModel):
 class FloorMapPiNode(BaseModel):
     position: str
     mac: str
+    ip: str | None = None
     x: float | None
     y: float | None
     pinned: bool
