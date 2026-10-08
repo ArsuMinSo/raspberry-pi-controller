@@ -208,8 +208,9 @@ def _upsert_access_points(db: Session, readings: list[WifiReading]) -> None:
 
 
 def adjacent_bssid_clusters(bssids: list[str]) -> list[list[str]]:
-    """Clusters of BSSIDs that share their first five octets and whose last octet differs by 1
-    (chained transitively). Only clusters with more than one member are returned."""
+    """Clusters of BSSIDs that share their first five octets and whose last octet, read as a decimal
+    number, differs by 1 (chained transitively). Last octets with letters are never grouped.
+    Only clusters with more than one member are returned."""
     parent = {b: b for b in bssids}
 
     def find(b: str) -> str:
@@ -220,7 +221,8 @@ def adjacent_bssid_clusters(bssids: list[str]) -> list[list[str]]:
 
     by_prefix: dict[str, dict[int, str]] = {}
     for b in bssids:
-        by_prefix.setdefault(b[:15], {})[int(b[15:], 16)] = b
+        if b[15:].isdigit():
+            by_prefix.setdefault(b[:15], {})[int(b[15:])] = b
     for members in by_prefix.values():
         for last, b in members.items():
             if last + 1 in members:

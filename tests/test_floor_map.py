@@ -339,8 +339,13 @@ def test_adjacent_bssid_clusters_group_last_octet_neighbours():
         "9c:05:d6:ba:88:50", "9c:05:d6:ba:88:52",  # differ by 2 → not grouped
         "9c:05:d6:ba:89:47",                       # same last octet, other prefix → alone
         "d8:b3:70:fc:7d:26", "d8:b3:70:fc:7d:27", "d8:b3:70:fc:7d:28",  # chain → one group
+        "01:23:45:67:89:87", "01:23:45:67:89:88", "01:23:45:67:89:89",  # decimal chain 87–89
+        "01:23:45:67:89:90", "01:23:45:67:89:91", "01:23:45:67:89:92",  # decimal chain 90–92
+        "02:00:00:00:00:5e", "02:00:00:00:00:5f",  # letters are never decimal → not grouped
     ]
     assert adjacent_bssid_clusters(bssids) == [
         ["9c:05:d6:ba:88:46", "9c:05:d6:ba:88:47"],
         ["d8:b3:70:fc:7d:26", "d8:b3:70:fc:7d:27", "d8:b3:70:fc:7d:28"],
+        ["01:23:45:67:89:87", "01:23:45:67:89:88", "01:23:45:67:89:89", "01:23:45:67:89:90",
+         "01:23:45:67:89:91", "01:23:45:67:89:92"],
     ]
