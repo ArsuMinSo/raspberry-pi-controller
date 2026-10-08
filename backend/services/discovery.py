@@ -151,6 +151,7 @@ def scan_subnet(
     if entry is None:
         entry = al.create_action(db, [], "discovery", status="running")
     start = time.monotonic()
+    log.info("Discovery scan of %s started (action %s)", subnet, entry.id)
 
     do_probe = net_settings.probe_ssh if net_settings else True
     probe_timeout = net_settings.probe_timeout_s if net_settings else 3
@@ -203,8 +204,12 @@ def scan_subnet(
                 existing.pi_version = pi_version
             if serial:
                 existing.serial = serial
-            if mac:
-                existing.mac = mac
+            if mac and mac != existing.mac:
+                if db.query(Pi).filter(Pi.mac == mac, Pi.rid != existing.rid).first():
+                    log.warning("%s reports MAC %s, already registered to another Pi — keeping %s",
+                                existing.position, mac, existing.mac)
+                else:
+                    existing.mac = mac
             updated += 1
         else:
             added += 1
@@ -227,6 +232,8 @@ def scan_subnet(
                      "statuses untouched (likely a scan failure, not a real outage)", subnet)
 
     duration_ms = int((time.monotonic() - start) * 1000)
+    log.info("Discovery scan of %s finished (action %s): %d alive, %d added, %d updated",
+             subnet, entry.id, len(alive), added, updated)
     al.update_action(
         db,
         entry.id,

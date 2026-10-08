@@ -50,6 +50,9 @@ def run_action(action_id: int, work: Work) -> None:
         db.commit()
         try:
             work(db, entry)
+            db.refresh(entry)
+            if entry.status == "running":
+                log.error("action %s (%s) returned without a final status", action_id, entry.action)
         except Exception as e:
             log.exception("action %s (%s) failed", action_id, entry.action)
             db.rollback()
