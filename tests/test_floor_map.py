@@ -89,10 +89,10 @@ def test_wifi_scan_trigger_registers_ap_unplaced(client, sample_pi, db):
     # concern now (the floor map's SSID text filter + links-per-Pi slider).
     other = db.get(AccessPoint, "aa:bb:cc:dd:ee:02")
     assert other is not None and other.ssid == "OtherAP"
-    scans = db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).all()
+    scans = db.query(WifiScan).filter(WifiScan.pi_rid == sample_pi.rid).all()
     assert {s.bssid for s in scans} == {"aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"}
 
-    db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
+    db.query(WifiScan).filter(WifiScan.pi_rid == sample_pi.rid).delete()
     db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])).delete(
         synchronize_session=False)
     db.commit()
@@ -112,7 +112,7 @@ def test_wifi_scan_merges_new_ssid_seen_for_known_bssid(client, sample_pi, db):
     assert ap.ssid == "OMNIKA-VYROBA"  # first-seen name kept as primary
     assert set(ap.ssids) == {"OMNIKA-VYROBA", "OMNIKA-VYROBA-5G"}
 
-    db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
+    db.query(WifiScan).filter(WifiScan.pi_rid == sample_pi.rid).delete()
     db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:01", "aa:bb:cc:dd:ee:02"])).delete(
         synchronize_session=False)
     db.commit()
@@ -132,17 +132,17 @@ def test_compute_pi_position_weighted_centroid(db, sample_pi):
     ap_near = AccessPoint(bssid="aa:bb:cc:dd:ee:10", x=0.0, y=0.0)
     ap_far = AccessPoint(bssid="aa:bb:cc:dd:ee:11", x=100.0, y=0.0)
     db.add_all([ap_near, ap_far])
-    db.add(WifiScan(mac=sample_pi.mac, bssid="aa:bb:cc:dd:ee:10", rssi=-40))  # strong -> close to (0,0)
-    db.add(WifiScan(mac=sample_pi.mac, bssid="aa:bb:cc:dd:ee:11", rssi=-80))  # weak -> far
+    db.add(WifiScan(pi_rid=sample_pi.rid, bssid="aa:bb:cc:dd:ee:10", rssi=-40))  # strong -> close to (0,0)
+    db.add(WifiScan(pi_rid=sample_pi.rid, bssid="aa:bb:cc:dd:ee:11", rssi=-80))  # weak -> far
     db.commit()
 
-    pos = compute_pi_position(db, sample_pi.mac)
+    pos = compute_pi_position(db, sample_pi.rid)
     assert pos is not None
     x, y = pos
     assert 0.0 < x < 50.0  # pulled toward the stronger (nearer) AP, not the midpoint
     assert y == 0.0
 
-    db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
+    db.query(WifiScan).filter(WifiScan.pi_rid == sample_pi.rid).delete()
     db.query(AccessPoint).filter(AccessPoint.bssid.in_(["aa:bb:cc:dd:ee:10", "aa:bb:cc:dd:ee:11"])).delete(
         synchronize_session=False)
     db.commit()
@@ -150,18 +150,18 @@ def test_compute_pi_position_weighted_centroid(db, sample_pi):
 
 def test_compute_pi_position_none_when_no_placed_ap_visible(db, sample_pi):
     db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:12"))  # unplaced
-    db.add(WifiScan(mac=sample_pi.mac, bssid="aa:bb:cc:dd:ee:12", rssi=-50))
+    db.add(WifiScan(pi_rid=sample_pi.rid, bssid="aa:bb:cc:dd:ee:12", rssi=-50))
     db.commit()
 
-    assert compute_pi_position(db, sample_pi.mac) is None
+    assert compute_pi_position(db, sample_pi.rid) is None
 
-    db.query(WifiScan).filter(WifiScan.mac == sample_pi.mac).delete()
+    db.query(WifiScan).filter(WifiScan.pi_rid == sample_pi.rid).delete()
     db.query(AccessPoint).filter(AccessPoint.bssid == "aa:bb:cc:dd:ee:12").delete()
     db.commit()
 
 
 def test_compute_pi_position_none_when_no_scans(sample_pi, db):
-    assert compute_pi_position(db, sample_pi.mac) is None
+    assert compute_pi_position(db, sample_pi.rid) is None
 
 
 # ─── Pi<->Pi BLE triangulation (own fleet hardware, not a bystander device) ────
@@ -170,26 +170,26 @@ def test_compute_pi_position_via_ble_centroid_of_positioned_peers(db, sample_pi)
     peer = Pi(mac="bb:bb:bb:bb:bb:bb", hostname="kiosk-02", position="01-002", pi_version=4,
               current_ip="10.10.20.6", status="reachable", tags=[], ble_mac="11:11:11:11:11:11")
     db.add(peer)
-    db.add(BleScan(mac=sample_pi.mac, device_mac="11:11:11:11:11:11", device_name=None, rssi=-50))
+    db.add(BleScan(pi_rid=sample_pi.rid, device_mac="11:11:11:11:11:11", device_name=None, rssi=-50))
     db.commit()
 
     ble_mac_to_position = {"11:11:11:11:11:11": "01-002"}
     wifi_positions = {"01-002": (10.0, 20.0)}
-    pos = compute_pi_position_via_ble(db, sample_pi.mac, ble_mac_to_position, wifi_positions)
+    pos = compute_pi_position_via_ble(db, sample_pi.rid, ble_mac_to_position, wifi_positions)
     assert pos == (10.0, 20.0)
 
-    db.query(BleScan).filter(BleScan.mac == sample_pi.mac).delete()
+    db.query(BleScan).filter(BleScan.pi_rid == sample_pi.rid).delete()
     db.delete(peer)
     db.commit()
 
 
 def test_compute_pi_position_via_ble_none_without_positioned_peer(db, sample_pi):
-    db.add(BleScan(mac=sample_pi.mac, device_mac="99:99:99:99:99:99", device_name=None, rssi=-50))
+    db.add(BleScan(pi_rid=sample_pi.rid, device_mac="99:99:99:99:99:99", device_name=None, rssi=-50))
     db.commit()
     # 99:... isn't any known Pi's ble_mac — just an ambient bystander device, ignored.
-    assert compute_pi_position_via_ble(db, sample_pi.mac, {}, {}) is None
+    assert compute_pi_position_via_ble(db, sample_pi.rid, {}, {}) is None
 
-    db.query(BleScan).filter(BleScan.mac == sample_pi.mac).delete()
+    db.query(BleScan).filter(BleScan.pi_rid == sample_pi.rid).delete()
     db.commit()
 
 
@@ -197,7 +197,7 @@ def test_get_pi_ble_edges_pairs_by_controller_mac(db, sample_pi):
     peer = Pi(mac="bb:bb:bb:bb:bb:bb", hostname="kiosk-02", position="01-002", pi_version=4,
               current_ip="10.10.20.6", status="reachable", tags=[], ble_mac="11:11:11:11:11:11")
     db.add(peer)
-    db.add(BleScan(mac=sample_pi.mac, device_mac="11:11:11:11:11:11", device_name=None, rssi=-55))
+    db.add(BleScan(pi_rid=sample_pi.rid, device_mac="11:11:11:11:11:11", device_name=None, rssi=-55))
     db.commit()
 
     edges = get_pi_ble_edges(db, {"11:11:11:11:11:11": "01-002"})
@@ -205,7 +205,7 @@ def test_get_pi_ble_edges_pairs_by_controller_mac(db, sample_pi):
     assert {edges[0].position_a, edges[0].position_b} == {sample_pi.position, "01-002"}
     assert edges[0].rssi == -55
 
-    db.query(BleScan).filter(BleScan.mac == sample_pi.mac).delete()
+    db.query(BleScan).filter(BleScan.pi_rid == sample_pi.rid).delete()
     db.delete(peer)
     db.commit()
 
@@ -235,7 +235,7 @@ def test_place_unknown_ap_404(client):
 
 def test_delete_access_point_removes_it_and_its_scans(client, db, sample_pi):
     db.add(AccessPoint(bssid="aa:bb:cc:dd:ee:23", ssid="TestAP"))
-    db.add(WifiScan(mac=sample_pi.mac, bssid="aa:bb:cc:dd:ee:23", rssi=-50))
+    db.add(WifiScan(pi_rid=sample_pi.rid, bssid="aa:bb:cc:dd:ee:23", rssi=-50))
     db.commit()
 
     res = client.delete(f"{API}/floor-map/ap/aa:bb:cc:dd:ee:23")

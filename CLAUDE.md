@@ -59,7 +59,8 @@
 
 | Column | Type | Notes |
 |--------|------|-------|
-| mac | VARCHAR(17) PRIMARY KEY | xx:xx:xx:xx:xx:xx, lowercase, required, no all-zeros placeholder |
+| rid | BIGSERIAL PRIMARY KEY | Surrogate key (migration 015) — never exposed in the UI/API, used only for internal FK joins |
+| mac | VARCHAR(17) UNIQUE | xx:xx:xx:xx:xx:xx, lowercase, required, no all-zeros placeholder |
 | serial | VARCHAR(255) | RPi /proc/cpuinfo serial, informational |
 | hostname | VARCHAR(255) | Linux hostname on device |
 | position | VARCHAR(20) UNIQUE | Plain number (1–10 digits) e.g. "42", or legacy "01-003"; renameable |
@@ -272,7 +273,7 @@ pi-controller/
 **Health check 1x/day cron + manual callable**
 **Unreachable Pi: mark unreachable (expected if powered off)**
 **IP change (same MAC): update IP, mark reachable**
-**MAC is the primary key (unique, required); position (number or legacy XX-XXX) is the unique, renameable handle used in UI/API**
+**`rid` (plain auto-increment, migration 015) is the primary key — never MAC or IP, both can change/be ambiguous (multiple interfaces, NIC swap, DHCP). MAC remains required+unique for lookups; position (number or legacy XX-XXX) is the unique, renameable handle used in UI/API**
 
 ---
 

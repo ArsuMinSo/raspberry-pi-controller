@@ -85,9 +85,9 @@ def test_discovery_zero_hosts_does_not_wipe_fleet_status(client, db):
         client.post(f"{API}/discovery/scan", json={})
 
     db.expire_all()
-    assert db.get(Pi, "cc:cc:cc:cc:cc:cc").status == "reachable"
+    assert db.query(Pi).filter(Pi.mac == "cc:cc:cc:cc:cc:cc").one().status == "reachable"
 
-    db.delete(db.get(Pi, "cc:cc:cc:cc:cc:cc"))
+    db.query(Pi).filter(Pi.mac == "cc:cc:cc:cc:cc:cc").delete()
     db.commit()
 
 

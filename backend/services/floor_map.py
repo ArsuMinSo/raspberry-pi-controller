@@ -38,6 +38,7 @@ log = logging.getLogger(__name__)
 # upgrade of iw/wireless-tools reinstalls the binary and wipes its file capabilities — re-run
 # that provisioning script's setcap step (now passwordless, via the sudoers rule it installs).
 WIFI_SCAN_CMD = "/usr/sbin/iw dev wlan0 scan"
+WIFI_LINK_CMD = "/usr/sbin/iw dev wlan0 link"
 # `scan on` alone only puts this Pi into scanning/observer mode — it does NOT make this Pi's
 # own controller discoverable to other Pis scanning at the same time (discoverable/advertising
 # and scanning are separate adapter states). Toggle discoverable on for the scan window so
@@ -62,6 +63,8 @@ _BLE_CONTROLLER_RE = re.compile(r"Controller ([0-9A-Fa-f:]{17})")
 _WIFI_BSS_RE = re.compile(r"^BSS ([0-9A-Fa-f:]{17})")
 _WIFI_SIGNAL_RE = re.compile(r"^\s*signal:\s*(-?\d+(?:\.\d+)?)\s*dBm")
 _WIFI_SSID_RE = re.compile(r"^\s*SSID:\s*(.*)")
+_WIFI_LINK_CONNECTED_RE = re.compile(r"^Connected to ([0-9A-Fa-f:]{17})")
+_WIFI_LINK_SSID_RE = re.compile(r"^\s*SSID:\s*(.*)")
 
 
 @dataclass
@@ -69,6 +72,12 @@ class WifiReading:
     bssid: str
     rssi: int
     ssid: str | None
+
+
+@dataclass
+class WifiConnection:
+    bssid: str | None = None
+    ssid: str | None = None
 
 
 @dataclass
@@ -104,6 +113,26 @@ def parse_wifi_scan(raw: str) -> list[WifiReading]:
             ssid = m.group(1).strip() or None
     flush()
     return readings
+
+
+def parse_wifi_connection(raw: str) -> WifiConnection:
+    """Parse `iw dev wlan0 link` output to get the connected BSSID/SSID.
+
+    Returns WifiConnection with bssid/ssid set if connected, or both None if not connected.
+    """
+    bssid: str | None = None
+    ssid: str | None = None
+
+    for line in raw.splitlines():
+        m = _WIFI_LINK_CONNECTED_RE.match(line)
+        if m:
+            bssid = m.group(1).lower()
+            continue
+        m = _WIFI_LINK_SSID_RE.match(line)
+        if m and bssid is not None:  # SSID only relevant if we found a connection
+            ssid = m.group(1).strip() or None
+
+    return WifiConnection(bssid=bssid, ssid=ssid)
 
 
 def parse_ble_scan(raw: str) -> list[BleReading]:
@@ -182,6 +211,10 @@ def _run_wifi_scan_one(ip: str, position: str, settings: SSHSettings):
     return position, execute(ip, position, WIFI_SCAN_CMD, settings)
 
 
+def _run_wifi_link_one(ip: str, position: str, settings: SSHSettings):
+    return position, execute(ip, position, WIFI_LINK_CMD, settings)
+
+
 def _run_ble_scan_one(ip: str, position: str, settings: SSHSettings):
     return position, execute(ip, position, BLE_SCAN_CMD, settings)
 
@@ -210,11 +243,14 @@ def wifi_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
     start = time.monotonic()
     pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
-    mac_by_position = {pi.position: pi.mac for pi in pis}
+    rid_by_position = {pi.position: pi.rid for pi in pis}
+    pi_by_position = {pi.position: pi for pi in pis}
 
     workers = min(ssh.parallel_limit, max(1, len(targets)))
     all_readings: list[WifiReading] = []
     errors = 0
+    now = datetime.now(timezone.utc)
+
     with ThreadPoolExecutor(max_workers=workers) as ex:
         futures = {ex.submit(_run_wifi_scan_one, ip, pos, ssh): pos for ip, pos in targets}
         for future in as_completed(futures):
@@ -226,12 +262,25 @@ def wifi_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
                 continue
             readings = parse_wifi_scan(result.stdout)
             all_readings.extend(readings)
-            mac = mac_by_position[position]
-            now = datetime.now(timezone.utc)
+            rid = rid_by_position[position]
             for r in readings:
-                db.add(WifiScan(mac=mac, bssid=r.bssid, rssi=r.rssi, timestamp=now))
+                db.add(WifiScan(pi_rid=rid, bssid=r.bssid, rssi=r.rssi, timestamp=now))
             al.add_result(db, entry.id, position,
                           details={"aps_seen": len(readings), "preview": _first_lines(result.stdout)})
+
+    # Capture connected network info (separate command, non-critical if it fails)
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futures = {ex.submit(_run_wifi_link_one, ip, pos, ssh): pos for ip, pos in targets}
+        for future in as_completed(futures):
+            position, result = future.result()
+            if result.error or result.exit_code != 0:
+                continue
+            connection = parse_wifi_connection(result.stdout)
+            if connection.bssid is not None:
+                pi = pi_by_position[position]
+                pi.connected_bssid = connection.bssid
+                pi.connected_ssid = connection.ssid
+                pi.connected_at = now
 
     _upsert_access_points(db, all_readings)
     db.commit()
@@ -246,7 +295,7 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
     start = time.monotonic()
     pis = db.query(Pi).filter(Pi.position.in_(entry.pis_selected)).all()
     targets = [(str(pi.current_ip), pi.position) for pi in pis if pi.current_ip is not None]
-    mac_by_position = {pi.position: pi.mac for pi in pis}
+    rid_by_position = {pi.position: pi.rid for pi in pis}
     pi_by_position = {pi.position: pi for pi in pis}
 
     workers = min(ssh.parallel_limit, max(1, len(targets)))
@@ -261,12 +310,12 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
                               stdout=result.stdout, stderr=result.stderr)
                 continue
             readings = parse_ble_scan(result.stdout)
-            mac = mac_by_position[position]
+            rid = rid_by_position[position]
             now = datetime.now(timezone.utc)
             for r in readings:
                 if not is_valid_mac(r.device_mac):
                     continue
-                db.add(BleScan(mac=mac, device_mac=r.device_mac, device_name=r.device_name,
+                db.add(BleScan(pi_rid=rid, device_mac=r.device_mac, device_name=r.device_name,
                                rssi=r.rssi, timestamp=now))
 
             controller_mac = parse_ble_controller_mac(result.stdout)
@@ -284,7 +333,7 @@ def ble_scan_job(db: Session, entry, ssh: SSHSettings) -> None:
     al.update_action(db, entry.id, status=status, duration_ms=duration_ms)
 
 
-def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
+def compute_pi_position(db: Session, pi_rid: int) -> tuple[float, float] | None:
     """Weighted centroid of placed APs seen in the most recent wifi scan on record.
 
     Weight = 1 / rssi^2 on the raw dBm value (a rough stand-in for inverse-square
@@ -295,7 +344,7 @@ def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
     """
     rows = (
         db.query(WifiScan.bssid, WifiScan.rssi)
-        .filter(WifiScan.mac == mac)
+        .filter(WifiScan.pi_rid == pi_rid)
         .order_by(WifiScan.timestamp.desc())
         .all()
     )
@@ -329,7 +378,7 @@ def compute_pi_position(db: Session, mac: str) -> tuple[float, float] | None:
 
 
 def compute_pi_position_via_ble(
-    db: Session, mac: str, ble_mac_to_position: dict[str, str], wifi_positions: dict[str, tuple[float, float]],
+    db: Session, pi_rid: int, ble_mac_to_position: dict[str, str], wifi_positions: dict[str, tuple[float, float]],
 ) -> tuple[float, float] | None:
     """Fallback for a Pi with no WiFi-derived position: weighted centroid of *other* Pis it
     sees over BLE (by their own controller MAC, not a bystander device), using only peers
@@ -337,7 +386,7 @@ def compute_pi_position_via_ble(
     Single pass, no iterative refinement — peers must already be positioned from WiFi."""
     rows = (
         db.query(BleScan.device_mac, BleScan.rssi)
-        .filter(BleScan.mac == mac)
+        .filter(BleScan.pi_rid == pi_rid)
         .order_by(BleScan.timestamp.desc())
         .all()
     )
@@ -375,7 +424,7 @@ def get_pi_ble_edges(db: Session, ble_mac_to_position: dict[str, str]) -> list[P
     controller MAC — a real proximity reading between our own fleet, not a bystander."""
     rows = (
         db.query(Pi.position, BleScan.device_mac, BleScan.rssi)
-        .join(BleScan, BleScan.mac == Pi.mac)
+        .join(BleScan, BleScan.pi_rid == Pi.rid)
         .order_by(BleScan.timestamp.desc())
         .all()
     )
@@ -396,7 +445,7 @@ def get_latest_wifi_edges(db: Session) -> list[FloorMapEdge]:
     RSSI on the frontend. Not time-windowed, same reasoning as `compute_pi_position`."""
     rows = (
         db.query(Pi.position, WifiScan.bssid, WifiScan.rssi)
-        .join(WifiScan, WifiScan.mac == Pi.mac)
+        .join(WifiScan, WifiScan.pi_rid == Pi.rid)
         .order_by(WifiScan.timestamp.desc())
         .all()
     )
@@ -411,7 +460,7 @@ def get_floor_map(db: Session) -> FloorMapResponse:
 
     all_pis = db.query(Pi).all()
     last_scan = dict(
-        db.query(WifiScan.mac, func.max(WifiScan.timestamp)).group_by(WifiScan.mac).all()
+        db.query(WifiScan.pi_rid, func.max(WifiScan.timestamp)).group_by(WifiScan.pi_rid).all()
     )
 
     pi_nodes: list[FloorMapPiNode] = []
@@ -420,10 +469,12 @@ def get_floor_map(db: Session) -> FloorMapResponse:
         if pi.pinned_x is not None and pi.pinned_y is not None:
             pi_nodes.append(FloorMapPiNode(
                 position=pi.position, mac=pi.mac, x=pi.pinned_x, y=pi.pinned_y,
-                pinned=True, last_scan_at=last_scan.get(pi.mac),
+                pinned=True, last_scan_at=last_scan.get(pi.rid),
+                connected_bssid=pi.connected_bssid, connected_ssid=pi.connected_ssid,
+                connected_at=pi.connected_at,
             ))
             continue
-        pos = compute_pi_position(db, pi.mac)
+        pos = compute_pi_position(db, pi.rid)
         if pos:
             wifi_positions[pi.position] = pos
         pi_nodes.append(FloorMapPiNode(
@@ -432,15 +483,18 @@ def get_floor_map(db: Session) -> FloorMapResponse:
             x=pos[0] if pos else None,
             y=pos[1] if pos else None,
             pinned=False,
-            last_scan_at=last_scan.get(pi.mac),
+            last_scan_at=last_scan.get(pi.rid),
+            connected_bssid=pi.connected_bssid, connected_ssid=pi.connected_ssid,
+            connected_at=pi.connected_at,
         ))
 
     # BLE fallback: a Pi with no WiFi position yet, but seen over BLE by a WiFi-positioned peer.
     ble_mac_to_position = {pi.ble_mac.lower(): pi.position for pi in all_pis if pi.ble_mac}
+    rid_by_mac = {pi.mac: pi.rid for pi in all_pis}
     for node in pi_nodes:
         if node.x is not None:
             continue
-        pos = compute_pi_position_via_ble(db, node.mac, ble_mac_to_position, wifi_positions)
+        pos = compute_pi_position_via_ble(db, rid_by_mac[node.mac], ble_mac_to_position, wifi_positions)
         if pos:
             node.x, node.y = pos
 
@@ -475,7 +529,7 @@ def get_ble_devices_for_position(db: Session, position: str) -> list[BleDeviceSe
     cutoff = datetime.now(timezone.utc) - SCAN_LOOKBACK
     rows = (
         db.query(BleScan)
-        .filter(BleScan.mac == pi.mac, BleScan.timestamp >= cutoff)
+        .filter(BleScan.pi_rid == pi.rid, BleScan.timestamp >= cutoff)
         .order_by(BleScan.timestamp.desc())
         .all()
     )

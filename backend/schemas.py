@@ -34,6 +34,9 @@ class PiSummary(BaseModel):
 class PiDetail(PiSummary):
     serial: str | None
     pi_version: int | None
+    connected_bssid: str | None = None
+    connected_ssid: str | None = None
+    connected_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -461,6 +464,9 @@ class FloorMapPiNode(BaseModel):
     y: float | None
     pinned: bool
     last_scan_at: datetime | None
+    connected_bssid: str | None
+    connected_ssid: str | None
+    connected_at: datetime | None
 
 
 class FloorMapEdge(BaseModel):

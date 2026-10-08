@@ -106,7 +106,7 @@ def pin_pi(position: str, body: PiPinUpdate, actor: Actor = Depends(require_role
     db.commit()
     db.refresh(pi)
 
-    last_scan = db.query(func.max(WifiScan.timestamp)).filter(WifiScan.mac == pi.mac).scalar()
+    last_scan = db.query(func.max(WifiScan.timestamp)).filter(WifiScan.pi_rid == pi.rid).scalar()
     if pi.pinned_x is not None and pi.pinned_y is not None:
         x, y, pinned = pi.pinned_x, pi.pinned_y, True
     else:

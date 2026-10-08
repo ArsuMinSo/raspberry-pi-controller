@@ -11,7 +11,9 @@ from backend.database import Base
 class Pi(Base):
     __tablename__ = "raspberries"
 
-    mac: MappedColumn[str] = mapped_column(String(17), primary_key=True, nullable=False)
+    # Surrogate key (migration 015) — never MAC/IP, see that migration's comment for why.
+    rid: MappedColumn[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    mac: MappedColumn[str] = mapped_column(String(17), nullable=False, unique=True)
     serial: MappedColumn[str | None] = mapped_column(String(255))
     hostname: MappedColumn[str | None] = mapped_column(String(255))
     position: MappedColumn[str] = mapped_column(String(20), nullable=False, unique=True)
@@ -28,6 +30,9 @@ class Pi(Base):
     cpu_15m = mapped_column(Float)
     mem_percent = mapped_column(Float)
     temp_c = mapped_column(Float)
+    connected_bssid: MappedColumn[str | None] = mapped_column(String(17))
+    connected_ssid: MappedColumn[str | None] = mapped_column(String(255))
+    connected_at = mapped_column(DateTime)
     created_at = mapped_column(DateTime, nullable=False, server_default=func.now())
     updated_at = mapped_column(DateTime, nullable=False, server_default=func.now(), onupdate=func.now())
 
@@ -133,7 +138,7 @@ class HealthSample(Base):
     __tablename__ = "health_samples"
 
     id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
-    mac: MappedColumn[str] = mapped_column(String(17), ForeignKey("raspberries.mac", ondelete="CASCADE"), nullable=False)
+    pi_rid: MappedColumn[int] = mapped_column(Integer, ForeignKey("raspberries.rid", ondelete="CASCADE"), nullable=False)
     timestamp: MappedColumn[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     cpu_1m: MappedColumn[float | None] = mapped_column(Float)
     cpu_5m: MappedColumn[float | None] = mapped_column(Float)
@@ -165,7 +170,7 @@ class WifiScan(Base):
     __tablename__ = "wifi_scans"
 
     id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
-    mac: MappedColumn[str] = mapped_column(String(17), ForeignKey("raspberries.mac", ondelete="CASCADE"), nullable=False)
+    pi_rid: MappedColumn[int] = mapped_column(Integer, ForeignKey("raspberries.rid", ondelete="CASCADE"), nullable=False)
     bssid: MappedColumn[str] = mapped_column(String(17), nullable=False)
     rssi: MappedColumn[int] = mapped_column(SmallInteger, nullable=False)
     timestamp: MappedColumn[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
@@ -176,7 +181,7 @@ class BleScan(Base):
     __tablename__ = "ble_scans"
 
     id: MappedColumn[int] = mapped_column(Integer, primary_key=True)
-    mac: MappedColumn[str] = mapped_column(String(17), ForeignKey("raspberries.mac", ondelete="CASCADE"), nullable=False)
+    pi_rid: MappedColumn[int] = mapped_column(Integer, ForeignKey("raspberries.rid", ondelete="CASCADE"), nullable=False)
     device_mac: MappedColumn[str] = mapped_column(String(17), nullable=False)
     device_name = mapped_column(String(255))
     rssi = mapped_column(SmallInteger)
