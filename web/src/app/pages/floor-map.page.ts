@@ -408,8 +408,8 @@ export class FloorMapPage {
   /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
    * AP boxes repel each other (declutter overlap) and are pulled toward the Pis that see them,
    * weighted by signal strength. Only what is on screen takes part: APs/Pis/connections shown by the
-   * toggles, APs passing the SSID filter, and links within the links-per-Pi cap. Hidden boxes keep
-   * their saved positions. Result is saved
+   * toggles, APs passing the SSID filter, and links within the links-per-Pi cap. Pinned (placed) APs
+   * never move — they only push and pull the others. Hidden boxes keep their saved positions. Result is saved
    * per-BSSID via the normal placement endpoint (every BSSID in a box moves together). */
   async untangle(): Promise<void> {
     const pis = this.showPis()
@@ -426,7 +426,9 @@ export class FloorMapPage {
     }
 
     const shownAps = this.showAps() ? this.visibleApNodes() : [];
-    let groups = shownAps.map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
+    let groups = shownAps.map((a) => ({
+      key: a.key, bssids: a.bssids, fixed: a.placed, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2,
+    }));
     if (groups.length === 0) return;
 
     this.untangling.set(true);
@@ -453,16 +455,16 @@ export class FloorMapPage {
           forces[i].fy += (edge.y - groups[i].y) * ATTRACTION * edge.weight;
         }
       }
-      groups = groups.map((g, i) => ({
-        key: g.key,
-        bssids: g.bssids,
+      groups = groups.map((g, i) => g.fixed ? g : {
+        ...g,
         x: Math.min(Math.max(g.x + forces[i].fx, MARGIN), VIEW_W - MARGIN),
         y: Math.min(Math.max(g.y + forces[i].fy, MIN_Y), VIEW_H - MARGIN),
-      }));
+      });
     }
 
     try {
-      const writes = groups.flatMap((g) => g.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, g.x, g.y))));
+      const writes = groups.filter((g) => !g.fixed)
+        .flatMap((g) => g.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, g.x, g.y))));
       await Promise.all(writes);
       await this.load();
     } catch (e) {
@@ -716,7 +718,8 @@ export class FloorMapPage {
   private piCoords(pi: FloorMapPiNode): { x: number; y: number } {
     const d = this.dragging();
     if (d?.kind === 'pi' && d.position === pi.position) return { x: d.x, y: d.y };
-    return { x: pi.x ?? NaN, y: pi.y ?? NaN };
+    const follow = this.dragFollowers().get(pi.position);
+    return { x: (pi.x ?? NaN) + (follow?.dx ?? 0), y: (pi.y ?? NaN) + (follow?.dy ?? 0) };
   }
 
   /** For the SVG `transform` attribute, which needs a "x,y" string. */
@@ -775,7 +778,9 @@ export class FloorMapPage {
    * "why is mapplan so laggy" investigation. `computed()` instead caches the result and only
    * redoes the work when a dependency signal (`piNodes`, `apNodes`, `edges`, `dragging`, …)
    * actually changes value. */
-  readonly visibleEdges = computed(() => {
+  /** Links on screen by the SSID filter and links-per-Pi cap, without coordinates — so the
+   * drag-follow below can read them without depending on the drawn edges. */
+  readonly visibleLinks = computed(() => {
     const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
     const apByKey = new Map(this.visibleApNodes().map((a) => [a.key, a]));
     const byPosition = new Map<string, FloorMapEdge[]>();
@@ -790,23 +795,50 @@ export class FloorMapPage {
     }
 
     const limit = this.topLinksPerPi() >= this.MAX_LINKS_PER_PI ? Infinity : this.topLinksPerPi();
-    const out: Array<{ position: string; groupKey: string; rssi: number; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    const out: Array<{ position: string; groupKey: string; rssi: number }> = [];
     for (const [position, forPi] of byPosition) {
-      const pi = piByPosition.get(position)!;
-      const { x: px, y: py } = this.piCoords(pi);
       const strongest = [...forPi].sort((a, b) => b.rssi - a.rssi).slice(0, limit);
-      for (const e of strongest) {
-        const groupKey = this.bssidToKey.get(e.bssid)!;
-        const ap = apByKey.get(groupKey)!;
-        const { x: ax, y: ay } = this.apCoords(ap);
-        if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
-        const strength = this.rssiStrength(e.rssi);
-        out.push({
-          position, groupKey, rssi: e.rssi, x1: px, y1: py, x2: ax, y2: ay,
-          width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
-        });
-      }
+      for (const e of strongest) out.push({ position, groupKey: this.bssidToKey.get(e.bssid)!, rssi: e.rssi });
     }
+    return out;
+  });
+
+  readonly visibleEdges = computed(() => {
+    const piByPosition = new Map(this.piNodes().map((p) => [p.position, p]));
+    const apByKey = new Map(this.visibleApNodes().map((a) => [a.key, a]));
+    const out: Array<{ position: string; groupKey: string; rssi: number; x1: number; y1: number; x2: number; y2: number; width: number; opacity: number }> = [];
+    for (const link of this.visibleLinks()) {
+      const { x: px, y: py } = this.piCoords(piByPosition.get(link.position)!);
+      const { x: ax, y: ay } = this.apCoords(apByKey.get(link.groupKey)!);
+      if (Number.isNaN(ax) || Number.isNaN(ay) || Number.isNaN(px) || Number.isNaN(py)) continue;
+      const strength = this.rssiStrength(link.rssi);
+      out.push({
+        position: link.position, groupKey: link.groupKey, rssi: link.rssi, x1: px, y1: py, x2: ax, y2: ay,
+        width: 0.5 + strength * 3, opacity: 0.15 + strength * 0.6,
+      });
+    }
+    return out;
+  });
+
+  /** While an AP is dragged, each unpinned Pi with a visible link to it moves by the same drag
+   * delta, scaled by that link's signal strength (spring-like: strong links follow closely, weak
+   * ones lag). Pinned Pis stay put. Preview only — on drop the AP is saved and Pi positions are
+   * recomputed from scans on reload. */
+  readonly dragFollowers = computed(() => {
+    const out = new Map<string, { dx: number; dy: number }>();
+    const d = this.dragging();
+    if (d?.kind !== 'ap') return out;
+    const ap = this.apNodes().find((a) => a.key === d.key);
+    if (!ap || ap.x === null || ap.y === null) return out;
+    const dx = d.x - ap.x;
+    const dy = d.y - ap.y;
+    const pinned = new Set(this.piNodes().filter((p) => p.pinned).map((p) => p.position));
+    const strength = new Map<string, number>();
+    for (const link of this.visibleLinks()) {
+      if (link.groupKey !== d.key || pinned.has(link.position)) continue;
+      strength.set(link.position, Math.max(strength.get(link.position) ?? 0, this.rssiStrength(link.rssi)));
+    }
+    for (const [position, w] of strength) out.set(position, { dx: dx * w, dy: dy * w });
     return out;
   });
 
