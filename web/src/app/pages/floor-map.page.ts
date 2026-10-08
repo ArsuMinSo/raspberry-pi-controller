@@ -407,13 +407,17 @@ export class FloorMapPage {
 
   /** Force-directed relaxation of AP box positions only — Pis stay computed/fixed for the pass,
    * AP boxes repel each other (declutter overlap) and are pulled toward the Pis that see them,
-   * weighted by signal strength. Only the visible APs and the links currently drawn (SSID filter
-   * and links-per-Pi slider) take part; hidden boxes keep their saved positions. Result is saved
+   * weighted by signal strength. Only what is on screen takes part: APs/Pis/connections shown by the
+   * toggles, APs passing the SSID filter, and links within the links-per-Pi cap. Hidden boxes keep
+   * their saved positions. Result is saved
    * per-BSSID via the normal placement endpoint (every BSSID in a box moves together). */
   async untangle(): Promise<void> {
-    const pis = this.piNodes().filter((p) => p.x !== null && p.y !== null) as Array<FloorMapPiNode & { x: number; y: number }>;
+    const pis = this.showPis()
+      ? this.piNodes().filter((p) => p.x !== null && p.y !== null) as Array<FloorMapPiNode & { x: number; y: number }>
+      : [];
     const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
-    for (const e of this.visibleEdges()) {
+    const drawnEdges = this.showConnections() ? this.visibleEdges() : [];
+    for (const e of drawnEdges) {
       const pi = pis.find((p) => p.position === e.position);
       if (!pi) continue;
       const arr = edgesByKey.get(e.groupKey) ?? [];
@@ -421,12 +425,13 @@ export class FloorMapPage {
       edgesByKey.set(e.groupKey, arr);
     }
 
-    let groups = this.visibleApNodes().map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
+    const shownAps = this.showAps() ? this.visibleApNodes() : [];
+    let groups = shownAps.map((a) => ({ key: a.key, bssids: a.bssids, x: a.x ?? VIEW_W / 2, y: a.y ?? VIEW_H / 2 }));
     if (groups.length === 0) return;
 
     this.untangling.set(true);
     const REPULSION = 9000;
-    const ATTRACTION = 0.02;
+    const ATTRACTION = 0.06;
     const MARGIN = 30;
     const MIN_Y = UNPLACED_ROW_Y + 40;
     for (let iter = 0; iter < 250; iter++) {
