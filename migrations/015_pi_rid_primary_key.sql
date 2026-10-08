@@ -8,6 +8,11 @@
 
 ALTER TABLE raspberries ADD COLUMN IF NOT EXISTS rid BIGSERIAL;
 
+-- The mac-keyed FKs below depend on raspberries_pkey; drop them before the PK goes.
+ALTER TABLE wifi_scans DROP CONSTRAINT IF EXISTS wifi_scans_mac_fkey;
+ALTER TABLE ble_scans DROP CONSTRAINT IF EXISTS ble_scans_mac_fkey;
+ALTER TABLE health_samples DROP CONSTRAINT IF EXISTS health_samples_mac_fkey;
+
 DO $$
 BEGIN
     IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'raspberries_pkey') THEN
