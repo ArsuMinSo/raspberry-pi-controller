@@ -78,12 +78,22 @@ class PiCommands:
 
 
 @dataclass
+class RetentionSettings:
+    """Data retention policy for time-series tables. Optional `retention:` section in config.yaml."""
+    enabled: bool = True
+    health_samples_days: int = 90    # Keep CPU/memory/temperature samples for N days
+    wifi_scans_days: int = 90        # Keep WiFi positioning history for N days
+    ble_scans_days: int = 90         # Keep BLE scan data for N days
+
+
+@dataclass
 class Settings:
     database: DatabaseSettings
     ssh: SSHSettings
     network: NetworkSettings
     server: ServerSettings
     pi_commands: PiCommands = field(default_factory=PiCommands)
+    retention: RetentionSettings = field(default_factory=RetentionSettings)
 
 
 def _load(path: str = CONFIG_PATH) -> Settings:
@@ -104,6 +114,10 @@ def _load(path: str = CONFIG_PATH) -> Settings:
     cmds_raw = raw.get("pi_commands") or {}
     pi_commands = PiCommands(**{
         f.name: str(cmds_raw[f.name]) for f in fields(PiCommands) if cmds_raw.get(f.name)
+    })
+    ret_raw = raw.get("retention") or {}
+    retention = RetentionSettings(**{
+        f.name: ret_raw[f.name] for f in fields(RetentionSettings) if ret_raw.get(f.name) is not None
     })
 
     return Settings(
@@ -140,6 +154,7 @@ def _load(path: str = CONFIG_PATH) -> Settings:
             workers=int(srv["workers"]),
         ),
         pi_commands=pi_commands,
+        retention=retention,
     )
 
 
@@ -248,3 +263,46 @@ def persist_network_settings(path: str = CONFIG_PATH) -> None:
         yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
     get_settings.cache_clear()
     _network_overrides.clear()
+
+
+# Runtime retention overrides.
+_retention_overrides: dict = {}
+
+
+def apply_retention_override(
+    enabled: bool | None = None,
+    health_samples_days: int | None = None,
+    wifi_scans_days: int | None = None,
+    ble_scans_days: int | None = None,
+) -> None:
+    if enabled is not None:
+        _retention_overrides["enabled"] = enabled
+    if health_samples_days is not None:
+        _retention_overrides["health_samples_days"] = health_samples_days
+    if wifi_scans_days is not None:
+        _retention_overrides["wifi_scans_days"] = wifi_scans_days
+    if ble_scans_days is not None:
+        _retention_overrides["ble_scans_days"] = ble_scans_days
+
+
+def effective_retention_settings() -> RetentionSettings:
+    base = get_settings().retention
+    if not _retention_overrides:
+        return base
+    import dataclasses
+    return dataclasses.replace(base, **_retention_overrides)
+
+
+def persist_retention_settings(path: str = CONFIG_PATH) -> None:
+    """Write _retention_overrides into config.yaml, then clear cache + overrides."""
+    if not _retention_overrides:
+        return
+    with open(path) as f:
+        raw = yaml.safe_load(f)
+    if "retention" not in raw:
+        raw["retention"] = {}
+    raw["retention"].update(_retention_overrides)
+    with open(path, "w") as f:
+        yaml.dump(raw, f, default_flow_style=False, allow_unicode=True)
+    get_settings.cache_clear()
+    _retention_overrides.clear()

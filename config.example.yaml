@@ -36,3 +36,10 @@ pi_commands:
   reboot: "LC_ALL=C nohup sh -c 'sleep 3; systemctl reboot' >/dev/null 2>&1 &"
   throttled: cat /sys/devices/platform/soc/soc:firmware/get_throttled 2>/dev/null || vcgencmd get_throttled
   disk: df -P /
+# Data retention — periodic cleanup of time-series tables (health_samples, wifi_scans, ble_scans).
+# Run daily via scheduler; keeps database lean and queries fast.
+retention:
+  enabled: true
+  health_samples_days: 90    # Keep 90 days of CPU/memory/temperature samples (~1 per day per Pi)
+  wifi_scans_days: 90        # Keep 90 days of WiFi positioning history
+  ble_scans_days: 90         # Keep 90 days of BLE scan data
