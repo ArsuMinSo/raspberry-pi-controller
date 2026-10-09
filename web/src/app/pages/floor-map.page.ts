@@ -449,11 +449,6 @@ export class FloorMapPage {
       s.w += w;
     }
 
-    console.log(`[untangle] Pi anchors computed: ${anchorSum.size} Pis`);
-    for (const [pos, anchor] of anchorSum) {
-      console.log(`  Pi ${pos}: x=${anchor.x / anchor.w | 0}, y=${anchor.y / anchor.w | 0} (weight sum=${anchor.w.toFixed(2)})`);
-    }
-
     // For each AP, collect the Pis that have it in their top-N links, positioned at their anchor.
     const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
     for (const link of drawnLinks) {
@@ -465,11 +460,6 @@ export class FloorMapPage {
         edgesByKey.set(link.groupKey, arr);
       }
       arr.push({ x: piAnchor.x / piAnchor.w, y: piAnchor.y / piAnchor.w, weight: this.rssiStrength(link.rssi) });
-    }
-
-    console.log(`[untangle] AP edges computed: ${edgesByKey.size} APs have springs`);
-    for (const [apKey, edges] of edgesByKey) {
-      console.log(`  AP ${apKey}: pulled by ${edges.length} Pi(s)`);
     }
 
     const shownAps = this.showAps() ? this.visibleApNodes() : [];
@@ -515,10 +505,7 @@ export class FloorMapPage {
     }
 
     const elapsed = performance.now() - startTime;
-    console.log(`[untangle] Simulation complete (${elapsed.toFixed(0)}ms). Final positions:`);
-    for (const g of groups.filter(g => !g.fixed)) {
-      console.log(`  AP ${g.key}: ${g.x | 0}, ${g.y | 0}`);
-    }
+    console.log(`[untangle] Simulation complete (${elapsed.toFixed(0)}ms).`);
 
     try {
       const writes = groups.filter((g) => !g.fixed)
