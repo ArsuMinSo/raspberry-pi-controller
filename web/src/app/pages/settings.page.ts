@@ -9,7 +9,7 @@ import { firstValueFrom } from 'rxjs';
 
 import { ApiService } from '../core/api.service';
 import { errorMessage } from '../core/errors';
-import { NetworkSettings, Settings, SSHSettings, SSHTestResult } from '../core/models';
+import { NetworkSettings, RetentionSettings, Settings, SSHSettings, SSHTestResult } from '../core/models';
 
 @Component({
   selector: 'app-settings',
@@ -103,6 +103,35 @@ import { NetworkSettings, Settings, SSHSettings, SSHTestResult } from '../core/m
               </ion-card-content>
             </ion-card>
 
+            <!-- Data Retention -->
+            <ion-card>
+              <ion-card-header><ion-card-title>Data Retention</ion-card-title></ion-card-header>
+              <ion-card-content>
+                <ion-list lines="full">
+                  <ion-item>
+                    <div style="width: 100%; display: flex; justify-content: space-between; align-items: center;">
+                      <span>Enable retention cleanup</span>
+                      <ion-button [color]="retention.enabled ? 'success' : 'medium'" (click)="retention.enabled = !retention.enabled" [disabled]="saving()">
+                        {{ retention.enabled ? 'ON' : 'OFF' }}
+                      </ion-button>
+                    </div>
+                  </ion-item>
+                  <ion-item>
+                    <ion-input label="Health samples (days)" labelPlacement="stacked" type="number"
+                               name="health_samples_days" [(ngModel)]="retention.health_samples_days" [disabled]="saving()"></ion-input>
+                  </ion-item>
+                  <ion-item>
+                    <ion-input label="WiFi scans (days)" labelPlacement="stacked" type="number"
+                               name="wifi_scans_days" [(ngModel)]="retention.wifi_scans_days" [disabled]="saving()"></ion-input>
+                  </ion-item>
+                  <ion-item>
+                    <ion-input label="BLE scans (days)" labelPlacement="stacked" type="number"
+                               name="ble_scans_days" [(ngModel)]="retention.ble_scans_days" [disabled]="saving()"></ion-input>
+                  </ion-item>
+                </ion-list>
+              </ion-card-content>
+            </ion-card>
+
             <!-- Save -->
             <ion-button type="submit" [disabled]="saving() || !changed()">
               {{ saving() ? 'Saving…' : 'Save changes' }}
@@ -138,14 +167,15 @@ export class SettingsPage implements OnInit {
 
   readonly ssh: SSHSettings = { key_path: '', username: '', timeout_s: 0, retry_count: 0, retry_delay_s: 0, parallel_limit: 0 };
   readonly network: NetworkSettings = { subnet: '', probe_ssh: false, probe_timeout_s: 0, probe_username: '', probe_backup_username: '', probe_auth: 'key', probe_deploy_key: false };
+  readonly retention: RetentionSettings = { enabled: true, health_samples_days: 90, wifi_scans_days: 90, ble_scans_days: 90 };
   private original: Settings | null = null;
 
-  /** Plain method, not a signal+effect — `ssh`/`network` are mutated directly by ngModel,
+  /** Plain method, not a signal+effect — `ssh`/`network`/`retention` are mutated directly by ngModel,
    * which an effect() never notices (it only reacts to signals), so this must be recomputed
    * on every call instead of cached. */
   changed(): boolean {
     if (!this.original) return false;
-    const current: Settings = { ssh: { ...this.ssh }, network: { ...this.network } };
+    const current: Settings = { ssh: { ...this.ssh }, network: { ...this.network }, retention: { ...this.retention } };
     return JSON.stringify(this.original) !== JSON.stringify(current);
   }
 
@@ -160,6 +190,7 @@ export class SettingsPage implements OnInit {
       this.original = JSON.parse(JSON.stringify(settings));
       Object.assign(this.ssh, settings.ssh);
       Object.assign(this.network, settings.network);
+      Object.assign(this.retention, settings.retention);
       this.error.set(null);
     } catch (err) {
       this.error.set(errorMessage(err));
@@ -176,6 +207,7 @@ export class SettingsPage implements OnInit {
       const patch: Partial<Settings> = {
         ssh: { ...this.ssh },
         network: { ...this.network },
+        retention: { ...this.retention },
       };
       const result = await firstValueFrom(this.api.patchSettings(patch));
       this.original = JSON.parse(JSON.stringify(result));

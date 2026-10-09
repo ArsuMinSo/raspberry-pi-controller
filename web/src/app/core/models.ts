@@ -162,9 +162,17 @@ export interface NetworkSettings {
   probe_deploy_key: boolean;
 }
 
+export interface RetentionSettings {
+  enabled: boolean;
+  health_samples_days: number;
+  wifi_scans_days: number;
+  ble_scans_days: number;
+}
+
 export interface Settings {
   ssh: SSHSettings;
   network: NetworkSettings;
+  retention: RetentionSettings;
 }
 
 export interface SSHTestResult {
