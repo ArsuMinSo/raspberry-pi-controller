@@ -5,10 +5,19 @@ from sqlalchemy.orm import Session
 
 from backend.models import HealthSample, WifiScan, BleScan, Pi
 from backend.services.retention import cleanup
-from backend.config import apply_retention_override, effective_retention_settings
+from backend.config import apply_retention_override, effective_retention_settings, RetentionSettings
+import backend.config as config_module
 
 
 _test_counter = 0
+
+
+@pytest.fixture(autouse=True)
+def reset_retention_overrides():
+    """Reset retention overrides before each test to avoid test pollution."""
+    config_module._retention_overrides.clear()
+    yield
+    config_module._retention_overrides.clear()
 
 
 @pytest.fixture
