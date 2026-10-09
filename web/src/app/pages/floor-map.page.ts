@@ -420,26 +420,41 @@ export class FloorMapPage {
     const shownPis = new Set(this.showPis() ? this.piNodes().map((p) => p.position) : []);
     const apByKey = new Map((this.showAps() ? this.visibleApNodes() : []).map((a) => [a.key, a]));
     const drawnLinks = this.showConnections() ? this.visibleLinks() : [];
-    // Each Pi's anchor is the weighted centroid (1/rssi², as the server does) of only the visible
-    // placed APs it links to, so filtered-out APs exert no pull.
+
+    if (drawnLinks.length === 0) {
+      this.untangling.set(true);
+      this.untangling.set(false);
+      return;
+    }
+
+    // Each Pi's anchor is the weighted centroid (1/rssi², as the server does) of only its top-N
+    // placed APs (filtered by visibleLinks), so only those exert pull.
     const anchorSum = new Map<string, { x: number; y: number; w: number }>();
     for (const link of drawnLinks) {
       const ap = apByKey.get(link.groupKey);
       if (!ap?.placed || ap.x === null || ap.y === null || !shownPis.has(link.position)) continue;
       const w = 1 / Math.max(link.rssi ** 2, 1);
-      const s = anchorSum.get(link.position) ?? { x: 0, y: 0, w: 0 };
+      let s = anchorSum.get(link.position);
+      if (!s) {
+        s = { x: 0, y: 0, w: 0 };
+        anchorSum.set(link.position, s);
+      }
       s.x += w * ap.x;
       s.y += w * ap.y;
       s.w += w;
-      anchorSum.set(link.position, s);
     }
+
+    // For each AP, collect the Pis that have it in their top-N links, positioned at their anchor.
     const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
     for (const link of drawnLinks) {
-      const s = anchorSum.get(link.position);
-      if (!s || !apByKey.has(link.groupKey)) continue;
-      const arr = edgesByKey.get(link.groupKey) ?? [];
-      arr.push({ x: s.x / s.w, y: s.y / s.w, weight: this.rssiStrength(link.rssi) });
-      edgesByKey.set(link.groupKey, arr);
+      const piAnchor = anchorSum.get(link.position);
+      if (!piAnchor || !apByKey.has(link.groupKey)) continue;
+      let arr = edgesByKey.get(link.groupKey);
+      if (!arr) {
+        arr = [];
+        edgesByKey.set(link.groupKey, arr);
+      }
+      arr.push({ x: piAnchor.x / piAnchor.w, y: piAnchor.y / piAnchor.w, weight: this.rssiStrength(link.rssi) });
     }
 
     const shownAps = this.showAps() ? this.visibleApNodes() : [];
