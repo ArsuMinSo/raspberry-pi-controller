@@ -8,10 +8,17 @@ from backend.services.retention import cleanup
 from backend.config import apply_retention_override, effective_retention_settings
 
 
+_test_counter = 0
+
+
 @pytest.fixture
 def pi_with_samples(db: Session):
     """Create a Pi with time-series samples."""
-    pi = Pi(mac="aa:bb:cc:dd:ee:ff", position="1", status="reachable", hostname="test-pi")
+    global _test_counter
+    _test_counter += 1
+    pos = str(_test_counter)
+    mac = f"aa:bb:cc:dd:ee:{_test_counter:02x}"
+    pi = Pi(mac=mac, position=pos, status="reachable", hostname=f"test-pi-{_test_counter}")
     db.add(pi)
     db.flush()
 
