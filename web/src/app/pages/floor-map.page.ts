@@ -417,11 +417,13 @@ export class FloorMapPage {
    * never move — they only push and pull the others. Hidden boxes keep their saved positions. Result is saved
    * per-BSSID via the normal placement endpoint (every BSSID in a box moves together). */
   async untangle(): Promise<void> {
+    const topLinksLimit = this.topLinksPerPi();
     const shownPis = new Set(this.showPis() ? this.piNodes().map((p) => p.position) : []);
     const apByKey = new Map((this.showAps() ? this.visibleApNodes() : []).map((a) => [a.key, a]));
     const drawnLinks = this.showConnections() ? this.visibleLinks() : [];
+    const allEdges = this.edges().length;
 
-    console.log(`[untangle] topLinksPerPi=${this.topLinksPerPi()}, drawnLinks=${drawnLinks.length}, APs=${apByKey.size}, Pis=${shownPis.size}`);
+    console.log(`[untangle] topLinksPerPi=${topLinksLimit}, MAX_LINKS_PER_PI=${this.MAX_LINKS_PER_PI}, total edges in DB=${allEdges}, filtered drawnLinks=${drawnLinks.length}, APs=${apByKey.size}, Pis=${shownPis.size}`);
 
     if (drawnLinks.length === 0) {
       console.log('[untangle] No links to draw, skipping');
