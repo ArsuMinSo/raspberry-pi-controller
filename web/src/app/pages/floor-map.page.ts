@@ -421,7 +421,10 @@ export class FloorMapPage {
     const apByKey = new Map((this.showAps() ? this.visibleApNodes() : []).map((a) => [a.key, a]));
     const drawnLinks = this.showConnections() ? this.visibleLinks() : [];
 
+    console.log(`[untangle] topLinksPerPi=${this.topLinksPerPi()}, drawnLinks=${drawnLinks.length}, APs=${apByKey.size}, Pis=${shownPis.size}`);
+
     if (drawnLinks.length === 0) {
+      console.log('[untangle] No links to draw, skipping');
       this.untangling.set(true);
       this.untangling.set(false);
       return;
@@ -444,6 +447,11 @@ export class FloorMapPage {
       s.w += w;
     }
 
+    console.log(`[untangle] Pi anchors computed: ${anchorSum.size} Pis`);
+    for (const [pos, anchor] of anchorSum) {
+      console.log(`  Pi ${pos}: x=${anchor.x / anchor.w | 0}, y=${anchor.y / anchor.w | 0} (weight sum=${anchor.w.toFixed(2)})`);
+    }
+
     // For each AP, collect the Pis that have it in their top-N links, positioned at their anchor.
     const edgesByKey = new Map<string, Array<{ x: number; y: number; weight: number }>>();
     for (const link of drawnLinks) {
@@ -455,6 +463,11 @@ export class FloorMapPage {
         edgesByKey.set(link.groupKey, arr);
       }
       arr.push({ x: piAnchor.x / piAnchor.w, y: piAnchor.y / piAnchor.w, weight: this.rssiStrength(link.rssi) });
+    }
+
+    console.log(`[untangle] AP edges computed: ${edgesByKey.size} APs have springs`);
+    for (const [apKey, edges] of edgesByKey) {
+      console.log(`  AP ${apKey}: pulled by ${edges.length} Pi(s)`);
     }
 
     const shownAps = this.showAps() ? this.visibleApNodes() : [];
@@ -469,6 +482,9 @@ export class FloorMapPage {
     const ATTRACTION = 0.06;
     const MARGIN = 30;
     const MIN_Y = UNPLACED_ROW_Y + 40;
+    const startTime = performance.now();
+    console.log(`[untangle] Starting spring simulation (250 iterations, ${groups.length} APs, ${groups.filter(g => !g.fixed).length} movable)`);
+
     for (let iter = 0; iter < 250; iter++) {
       const forces = groups.map(() => ({ fx: 0, fy: 0 }));
       for (let i = 0; i < groups.length; i++) {
@@ -496,12 +512,21 @@ export class FloorMapPage {
       });
     }
 
+    const elapsed = performance.now() - startTime;
+    console.log(`[untangle] Simulation complete (${elapsed.toFixed(0)}ms). Final positions:`);
+    for (const g of groups.filter(g => !g.fixed)) {
+      console.log(`  AP ${g.key}: ${g.x | 0}, ${g.y | 0}`);
+    }
+
     try {
       const writes = groups.filter((g) => !g.fixed)
         .flatMap((g) => g.bssids.map((bssid) => firstValueFrom(this.api.placeAccessPoint(bssid, g.x, g.y))));
+      console.log(`[untangle] Saving ${writes.length} AP position(s)`);
       await Promise.all(writes);
       await this.load();
+      console.log('[untangle] Saved and reloaded');
     } catch (e) {
+      console.error('[untangle] Error:', e);
       this.error.set(errorMessage(e));
     } finally {
       this.untangling.set(false);
