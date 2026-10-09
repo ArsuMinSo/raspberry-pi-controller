@@ -66,39 +66,47 @@ def pi_with_samples(db: Session):
 
 def test_retention_cleanup_removes_old_records(db: Session, pi_with_samples):
     """Retention should delete records older than the configured threshold."""
+    # Count before cleanup
+    health_before = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
+    wifi_before = db.query(WifiScan).filter(WifiScan.pi_rid == pi_with_samples.rid).count()
+    ble_before = db.query(BleScan).filter(BleScan.pi_rid == pi_with_samples.rid).count()
+
     # Set retention to 90 days
     apply_retention_override(enabled=True, health_samples_days=90, wifi_scans_days=90, ble_scans_days=90)
+    cleanup(db)
 
-    # Run cleanup
-    deleted = cleanup(db)
+    # Verify old records deleted from this Pi only
+    health_after = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
+    wifi_after = db.query(WifiScan).filter(WifiScan.pi_rid == pi_with_samples.rid).count()
+    ble_after = db.query(BleScan).filter(BleScan.pi_rid == pi_with_samples.rid).count()
 
-    # Should delete 2 old records from each table
-    assert deleted["health_samples"] == 2
-    assert deleted["wifi_scans"] == 2
-    assert deleted["ble_scans"] == 2
-
-    # Verify recent records remain
-    recent_health = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).all()
-    assert len(recent_health) == 3
+    assert health_before == 5 and health_after == 3  # 2 deleted
+    assert wifi_before == 5 and wifi_after == 3
+    assert ble_before == 5 and ble_after == 3
 
 
 def test_retention_disabled(db: Session, pi_with_samples):
     """When disabled, cleanup should not delete anything."""
-    apply_retention_override(enabled=False)
-    deleted = cleanup(db)
-    assert deleted == {}
+    health_before = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
 
-    # All records should remain
-    health_count = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
-    assert health_count == 5
+    apply_retention_override(enabled=False)
+    cleanup(db)
+
+    health_after = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
+    assert health_before == health_after  # No deletion
 
 
 def test_retention_zero_days(db: Session, pi_with_samples):
     """Setting days to 0 should disable that table's cleanup."""
-    apply_retention_override(enabled=True, health_samples_days=0, wifi_scans_days=90, ble_scans_days=90)
-    deleted = cleanup(db)
+    health_before = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
+    wifi_before = db.query(WifiScan).filter(WifiScan.pi_rid == pi_with_samples.rid).count()
 
-    # health_samples not deleted (days=0), others are
-    assert "health_samples" not in deleted or deleted["health_samples"] == 0
-    assert deleted.get("wifi_scans", 0) == 2
-    assert deleted.get("ble_scans", 0) == 2
+    apply_retention_override(enabled=True, health_samples_days=0, wifi_scans_days=90, ble_scans_days=90)
+    cleanup(db)
+
+    health_after = db.query(HealthSample).filter(HealthSample.pi_rid == pi_with_samples.rid).count()
+    wifi_after = db.query(WifiScan).filter(WifiScan.pi_rid == pi_with_samples.rid).count()
+
+    # health_samples not deleted (days=0), wifi_scans are
+    assert health_before == health_after  # No deletion for health_samples
+    assert wifi_before == 5 and wifi_after == 3  # 2 deleted
