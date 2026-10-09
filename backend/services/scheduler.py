@@ -15,6 +15,7 @@ def start(db: Session) -> None:
     tasks = db.query(ScheduledTask).filter(ScheduledTask.enabled == True).all()
     for task in tasks:
         _add_job(task)
+    _add_builtin_jobs(db)
     _scheduler.start()
     log.info("Scheduler started with %d task(s)", len(tasks))
 
@@ -133,3 +134,30 @@ def _exec_discovery(db: Session, actor) -> int | None:
     from backend.services.discovery import start_discovery
     net = effective_network_settings()
     return start_discovery(db, net.subnet, effective_ssh_settings(), net, actor=actor, wait=True)
+
+
+def _add_builtin_jobs(db: Session) -> None:
+    """Add system jobs that are not user-defined."""
+    # Daily retention cleanup at 02:00 UTC
+    trigger = CronTrigger.from_crontab("0 2 * * *", timezone="UTC")
+    _scheduler.add_job(
+        _run_retention,
+        trigger=trigger,
+        id="builtin_retention_cleanup",
+        replace_existing=True,
+        misfire_grace_time=300,
+    )
+    log.info("Added builtin job: retention cleanup (daily at 02:00 UTC)")
+
+
+def _run_retention() -> None:
+    """Run retention cleanup job."""
+    db = SessionLocal()
+    try:
+        from backend.services.retention import cleanup
+        deleted = cleanup(db)
+        log.info("Retention cleanup succeeded: %s", deleted)
+    except Exception as e:
+        log.error("Retention cleanup failed: %s", e, exc_info=True)
+    finally:
+        db.close()
