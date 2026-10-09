@@ -131,7 +131,7 @@ export class ApiService {
   // `timeout_s`, `subnet`, ...) — see backend/routes/settings.py. Translate both ways here
   // so the rest of the app can work with the clean nested Settings shape.
   getSettings(): Observable<Settings> {
-    return this.http.get<{ ssh: Record<string, unknown>; network: Settings['network'] }>(`${API}/settings`).pipe(
+    return this.http.get<{ ssh: Record<string, unknown>; network: Settings['network']; retention: Settings['retention'] }>(`${API}/settings`).pipe(
       map((raw) => ({
         ssh: {
           key_path: raw.ssh['private_key_path'] as string,
@@ -142,6 +142,7 @@ export class ApiService {
           parallel_limit: raw.ssh['parallel_limit'] as number,
         },
         network: raw.network,
+        retention: raw.retention,
       })),
     );
   }
@@ -167,7 +168,14 @@ export class ApiService {
       if (n.probe_auth !== undefined) flat['probe_auth'] = n.probe_auth;
       if (n.probe_deploy_key !== undefined) flat['probe_deploy_key'] = n.probe_deploy_key;
     }
-    return this.http.patch<{ ssh: Record<string, unknown>; network: Settings['network'] }>(`${API}/settings`, flat).pipe(
+    if (body.retention) {
+      const r = body.retention;
+      if (r.enabled !== undefined) flat['retention_enabled'] = r.enabled;
+      if (r.health_samples_days !== undefined) flat['retention_health_samples_days'] = r.health_samples_days;
+      if (r.wifi_scans_days !== undefined) flat['retention_wifi_scans_days'] = r.wifi_scans_days;
+      if (r.ble_scans_days !== undefined) flat['retention_ble_scans_days'] = r.ble_scans_days;
+    }
+    return this.http.patch<{ ssh: Record<string, unknown>; network: Settings['network']; retention: Settings['retention'] }>(`${API}/settings`, flat).pipe(
       map((raw) => ({
         ssh: {
           key_path: raw.ssh['private_key_path'] as string,
@@ -178,6 +186,7 @@ export class ApiService {
           parallel_limit: raw.ssh['parallel_limit'] as number,
         },
         network: raw.network,
+        retention: raw.retention,
       })),
     );
   }
