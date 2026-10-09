@@ -8,10 +8,13 @@ from sqlalchemy.orm import Session
 
 from backend.config import (
     apply_network_override,
+    apply_retention_override,
     apply_ssh_override,
     effective_network_settings,
+    effective_retention_settings,
     effective_ssh_settings,
     persist_network_settings,
+    persist_retention_settings,
     persist_ssh_settings,
 )
 from backend.auth import Actor, record_event, require_role
@@ -35,6 +38,10 @@ class SettingsPatch(BaseModel):
     probe_auth: str | None = None    # "key" or "password"
     probe_deploy_key: bool | None = None
     probe_backup_username: str | None = None
+    retention_enabled: bool | None = None
+    retention_health_samples_days: int | None = None
+    retention_wifi_scans_days: int | None = None
+    retention_ble_scans_days: int | None = None
 
 
 class SSHTestRequest(BaseModel):
@@ -64,18 +71,32 @@ def _net_view(net) -> dict:
     }
 
 
+def _retention_view(ret) -> dict:
+    return {
+        "enabled": ret.enabled,
+        "health_samples_days": ret.health_samples_days,
+        "wifi_scans_days": ret.wifi_scans_days,
+        "ble_scans_days": ret.ble_scans_days,
+    }
+
+
 @router.get("", dependencies=[Depends(require_role("admin"))])
 def get_settings_view():
     return {
         "ssh": _ssh_view(effective_ssh_settings()),
         "network": _net_view(effective_network_settings()),
+        "retention": _retention_view(effective_retention_settings()),
     }
 
 
 @router.patch("")
 def patch_settings(body: SettingsPatch, actor: Actor = Depends(require_role("admin")),
                    db: Session = Depends(get_db)):
-    before = {"ssh": _ssh_view(effective_ssh_settings()), "network": _net_view(effective_network_settings())}
+    before = {
+        "ssh": _ssh_view(effective_ssh_settings()),
+        "network": _net_view(effective_network_settings()),
+        "retention": _retention_view(effective_retention_settings()),
+    }
     apply_ssh_override(
         key_path=body.ssh_key_path,
         username=body.username,
@@ -93,9 +114,20 @@ def patch_settings(body: SettingsPatch, actor: Actor = Depends(require_role("adm
         probe_deploy_key=body.probe_deploy_key,
         probe_backup_username=body.probe_backup_username,
     )
+    apply_retention_override(
+        enabled=body.retention_enabled,
+        health_samples_days=body.retention_health_samples_days,
+        wifi_scans_days=body.retention_wifi_scans_days,
+        ble_scans_days=body.retention_ble_scans_days,
+    )
     persist_ssh_settings()
     persist_network_settings()
-    after = {"ssh": _ssh_view(effective_ssh_settings()), "network": _net_view(effective_network_settings())}
+    persist_retention_settings()
+    after = {
+        "ssh": _ssh_view(effective_ssh_settings()),
+        "network": _net_view(effective_network_settings()),
+        "retention": _retention_view(effective_retention_settings()),
+    }
     changes = {
         f"{section}.{key}": {"from": before[section][key], "to": value}
         for section in after for key, value in after[section].items()
