@@ -185,16 +185,17 @@ def test_logs_filter_by_position(client, db):
     # No cleanup: actions_log is append-only (DB rule turns DELETE into a no-op)
 
 
-def test_logs_excludes_health_checks(client, db):
-    """Health checks run far more often than real operator actions and would drown out the
-    activity log — excluded from /logs, not from the table itself (still append-only)."""
+def test_logs_includes_health_checks(client, db):
+    """Health checks are now included in the activity log alongside other actions."""
     entry = ActionLog(pis_selected=["07-002"], action="health", status="success")
     db.add(entry)
     db.commit()
 
     res = client.get(f"{API}/logs?pi=07-002")
     assert res.status_code == 200
-    assert res.json() == []
+    logs = res.json()
+    assert len(logs) == 1
+    assert logs[0]["action"] == "health"
 
 
 # ─── System health ────────────────────────────────────────────────────────────
