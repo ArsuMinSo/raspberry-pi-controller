@@ -91,6 +91,8 @@
   - [x] Phase 4a — web Users screen (admin)
   - [ ] Phase 4b — web parity with TUI (new pages/tabs):
     - [ ] **Execution** page (admin): command on selected Pis, per-Pi output, history re-run
+      - [ ] **Bookmark favorite commands**: star/pin button saves command + SSH username + Pi selection,
+            loads all on click (quick re-run common tasks)
     - [ ] **Sudo execution** (admin): Pis' `vyroba` has no passwordless sudo → sudo password entered per run
           (`sudo -S`, never stored/logged), or a sudoers rule — decide
     - [ ] Kill process / restart service (operator)
