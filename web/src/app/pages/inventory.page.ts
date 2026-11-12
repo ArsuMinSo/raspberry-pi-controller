@@ -11,7 +11,7 @@ import { Observable, firstValueFrom } from 'rxjs';
 import { ApiService } from '../core/api.service';
 import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
-import { dateTime, pct, statusColor, temp } from '../core/format';
+import { dateTime, pct, statusColor, temp, uptime } from '../core/format';
 import { ColumnMenuComponent } from '../core/column-menu.component';
 import { ActionQueued, FleetSummary, PiSummary } from '../core/models';
 import { comparePositions } from '../core/sort';
@@ -19,7 +19,7 @@ import { TableSort, compareDates, compareIps, compareStrings } from '../core/tab
 import { ColumnDef, TableColumns } from '../core/table-columns';
 
 type StatusFilter = 'all' | 'reachable' | 'unreachable';
-type SortColumn = 'position' | 'hostname' | 'ip' | 'mac' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'seen';
+type SortColumn = 'position' | 'hostname' | 'ip' | 'mac' | 'status' | 'cpu' | 'ram' | 'temp' | 'pi' | 'uptime' | 'seen';
 type Col = SortColumn | 'tags';
 
 const COLUMNS: ColumnDef<Col>[] = [
@@ -32,6 +32,7 @@ const COLUMNS: ColumnDef<Col>[] = [
   { key: 'ram', label: 'RAM', defaultWidth: 90 },
   { key: 'temp', label: 'Temp', defaultWidth: 90 },
   { key: 'pi', label: 'Pi', defaultWidth: 70 },
+  { key: 'uptime', label: 'Uptime', defaultWidth: 100 },
   { key: 'tags', label: 'Tags', defaultWidth: 160 },
   { key: 'seen', label: 'Last seen', defaultWidth: 160 },
 ];
@@ -249,6 +250,12 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
                     <span class="resize-handle" (pointerdown)="cols.startResize('pi', $event)"></span>
                   </th>
                 }
+                @if (cols.isVisible('uptime')) {
+                  <th (click)="sort.sortBy('uptime')" class="sortable" [style.width.px]="cols.width('uptime')">
+                    Uptime{{ sort.indicator('uptime') }}
+                    <span class="resize-handle" (pointerdown)="cols.startResize('uptime', $event)"></span>
+                  </th>
+                }
                 @if (cols.isVisible('tags')) {
                   <th [style.width.px]="cols.width('tags')">
                     Tags
@@ -281,6 +288,7 @@ export function matchesSearch(pi: PiSummary, query: string): boolean {
                   @if (cols.isVisible('ram')) { <td>{{ pct(pi.mem_percent) }}</td> }
                   @if (cols.isVisible('temp')) { <td>{{ temp(pi.temp_c) }}</td> }
                   @if (cols.isVisible('pi')) { <td>{{ pi.pi_version ?? '—' }}</td> }
+                  @if (cols.isVisible('uptime')) { <td>{{ uptime(pi.uptime_s) }}</td> }
                   @if (cols.isVisible('tags')) { <td class="wrap">{{ pi.tags.join(', ') }}</td> }
                   @if (cols.isVisible('seen')) { <td>{{ dateTime(pi.last_seen) }}</td> }
                 </tr>
@@ -318,6 +326,7 @@ export class InventoryPage {
   readonly statusColor = statusColor;
   readonly pct = pct;
   readonly temp = temp;
+  readonly uptime = uptime;
   readonly dateTime = dateTime;
 
   readonly pis = signal<PiSummary[]>([]);
@@ -341,6 +350,7 @@ export class InventoryPage {
     ram: (a, b) => (a.mem_percent ?? 0) - (b.mem_percent ?? 0),
     temp: (a, b) => (a.temp_c ?? 0) - (b.temp_c ?? 0),
     pi: (a, b) => (a.pi_version ?? 0) - (b.pi_version ?? 0),
+    uptime: (a, b) => (a.uptime_s ?? 0) - (b.uptime_s ?? 0),
     seen: (a, b) => compareDates(a.last_seen, b.last_seen),
   }, 'position');
   readonly filterTags = signal<Set<string>>(new Set());

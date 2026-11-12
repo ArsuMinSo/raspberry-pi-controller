@@ -34,6 +34,7 @@ def _pi_to_summary(pi: Pi) -> PiSummary:
         cpu_15m=pi.cpu_15m,
         mem_percent=pi.mem_percent,
         temp_c=pi.temp_c,
+        uptime_s=pi.uptime_s,
     )
 
 

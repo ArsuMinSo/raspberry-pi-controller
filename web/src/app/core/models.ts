@@ -48,6 +48,7 @@ export interface PiSummary {
   cpu_15m: number | null;
   mem_percent: number | null;
   temp_c: number | null;
+  uptime_s: number | null;
 }
 
 export interface PiDetail {

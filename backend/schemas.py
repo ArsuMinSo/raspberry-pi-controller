@@ -27,6 +27,7 @@ class PiSummary(BaseModel):
     cpu_15m: float | None = None
     mem_percent: float | None = None
     temp_c: float | None = None
+    uptime_s: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 

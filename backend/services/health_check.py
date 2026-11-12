@@ -263,6 +263,7 @@ def health_job(db, entry, ssh: SSHSettings) -> None:
             pi.cpu_15m     = d.result.cpu_15m
             pi.mem_percent = d.result.mem_percent
             pi.temp_c      = d.result.temp_c
+            pi.uptime_s    = d.result.uptime_s
         else:
             pi.status = "unreachable"
             pi.cpu_1m = None
@@ -270,6 +271,7 @@ def health_job(db, entry, ssh: SSHSettings) -> None:
             pi.cpu_15m = None
             pi.mem_percent = None
             pi.temp_c = None
+            pi.uptime_s = None
 
     db.commit()
 

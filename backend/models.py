@@ -30,6 +30,7 @@ class Pi(Base):
     cpu_15m = mapped_column(Float)
     mem_percent = mapped_column(Float)
     temp_c = mapped_column(Float)
+    uptime_s = mapped_column(Integer)
     connected_bssid: MappedColumn[str | None] = mapped_column(String(17))
     connected_ssid: MappedColumn[str | None] = mapped_column(String(255))
     connected_at = mapped_column(DateTime)
