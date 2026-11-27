@@ -154,6 +154,15 @@ def _scan_host(
     return ip, HOST_PING, None, None, None, None
 
 
+def _next_position(db: Session) -> str:
+    """Next free plain-number position for an auto-discovered Pi."""
+    used = {p for (p,) in db.query(Pi.position).all() if p.isdigit()}
+    n = 1
+    while str(n) in used:
+        n += 1
+    return str(n)
+
+
 def scan_subnet(
     subnet: str,
     db: Session,
@@ -233,8 +242,23 @@ def scan_subnet(
                 else:
                     existing.mac = mac
             updated += 1
-        else:
+        elif mac and is_valid_mac(mac):
+            new_pi = Pi(
+                position=_next_position(db),
+                mac=mac,
+                hostname=hostname,
+                current_ip=ip,
+                pi_version=pi_version,
+                serial=serial,
+                status="reachable",
+                last_seen=datetime.now(timezone.utc),
+                tags=[],
+            )
+            db.add(new_pi)
+            db.flush()
             added += 1
+        else:
+            log.warning("Discovered device at %s has no usable MAC — not auto-added to inventory", ip)
 
     db.commit()
 
