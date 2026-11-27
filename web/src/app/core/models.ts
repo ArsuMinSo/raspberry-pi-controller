@@ -81,6 +81,23 @@ export interface ActionResult {
   finished_at: string;
 }
 
+export interface DiscoveredPi {
+  ip: string;
+  mac: string | null;
+  hostname: string | null;
+  pi_version: number | null;
+}
+
+export interface DiscoveryScanResult {
+  action_id: number;
+  status: string;
+  discovered: DiscoveredPi[];
+  added: number;
+  updated: number;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 export interface ActionProgress {
   action_id: number;
   action: string;

@@ -13,13 +13,14 @@ import { AuthService } from '../core/auth.service';
 import { errorMessage } from '../core/errors';
 import { dateTime, num, pct, statusColor, temp, uptime } from '../core/format';
 import { RebootVerdict, rebootVerdict, throttleText } from '../core/fleet';
-import { ActionProgress, ActionResult } from '../core/models';
+import { ActionProgress, ActionResult, DiscoveredPi } from '../core/models';
 import { comparePositions } from '../core/sort';
-import { TableSort } from '../core/table-sort';
+import { compareIps, compareStrings, TableSort } from '../core/table-sort';
 
 type DiagCol = 'position' | 'result' | 'throttle' | 'disk_used' | 'disk_free';
 type HealthCol = 'position' | 'result' | 'cpu' | 'ram' | 'temp' | 'uptime';
 type VerifyCol = 'position' | 'verdict' | 'uptime';
+type DiscoveryCol = 'ip' | 'status' | 'mac' | 'hostname' | 'pi_version';
 
 const POLL_MS = 1000;
 /** Wait before checking that rebooted Pis came back with a fresh uptime. */
@@ -34,6 +35,14 @@ interface ScanCell {
   octet: number;
   ip: string | null;
   state: string | null;
+}
+
+interface DiscoveryRow {
+  ip: string;
+  state: string | null;
+  mac: string | null;
+  hostname: string | null;
+  pi_version: number | null;
 }
 
 @Component({
@@ -80,6 +89,34 @@ interface ScanCell {
               <li><span class="swatch" data-state="ssh_main"></span> SSH as main user</li>
               <li><span class="swatch" data-state="ssh_backup"></span> SSH as backup user</li>
             </ul>
+            @if (p.finished) {
+              <div class="table-scroll">
+                <table class="data">
+                  <thead>
+                    <tr>
+                      <th (click)="discoverySort.sortBy('ip')" class="sortable">IP{{ discoverySort.indicator('ip') }}</th>
+                      <th (click)="discoverySort.sortBy('status')" class="sortable">Status{{ discoverySort.indicator('status') }}</th>
+                      <th (click)="discoverySort.sortBy('mac')" class="sortable">MAC{{ discoverySort.indicator('mac') }}</th>
+                      <th (click)="discoverySort.sortBy('hostname')" class="sortable">Hostname{{ discoverySort.indicator('hostname') }}</th>
+                      <th (click)="discoverySort.sortBy('pi_version')" class="sortable">Pi version{{ discoverySort.indicator('pi_version') }}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of sortedDiscovery(); track r.ip) {
+                      <tr>
+                        <td><strong>{{ r.ip }}</strong></td>
+                        <td><ion-badge [color]="discoveryStatusColor(r.state)">{{ discoveryStatusLabel(r.state) }}</ion-badge></td>
+                        <td>{{ r.mac ?? '—' }}</td>
+                        <td>{{ r.hostname ?? '—' }}</td>
+                        <td>{{ r.pi_version ?? '—' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            } @else {
+              <p class="muted">Scanning … results table fills in once finished.</p>
+            }
           } @else if (p.action === 'diagnostics') {
             <div class="table-scroll">
               <table class="data">
@@ -278,6 +315,16 @@ export class ActionPage implements OnInit {
     verdict: (a, b) => this.verdict(a).localeCompare(this.verdict(b)),
     uptime: (a, b) => (num(a.details, 'uptime_s') ?? 0) - (num(b.details, 'uptime_s') ?? 0),
   }, 'position');
+  readonly discoverySort = new TableSort<DiscoveryRow, DiscoveryCol>({
+    ip: (a, b) => compareIps(a.ip, b.ip),
+    status: (a, b) => (a.state ?? '').localeCompare(b.state ?? ''),
+    mac: (a, b) => compareStrings(a.mac, b.mac),
+    hostname: (a, b) => compareStrings(a.hostname, b.hostname),
+    pi_version: (a, b) => (a.pi_version ?? 0) - (b.pi_version ?? 0),
+  }, 'ip');
+
+  /** Only populated once the scan finishes — mac/hostname/pi_version aren't known per-row while it's live. */
+  readonly discovered = signal<DiscoveredPi[] | null>(null);
 
   readonly verifySorted = computed<ActionResult[]>(() => this.verifySort.apply(this.verify()?.results ?? []));
 
@@ -291,6 +338,22 @@ export class ActionPage implements OnInit {
   });
   readonly sortedDiag = computed<ActionResult[]>(() => this.diagSort.apply(this.progress()?.results ?? []));
   readonly sortedHealth = computed<ActionResult[]>(() => this.healthSort.apply(this.progress()?.results ?? []));
+
+  readonly discoveryRows = computed<DiscoveryRow[]>(() => {
+    const byIp = new Map<string, DiscoveredPi>();
+    for (const d of this.discovered() ?? []) byIp.set(d.ip, d);
+    return (this.progress()?.results ?? []).map((r) => {
+      const d = byIp.get(r.position);
+      return {
+        ip: r.position,
+        state: String(r.details?.['state'] ?? '') || null,
+        mac: d?.mac ?? null,
+        hostname: d?.hostname ?? null,
+        pi_version: d?.pi_version ?? null,
+      };
+    });
+  });
+  readonly sortedDiscovery = computed<DiscoveryRow[]>(() => this.discoverySort.apply(this.discoveryRows()));
 
   readonly sorted = computed<ActionResult[]>(() =>
     [...(this.progress()?.results ?? [])].sort((a, b) => comparePositions(a.position, b.position)));
@@ -311,8 +374,38 @@ export class ActionPage implements OnInit {
         this.sawRunning = true;
       } else if (p.action === 'reboot' && this.canAct && this.sawRunning) {
         this.scheduleVerify(); // only when watched live — opening an old reboot doesn't trigger checks
+      } else if (p.action === 'discovery' && this.discovered() === null) {
+        this.loadDiscovered();
       }
     }, (msg) => this.error.set(msg));
+  }
+
+  private loadDiscovered(): void {
+    this.api.discoveryScanResult(Number(this.id())).subscribe({
+      next: (r) => this.discovered.set(r.discovered),
+      error: () => this.discovered.set([]),
+    });
+  }
+
+  discoveryStatusLabel(state: string | null): string {
+    switch (state) {
+      case 'ssh_main':
+      case 'ssh_backup': return 'reachable';
+      case 'ping': return 'ping only';
+      case 'down_known': return 'down (known)';
+      case 'down': return 'down';
+      default: return '—';
+    }
+  }
+
+  discoveryStatusColor(state: string | null): string {
+    switch (state) {
+      case 'ssh_main':
+      case 'ssh_backup': return 'success';
+      case 'ping': return 'warning';
+      case 'down_known': return 'danger';
+      default: return 'medium';
+    }
   }
 
   /** Poll an action every second until it finishes; transient errors are shown and retried. */

@@ -4,9 +4,9 @@ import { Observable, map } from 'rxjs';
 
 import { API } from './auth.service';
 import {
-  AccessPointOut, ActionProgress, ActionQueued, AuditEvent, BleDeviceSeen, FleetSummary, FloorMapPiNode,
-  FloorMapResponse, LogEntry, Me, PiDetail, PiSummary, Role, ScheduledTask, ScheduledTaskCreate, ScheduledTaskUpdate,
-  SessionInfo, Settings, SSHTestResult, User,
+  AccessPointOut, ActionProgress, ActionQueued, AuditEvent, BleDeviceSeen, DiscoveryScanResult, FleetSummary,
+  FloorMapPiNode, FloorMapResponse, LogEntry, Me, PiDetail, PiSummary, Role, ScheduledTask, ScheduledTaskCreate,
+  ScheduledTaskUpdate, SessionInfo, Settings, SSHTestResult, User,
 } from './models';
 
 type Params = Record<string, string | number | null | undefined>;
@@ -60,6 +60,10 @@ export class ApiService {
 
   discoveryScan(): Observable<ActionQueued> {
     return this.http.post<ActionQueued>(`${API}/discovery/scan`, {});
+  }
+
+  discoveryScanResult(actionId: number): Observable<DiscoveryScanResult> {
+    return this.http.get<DiscoveryScanResult>(`${API}/discovery/scan/${actionId}`);
   }
 
   healthCheckAll(): Observable<ActionQueued> {
